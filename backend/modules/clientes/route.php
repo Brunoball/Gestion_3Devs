@@ -1,0 +1,35 @@
+<?php
+// backend/modules/clientes/route.php
+declare(strict_types=1);
+
+require_once __DIR__ . '/clientes.php';
+
+function route_clientes(string $action): bool
+{
+  if ($action !== 'clientes') return false;
+
+  $op = $_GET['op'] ?? '';
+
+  switch ($op) {
+
+    // ===== CLIENTES =====
+    case 'list':   clientes_listar(); return true;
+    case 'create': clientes_crear(); return true;
+    case 'update': clientes_actualizar(); return true;
+    case 'delete': clientes_eliminar(); return true;
+
+    // ===== SISTEMAS =====
+    case 'sistemas_list':   clientes_sistemas_listar(); return true;
+    case 'sistemas_create': clientes_sistemas_crear(); return true;
+    case 'sistemas_update': clientes_sistemas_actualizar(); return true;
+    case 'sistemas_delete': clientes_sistemas_eliminar(); return true;
+
+    default:
+      http_response_code(200);
+      echo json_encode([
+        'exito' => false,
+        'mensaje' => 'OP no válida en clientes: ' . $op
+      ], JSON_UNESCAPED_UNICODE);
+      return true;
+  }
+}
