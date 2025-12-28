@@ -22,29 +22,95 @@ try {
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->exec("SET NAMES utf8mb4");
 
-    // ✅ SIN prefijo de base: solo nombres de tabla
-    $sql = "
-        SELECT 
-            id_especialidad AS id,
-            especialidad    AS nombre,
-            cupo
-        FROM `especialidad`
+    /* =========================
+       1) TRABAJADORES (activos)
+    ========================== */
+    $sqlTrab = "
+        SELECT
+            id,
+            nombre,
+            apellido,
+            email,
+            rol,
+            alias_pago,
+            activo,
+            fecha_alta
+        FROM trabajadores
+        WHERE activo = 1
+        ORDER BY apellido, nombre
+    ";
+
+    $trabajadores = [];
+    foreach ($pdo->query($sqlTrab, PDO::FETCH_ASSOC) as $r) {
+        $trabajadores[] = [
+            'id'         => (int)$r['id'],
+            'nombre'     => (string)$r['nombre'],
+            'apellido'   => (string)$r['apellido'],
+            'email'      => $r['email'] !== null ? (string)$r['email'] : null,
+            'rol'        => (string)$r['rol'], // admin|desarrollador|soporte|vista
+            'alias_pago' => $r['alias_pago'] !== null ? (string)$r['alias_pago'] : null,
+            'activo'     => (int)$r['activo'],
+            'fecha_alta' => (string)$r['fecha_alta'],
+        ];
+    }
+
+    /* =========================
+       2) MEDIOS DE PAGO (activos)
+    ========================== */
+    $sqlMP = "
+        SELECT
+            id_medio_pago AS id,
+            nombre,
+            activo
+        FROM medios_pago
+        WHERE activo = 1
         ORDER BY nombre
     ";
 
-    $especialidad = [];
-    foreach ($pdo->query($sql, PDO::FETCH_ASSOC) as $row) {
-        $especialidad[] = [
-            'id'     => (int)$row['id'],
-            'nombre' => (string)$row['nombre'],
-            // cupo puede ser NULL o número
-            'cupo'   => is_null($row['cupo']) ? null : (int)$row['cupo'],
+    $medios_pago = [];
+    foreach ($pdo->query($sqlMP, PDO::FETCH_ASSOC) as $r) {
+        $medios_pago[] = [
+            'id'     => (int)$r['id'],
+            'nombre' => (string)$r['nombre'],
+            'activo' => (int)$r['activo'],
+        ];
+    }
+
+    /* =========================
+       3) PLANES MANTENIMIENTO (activos)
+    ========================== */
+    $sqlPlanes = "
+        SELECT
+            id,
+            nombre,
+            descripcion,
+            monto,
+            activo,
+            fecha_creacion
+        FROM planes_mantenimiento
+        WHERE activo = 1
+        ORDER BY nombre
+    ";
+
+    $planes_mantenimiento = [];
+    foreach ($pdo->query($sqlPlanes, PDO::FETCH_ASSOC) as $r) {
+        $planes_mantenimiento[] = [
+            'id'            => (int)$r['id'],
+            'nombre'        => (string)$r['nombre'],
+            'descripcion'   => $r['descripcion'] !== null ? (string)$r['descripcion'] : null,
+            'monto'         => (float)$r['monto'], // decimal(10,2)
+            'activo'        => (int)$r['activo'],
+            'fecha_creacion'=> (string)$r['fecha_creacion'],
         ];
     }
 
     echo json_encode([
-        'exito'        => true,
-        'especialidad' => $especialidad,
+        'exito' => true,
+        'listas' => [
+            'trabajadores'        => $trabajadores,
+            'medios_pago'         => $medios_pago,
+            'planes_mantenimiento'=> $planes_mantenimiento,
+        ],
     ], JSON_UNESCAPED_UNICODE);
 
 } catch (Throwable $e) {

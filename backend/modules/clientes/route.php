@@ -2,7 +2,7 @@
 // backend/modules/clientes/route.php
 declare(strict_types=1);
 
-require_once __DIR__ . '/clientes.php';
+require_once __DIR__ . '/clientes.php'; // carga helpers + repos
 
 function route_clientes(string $action): bool
 {
@@ -23,6 +23,14 @@ function route_clientes(string $action): bool
     case 'sistemas_create': clientes_sistemas_crear(); return true;
     case 'sistemas_update': clientes_sistemas_actualizar(); return true;
     case 'sistemas_delete': clientes_sistemas_eliminar(); return true;
+
+    // ===== TRABAJADORES =====
+    case 'trabajadores_list': trabajadores_listar_simple(); return true;
+
+    // ===== RELACIÓN SISTEMA/TRABAJADORES =====
+    case 'sistema_trabajadores_list':   sistema_trabajadores_listar(); return true;
+    case 'sistema_trabajadores_add':    sistema_trabajadores_agregar(); return true;
+    case 'sistema_trabajadores_remove': sistema_trabajadores_quitar(); return true;
 
     default:
       http_response_code(200);
