@@ -9,7 +9,7 @@ export default function Mantenimiento() {
   const [planes, setPlanes] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const API_BASE = `${BASE_URL}/routes/api.php`;
+  const API_BASE = `${BASE_URL}/api.php`;
 
   async function cargarPlanes() {
     try {
