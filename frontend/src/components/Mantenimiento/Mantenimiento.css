@@ -1,0 +1,66 @@
+.mnt-wrap {
+  padding: 20px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.mnt-title {
+  margin: 0 0 12px;
+}
+
+.mnt-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+.mnt-card {
+  border: 1px solid #ddd;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.mnt-muted {
+  margin: 0;
+  opacity: 0.8;
+}
+
+.mnt-tableWrap {
+  overflow: auto;
+}
+
+.mnt-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.mnt-table th,
+.mnt-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+
+.mnt-rowActions {
+  display: flex;
+  gap: 8px;
+}
+
+.mnt-btn {
+  padding: 6px 10px;
+  border: 1px solid #aaa;
+
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+
+
+
+
+.mnt-btn-danger {
+  border-color: #ef4444;
+
+}

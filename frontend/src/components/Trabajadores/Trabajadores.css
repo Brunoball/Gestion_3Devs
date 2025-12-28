@@ -1,0 +1,189 @@
+.trab-page{
+  padding: 20px;
+  max-width: 1100px;
+  margin:  auto;
+  background-color: aliceblue;
+  border-radius: 18px;
+}
+
+.trab-head{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.trab-title{ margin: 0; }
+.trab-sub{ margin-top: 6px; opacity: .8; }
+
+.trab-actions{
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.trab-tools{
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.trab-search{
+  padding: 10px;
+  min-width: 280px;
+  flex: 1 1 280px;
+  border-radius: 10px;
+  border: 1px solid #d9d9d9;
+  outline: none;
+}
+
+.trab-check{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+
+.trab-msg{
+  margin-top: 12px;
+  padding: 10px;
+  background: #ffe6e6;
+  border: 1px solid #ffb3b3;
+  border-radius: 8px;
+}
+
+.trab-tableWrap{
+  margin-top: 14px;
+  overflow-x: auto;
+}
+
+.trab-table{
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 900px;
+}
+
+.trab-table th{
+  text-align: left;
+  padding: 10px;
+  border-bottom: 1px solid #ddd;
+  white-space: nowrap;
+}
+
+.trab-table td{
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.trab-empty{
+  padding: 12px;
+  opacity: .7;
+}
+
+.is-inactive{
+  opacity: .55;
+}
+
+.trab-rowActions{
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ===== Botones (simple, podés mapear a tus clases globales) ===== */
+.btn{
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #d9d9d9;
+  cursor: pointer;
+}
+
+.btn:hover{
+  background: #f7f7f7;
+}
+
+.btn:disabled{
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.btn-ghost{
+  background: transparent;
+}
+
+.btn-small{
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+
+
+
+.btn-danger:hover{
+  background: #ffecec;
+}
+
+/* ===== Modal ===== */
+.trab-modalBackdrop{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  z-index: 9999;
+}
+
+.trab-modal{
+  width: min(720px, 100%);
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.25);
+}
+
+.trab-modalTop{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.trab-modalTop h3{
+  margin: 0;
+}
+
+.trab-formGrid{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.trab-formGrid input,
+.trab-formGrid select{
+  width: 100%;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid #d9d9d9;
+  outline: none;
+}
+
+.trab-colFull{
+  grid-column: 1 / -1;
+}
+
+.trab-modalBottom{
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.trab-help{
+  margin-top: 10px;
+  font-size: 12px;
+  opacity: .7;
+}
