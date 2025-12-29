@@ -1,0 +1,374 @@
+/* src/components/Trabajadores/modales/ModalEditarTrabajador.css */
+
+
+
+/* =========================================================
+   ROOT — Paleta AZUL (solo variables --blue-inst-)
+   (Pegalo solo si NO lo tenés ya en tu CSS global)
+   ========================================================= */
+:root {
+  --blue-inst-primary: #1D428A;
+  --blue-inst-primary-light: #2E5CBF;
+  --blue-inst-primary-dark: #102E6A;
+
+  --blue-inst-secondary: #0B5ED7;
+  --blue-inst-accent: #0B5ED7;
+
+  --blue-inst-success: #10B981;
+  --blue-inst-warning: #F59E0B;
+  --blue-inst-danger:  #D32F2F;
+
+  --blue-inst-light: #F8FAFC;
+  --blue-inst-dark:  #0F172A;
+
+  --blue-inst-gray-100: #F1F5F9;
+  --blue-inst-gray-200: #E2E8F0;
+  --blue-inst-gray-300: #CBD5E1;
+  --blue-inst-gray-400: #94A3B8;
+  --blue-inst-gray-500: #64748B;
+  --blue-inst-gray-600: #475569;
+  --blue-inst-gray-700: #334155;
+  --blue-inst-gray-800: #1E293B;
+  --blue-inst-gray-900: #0F172A;
+
+  --blue-inst-radius: 12px;
+  --blue-inst-radius-lg: 18px;
+  --blue-inst-radius-xl: 24px;
+
+  --blue-inst-transition: all .25s cubic-bezier(.4,0,.2,1);
+
+  --blue-inst-shadow-sm: 0 1px 3px rgba(0,0,0,.06);
+  --blue-inst-shadow-md: 0 6px 18px rgba(0,0,0,.10);
+  --blue-inst-shadow-lg: 0 16px 36px -10px rgba(0,0,0,.20);
+  --blue-inst-shadow-xl: 0 28px 64px -24px rgba(0,0,0,.28);
+
+  /* =========================================================
+     ALIAS para el modal tipo "InfoAlumno" (mi-*)
+     Así NO tenés que reescribir todo el CSS del modal.
+     ========================================================= */
+  --mi-primary: var(--blue-inst-primary);
+  --mi-primary-600: var(--blue-inst-primary-light);
+  --mi-primary-700: var(--blue-inst-primary-dark);
+
+  --mi-bg: #ffffff;
+  --mi-bg-soft: var(--blue-inst-gray-100);
+  --mi-border: var(--blue-inst-gray-200);
+
+  --mi-text: var(--blue-inst-dark);
+  --mi-muted: var(--blue-inst-gray-600);
+
+  --mi-shadow: var(--blue-inst-shadow-xl);
+
+  --mi-radius-md: var(--blue-inst-radius);
+  --mi-radius-lg: var(--blue-inst-radius-lg);
+}
+
+/* Si tu ModalInfoAlumno.css ya define todo mi-*, podés borrar este bloque.
+   Lo dejo por si este modal se usa sin importar ModalInfoAlumno.css. */
+.mi-modal__overlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: mi-fade 0.15s ease-out;
+}
+
+.mi-modal__container{
+  width: min(960px, 92vw);
+  max-height: 90vh;
+  background: var(--mi-bg, #fff);
+  border-radius: var(--mi-radius-lg, 16px);
+  box-shadow: var(--mi-shadow, 0 10px 25px rgba(0,0,0,.18));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: mi-slide 0.22s ease-out;
+  border: 1px solid rgba(0,0,0,0.04);
+}
+
+.mi-modal__header{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  background: var(--mi-primary, #B71C1C);
+  color: #fff;
+}
+
+.mi-modal__title{
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.mi-modal__subtitle{
+  margin: 4px 0 0;
+  font-size: .9rem;
+  opacity: .95;
+  font-weight: 500;
+}
+
+.mi-modal__close{
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  width: 40px;
+  height: 40px;
+  padding: 0 !important;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform .15s ease, background .15s ease;
+}
+.mi-modal__close:hover{ background: rgba(255,255,255,.12); transform: rotate(90deg); }
+.mi-modal__head-left{ flex: 1; }
+
+/* body wrapper */
+.mit-modal__body{
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--mi-bg-soft, #fafbff);
+}
+
+.mi-tabpanel{
+  height: 100%;
+  overflow: auto;
+  padding: 22px;
+  background: linear-gradient(180deg, #fff 0%, #fbfcff 100%);
+}
+
+.mi-grid{
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 18px;
+}
+
+.mi-card{
+  grid-column: span 6;
+  background: #fff;
+  border: 1px solid var(--mi-border, #e2e8f0);
+  border-radius: var(--mi-radius-md, 12px);
+  padding: 16px;
+  box-shadow: 0 2px 10px rgba(15,23,42,.03);
+}
+
+.mi-card--full{ grid-column: 1 / -1; }
+
+.mi-card__title{
+  margin: 0 0 12px;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--mi-text, #0f172a);
+  letter-spacing: -0.01em;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--mi-border, #e2e8f0);
+}
+
+/* =========================================================
+   Floating labels minimalistas (sutiles)
+========================================================= */
+.fl-grid{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.fl-col-full{ grid-column: 1 / -1; }
+
+.fl-field{
+  position: relative;
+}
+
+.fl-input{
+  width: 100%;
+  border: 1px solid var(--mi-border, #e2e8f0);
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px 12px 10px; /* espacio arriba para label */
+  font-size: .95rem;
+  color: var(--mi-text, #0f172a);
+  outline: none;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+
+/* select queda igual pero sin placeholder */
+.fl-select{
+  padding-top: 18px;
+  padding-bottom: 10px;
+}
+
+/* Label flotante */
+.fl-label{
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  font-size: .82rem;
+  color: var(--mi-muted, #475569);
+  pointer-events: none;
+  transform-origin: left top;
+  transition: transform .16s ease, opacity .16s ease, color .16s ease;
+  opacity: .9;
+}
+
+/* Cuando tiene foco o contenido */
+.fl-input:focus{
+  border-color: var(--mi-primary-600, #E53935);
+  box-shadow: 0 0 0 3px rgba(229,57,53,.14);
+}
+
+.fl-input:focus + .fl-label,
+.fl-input:not(:placeholder-shown) + .fl-label{
+  transform: translateY(-10px) scale(.92);
+  color: var(--mi-primary-600, #E53935);
+  opacity: 1;
+}
+
+/* En select no funciona placeholder-shown, así que lo mantenemos siempre flotado */
+.fl-select + .fl-label{
+  transform: translateY(-10px) scale(.92);
+}
+
+/* Disabled */
+.fl-input:disabled{
+  background: #f8fafc;
+  opacity: .85;
+  cursor: not-allowed;
+}
+
+/* =========================================================
+   Switch minimal (estado)
+========================================================= */
+.mit-switch{
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  user-select: none;
+  font-weight: 700;
+  color: var(--mi-text, #0f172a);
+}
+
+.mit-switch input{
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mit-switch__track{
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  background: #d7e2f5;
+  border: 1px solid var(--mi-border, #e2e8f0);
+  position: relative;
+  cursor: pointer;
+  transition: .2s;
+  flex: 0 0 auto;
+}
+
+.mit-switch__track::after{
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  box-shadow: 0 4px 10px rgba(0,0,0,.18);
+  transition: .2s;
+}
+
+/* checked */
+.mit-switch input:checked + .mit-switch__track{
+  background: var(--mi-primary, #B71C1C);
+  border-color: rgba(255,255,255,.2);
+}
+.mit-switch input:checked + .mit-switch__track::after{
+  left: 21px;
+}
+
+/* Texto */
+.mit-switch__text{
+  font-size: .95rem;
+}
+
+/* =========================================================
+   Footer acciones (estilo limpio)
+========================================================= */
+.mit-actions{
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 14px 18px 18px;
+  border-top: 1px solid var(--mi-border, #e2e8f0);
+  background: #fff;
+}
+
+.mit-btn{
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform .16s ease, box-shadow .16s ease, filter .16s ease, background .16s ease;
+}
+
+.mit-btn--ghost{
+  background: #fff;
+  color: var(--mi-text, #0f172a);
+  border-color: var(--mi-border, #e2e8f0);
+}
+.mit-btn--ghost:hover{
+  background: rgba(0,0,0,.03);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(0,0,0,.08);
+}
+
+.mit-btn--solid{
+  background: var(--mi-primary, #B71C1C);
+  color: #fff;
+  border-color: var(--mi-primary, #B71C1C);
+}
+.mit-btn--solid:hover{
+  filter: brightness(.97);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(183,28,28,.22);
+}
+
+.mit-btn:disabled{
+  opacity: .6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.mit-help{
+  padding: 0 18px 14px;
+  font-size: .82rem;
+  color: var(--mi-muted, #475569);
+  background: #fff;
+}
+
+/* Responsive */
+@media (max-width: 900px){
+  .mi-card{ grid-column: span 12; }
+  .fl-grid{ grid-template-columns: 1fr; }
+}
+
+/* Animaciones */
+@keyframes mi-fade{ from{opacity:0} to{opacity:1} }
+@keyframes mi-slide{
+  from{ opacity:0; transform: translateY(18px); }
+  to{ opacity:1; transform: translateY(0); }
+}

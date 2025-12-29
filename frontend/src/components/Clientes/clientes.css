@@ -1,26 +1,70 @@
 /* src/components/Clientes/clientes.css */
 
-:root{
-  --bg1:#0b1220;
-  --bg2:#0f172a;
-  --card:#0f172a;
-  --card2:#0b1220;
-  --border: rgba(255,255,255,0.10);
+/* =========================
+   PALETA AZUL INSTITUCIONAL
+   ========================= */
+:root {
+  --blue-inst-primary: #1D428A;
+  --blue-inst-primary-light: #2E5CBF;
+  --blue-inst-primary-dark: #102E6A;
+
+  --blue-inst-secondary: #0B5ED7;
+  --blue-inst-accent: #0B5ED7;
+
+  --blue-inst-success: #10B981;
+  --blue-inst-warning: #F59E0B;
+  --blue-inst-danger:  #D32F2F;
+
+  --blue-inst-light: #F8FAFC;
+  --blue-inst-dark:  #0F172A;
+
+  --blue-inst-gray-100: #F1F5F9;
+  --blue-inst-gray-200: #E2E8F0;
+  --blue-inst-gray-300: #CBD5E1;
+  --blue-inst-gray-400: #94A3B8;
+  --blue-inst-gray-500: #64748B;
+  --blue-inst-gray-600: #475569;
+  --blue-inst-gray-700: #334155;
+  --blue-inst-gray-800: #1E293B;
+  --blue-inst-gray-900: #0F172A;
+
+  --blue-inst-radius: 12px;
+  --blue-inst-radius-lg: 18px;
+  --blue-inst-radius-xl: 24px;
+
+  --blue-inst-transition: all .25s cubic-bezier(.4,0,.2,1);
+
+  --blue-inst-shadow-sm: 0 1px 3px rgba(0,0,0,.06);
+  --blue-inst-shadow-md: 0 6px 18px rgba(0,0,0,.10);
+  --blue-inst-shadow-lg: 0 16px 36px -10px rgba(0,0,0,.20);
+  --blue-inst-shadow-xl: 0 28px 64px -24px rgba(0,0,0,.28);
+
+  /* ===== Alias para tu CSS actual (compatibilidad) ===== */
+  --bg1: var(--blue-inst-gray-900);
+  --bg2: var(--blue-inst-dark);
+  --card: rgba(255,255,255,0.08);
+  --card2: rgba(255,255,255,0.06);
+  --border: rgba(255,255,255,0.14);
+
   --text: rgba(255,255,255,0.92);
   --muted: rgba(255,255,255,0.72);
   --muted2: rgba(255,255,255,0.55);
-  --primary:#4f46e5;
-  --primary2:#4338ca;
-  --danger:#dc2626;
-  --danger2:#b91c1c;
+
+  --primary: var(--blue-inst-primary-light);
+  --primary2: var(--blue-inst-primary);
+  --danger: var(--blue-inst-danger);
+  --danger2: #B71C1C; /* un poco más oscuro */
 }
 
+/* =========================
+   Layout
+   ========================= */
 .clientes-page{
   min-height: 100vh;
   padding: 26px 16px 60px;
   background:
-    radial-gradient(900px 500px at 15% 10%, rgba(79,70,229,0.20), transparent 60%),
-    radial-gradient(900px 500px at 85% 30%, rgba(20,184,166,0.14), transparent 60%),
+    radial-gradient(900px 500px at 15% 10%, rgba(46,92,191,0.22), transparent 60%),
+    radial-gradient(900px 500px at 85% 30%, rgba(11,94,215,0.18), transparent 60%),
     linear-gradient(135deg, var(--bg2), var(--bg1));
 }
 
@@ -51,29 +95,83 @@
   font-size: 13px;
 }
 
+/* =========================
+   Buttons
+   ========================= */
 .btn-volver{
   background: rgba(255,255,255,0.10);
-  border: 1px solid rgba(255,255,255,0.14);
+  border: 1px solid rgba(255,255,255,0.18);
   color: #fff;
-  border-radius: 12px;
+  border-radius: var(--blue-inst-radius);
   padding: 10px 14px;
   cursor:pointer;
   font-weight: 800;
-  transition: .2s ease;
+  transition: var(--blue-inst-transition);
 }
 
 .btn-volver:hover{
   background: rgba(255,255,255,0.14);
+  border-color: rgba(255,255,255,0.22);
 }
 
-/* Card base */
+button{
+  padding: 10px 14px;
+  border-radius: var(--blue-inst-radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 900;
+  background: var(--primary);
+  color:#fff;
+  transition: var(--blue-inst-transition);
+  box-shadow: var(--blue-inst-shadow-sm);
+}
+
+button:hover{
+  background: var(--primary2);
+}
+
+button.secundario{
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.18);
+  box-shadow: none;
+}
+button.secundario:hover{
+  background: rgba(255,255,255,0.14);
+}
+
+button.peligro{
+  background: var(--danger);
+  box-shadow: none;
+}
+button.peligro:hover{
+  background: var(--danger2);
+}
+
+button.outline{
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.22);
+  box-shadow: none;
+}
+button.outline:hover{
+  background: rgba(255,255,255,0.10);
+}
+
+button:disabled{
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* =========================
+   Cards
+   ========================= */
 .card{
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--blue-inst-radius-lg);
   padding: 16px;
-  box-shadow: 0 18px 40px rgba(0,0,0,0.35);
+  box-shadow: var(--blue-inst-shadow-xl);
   color: var(--text);
+  backdrop-filter: blur(8px);
 }
 
 .card-agregar{
@@ -99,12 +197,14 @@
   font-size: 12px;
   padding: 6px 10px;
   border-radius: 999px;
-  color: rgba(255,255,255,0.85);
-  background: rgba(79,70,229,0.18);
-  border: 1px solid rgba(79,70,229,0.28);
+  color: rgba(255,255,255,0.92);
+  background: rgba(11,94,215,0.18);
+  border: 1px solid rgba(11,94,215,0.35);
 }
 
-/* Forms */
+/* =========================
+   Forms
+   ========================= */
 .form-grid{
   display:grid;
   grid-template-columns: 1fr 1fr auto;
@@ -114,11 +214,12 @@
 input, select{
   width: 100%;
   padding: 11px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: var(--blue-inst-radius);
+  border: 1px solid rgba(255,255,255,0.16);
   font-size: 14px;
   background: rgba(255,255,255,0.06);
-
+  color: #fff;
+  transition: var(--blue-inst-transition);
 }
 
 input::placeholder{
@@ -127,62 +228,28 @@ input::placeholder{
 
 input:focus, select:focus{
   outline: none;
-  border-color: rgba(79,70,229,0.65);
-  box-shadow: 0 0 0 3px rgba(79,70,229,0.18);
+  border-color: rgba(11,94,215,0.70);
+  box-shadow: 0 0 0 3px rgba(11,94,215,0.20);
 }
 
-/* Buttons */
-button{
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: none;
-  cursor: pointer;
-  font-weight: 900;
-  background: var(--primary);
-  color:#fff;
-  transition: .2s ease;
-}
-
-button:hover{ background: var(--primary2); }
-
-button.secundario{
-  background: rgba(255,255,255,0.12);
-  border: 1px solid rgba(255,255,255,0.14);
-}
-button.secundario:hover{ background: rgba(255,255,255,0.16); }
-
-button.peligro{ background: var(--danger); }
-button.peligro:hover{ background: var(--danger2); }
-
-button.outline{
-  background: transparent;
-  border: 1px solid rgba(255,255,255,0.20);
-}
-button.outline:hover{
-  background: rgba(255,255,255,0.10);
-}
-
-button:disabled{
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-/* Lista clientes */
+/* =========================
+   Lista clientes
+   ========================= */
 .clientes-lista{
   display:grid;
   gap: 12px;
 }
 
 .cliente-card{
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 16px;
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: var(--blue-inst-radius-lg);
   padding: 14px;
   display:flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  box-shadow: 0 16px 36px rgba(0,0,0,0.30);
+  box-shadow: var(--blue-inst-shadow-lg);
 }
 
 .cliente-left{
@@ -217,11 +284,13 @@ button:disabled{
   gap: 10px;
 }
 
-/* Bloques dentro del modal (se reutiliza acá también) */
+/* =========================
+   Bloques dentro del modal
+   ========================= */
 .panel-block{
   background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--blue-inst-radius-lg);
   padding: 14px;
 }
 
@@ -232,7 +301,9 @@ button:disabled{
   margin-bottom: 10px;
 }
 
-/* Sistemas */
+/* =========================
+   Sistemas
+   ========================= */
 .sistema-form{
   display:grid;
   grid-template-columns: 1fr 1fr;
@@ -245,12 +316,13 @@ button:disabled{
 }
 
 .sistema-item{
-  background: rgba(2,6,23,0.35);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 16px;
+  background: rgba(15,23,42,0.35);
+  border: 1px solid var(--border);
+  border-radius: var(--blue-inst-radius-lg);
   padding: 12px;
   display:grid;
   gap: 10px;
+  box-shadow: var(--blue-inst-shadow-md);
 }
 
 .sistema-top{
@@ -291,18 +363,20 @@ button:disabled{
 
 .pill{
   font-size: 12px;
-  color: rgba(255,255,255,0.86);
+  color: rgba(255,255,255,0.90);
   padding: 7px 10px;
   border-radius: 999px;
   background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.14);
 }
 
-/* Asignación */
+/* =========================
+   Asignación
+   ========================= */
 .asignacion{
   margin-top: 6px;
   padding-top: 10px;
-  border-top: 1px dashed rgba(255,255,255,0.14);
+  border-top: 1px dashed rgba(255,255,255,0.18);
 }
 
 .asignacion-title{
@@ -327,10 +401,10 @@ button:disabled{
 
 .mini-card{
   background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--blue-inst-radius);
   padding: 10px 12px;
-  color: rgba(255,255,255,0.86);
+  color: rgba(255,255,255,0.88);
 }
 
 .mini-row{

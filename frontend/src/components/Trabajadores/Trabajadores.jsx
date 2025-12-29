@@ -1,23 +1,30 @@
-import React, { useEffect, useMemo, useState } from "react";
+// src/components/Trabajadores/Trabajadores.jsx
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import BASE_URL from "../../config/config";
+import Toast from "../Global/Toast";
 import "./Trabajadores.css";
 
-const ROLES = [
-  { value: "admin", label: "Admin" },
-  { value: "desarrollador", label: "Desarrollador" },
-  { value: "soporte", label: "Soporte" },
-  { value: "vista", label: "Vista" },
-];
+// Font Awesome
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import {
+  faArrowLeft,
+  faPlus,
+  faPenToSquare,
+  faUserSlash,
+  faMagnifyingGlass,
+  faUsersSlash,
+} from "@fortawesome/free-solid-svg-icons";
 
-const emptyForm = {
-  id: null,
-  nombre: "",
-  apellido: "",
-  email: "",
-  rol: "vista",
-  alias_pago: "",
-  activo: 1,
+// Modales (archivos separados)
+import ModalAgregarTrabajador from "./modales/ModalAgregarTrabajador";
+import ModalEditarTrabajador from "./modales/ModalEditarTrabajador";
+import ModalBajaTrabajador from "./modales/ModalBajaTrabajador";
+import ModalTrabajadoresBaja from "./modales/ModalTrabajadoresBaja";
+
+const COLS = {
+  head: ".4fr 1.2fr 1.2fr 2fr 1fr 1.4fr 0.9fr .9fr",
+  row: ".4fr 1.2fr 1.2fr 2fr 1fr 1.4fr 0.9fr .9fr",
 };
 
 export default function Trabajadores() {
@@ -25,14 +32,40 @@ export default function Trabajadores() {
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState("");
 
   const [q, setQ] = useState("");
-  const [verInactivos, setVerInactivos] = useState(false);
 
-  const [openForm, setOpenForm] = useState(false);
-  const [form, setForm] = useState(emptyForm);
-  const editMode = !!form?.id;
+  // Modales
+  const [openCrear, setOpenCrear] = useState(false);
+  const [openEditar, setOpenEditar] = useState(false);
+  const [openBaja, setOpenBaja] = useState(false);
+  const [openBajaListado, setOpenBajaListado] = useState(false);
+
+  const [sel, setSel] = useState(null);
+
+  // ======= TOAST (según tu Toast.jsx) =======
+  const [toast, setToast] = useState({
+    open: false,
+    tipo: "info", // exito | error | advertencia | cargando | info
+    mensaje: "",
+    duracion: 2600,
+    key: 0, // ✅ para evitar “flicker” cuando se repite el mismo toast
+  });
+
+  const showToast = (tipo, mensaje, duracion = 2600) => {
+    setToast((t) => ({
+      open: true,
+      tipo,
+      mensaje,
+      duracion,
+      key: (t.key ?? 0) + 1,
+    }));
+  };
+
+  const closeToast = () => setToast((t) => ({ ...t, open: false }));
+
+  // ✅ Lock anti-doble onSaved (por StrictMode / doble submit)
+  const bajaSavedLockRef = useRef(false);
 
   // ========= API helpers =========
   const apiGet = async (url) => {
@@ -40,41 +73,34 @@ export default function Trabajadores() {
     return await res.json();
   };
 
-  const apiPost = async (url, payload) => {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload ?? {}),
-    });
-    return await res.json();
-  };
-
-  // ========= Cargar lista =========
-  const cargar = async () => {
+  // ========= Cargar lista (SOLO activos) =========
+  const cargar = useCallback(async () => {
     setLoading(true);
-    setMsg("");
     try {
-      const url = `${BASE_URL}/api.php?action=trabajadores&op=listar&activos=${
-        verInactivos ? 0 : 1
-      }`;
+      const url = `${BASE_URL}/api.php?action=trabajadores&op=listar&activos=1`;
       const data = await apiGet(url);
 
       if (!data?.exito) {
-        throw new Error(data?.mensaje || "Error al listar trabajadores");
+        showToast("error", data?.mensaje || "Error al listar trabajadores");
+        setRows([]);
+        return;
       }
+
       setRows(Array.isArray(data.data) ? data.data : []);
     } catch (e) {
-      setMsg(String(e.message || e));
+      showToast(
+        "error",
+        String(e?.message || e || "Error al cargar trabajadores")
+      );
       setRows([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     cargar();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [verInactivos]);
+  }, [cargar]);
 
   // ========= Filtro =========
   const filtrados = useMemo(() => {
@@ -90,324 +116,228 @@ export default function Trabajadores() {
     );
   }, [rows, q]);
 
-  // ========= UI actions =========
-  const abrirCrear = () => {
-    setForm(emptyForm);
-    setOpenForm(true);
-    setMsg("");
-  };
+  // ========= Acciones =========
+  const abrirCrear = () => setOpenCrear(true);
 
   const abrirEditar = (r) => {
-    setForm({
-      id: r.id,
-      nombre: r.nombre ?? "",
-      apellido: r.apellido ?? "",
-      email: r.email ?? "",
-      rol: r.rol ?? "vista",
-      alias_pago: r.alias_pago ?? "",
-      activo: r.activo ?? 1,
-    });
-    setOpenForm(true);
-    setMsg("");
+    setSel(r);
+    setOpenEditar(true);
   };
 
-  const cerrarForm = () => {
-    setOpenForm(false);
-    setForm(emptyForm);
+  const abrirBaja = (r) => {
+    setSel(r);
+    setOpenBaja(true);
   };
 
-  const guardar = async (e) => {
-    e.preventDefault();
-    setMsg("");
-
-    const nombre = form.nombre.trim();
-    const apellido = form.apellido.trim();
-    if (!nombre || !apellido) {
-      setMsg("Nombre y apellido son obligatorios.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const op = editMode ? "editar" : "crear";
-      const url = `${BASE_URL}/api.php?action=trabajadores&op=${op}`;
-
-      const payload = {
-        ...form,
-        nombre,
-        apellido,
-        email: (form.email ?? "").trim(),
-        alias_pago: (form.alias_pago ?? "").trim(),
-      };
-
-      const data = await apiPost(url, payload);
-      if (!data?.exito) {
-        throw new Error(data?.mensaje || "No se pudo guardar");
-      }
-
-      cerrarForm();
-      await cargar();
-    } catch (e2) {
-      setMsg(String(e2.message || e2));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const baja = async (r) => {
-    const ok = window.confirm(
-      `¿Dar de baja a ${r.nombre} ${r.apellido}? (queda inactivo)`
-    );
-    if (!ok) return;
-
-    setLoading(true);
-    setMsg("");
-    try {
-      const url = `${BASE_URL}/api.php?action=trabajadores&op=eliminar`;
-      const data = await apiPost(url, { id: r.id });
-
-      if (!data?.exito) {
-        throw new Error(data?.mensaje || "No se pudo dar de baja");
-      }
-      await cargar();
-    } catch (e) {
-      setMsg(String(e.message || e));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const cerrarCrear = () => setOpenCrear(false);
+  const cerrarEditar = () => setOpenEditar(false);
+  const cerrarBaja = () => setOpenBaja(false);
 
   return (
     <div className="ini_contenedor-principal">
-      <div className="trab-page">
-        <header className="trab-head">
-          <div>
-            <h2 className="trab-title">Trabajadores 3DEVs</h2>
-            <p className="trab-sub">
-              Alta, edición y baja (activo=0) de integrantes.
-            </p>
-          </div>
+      {toast.open && (
+        <Toast
+          key={toast.key}
+          tipo={toast.tipo}
+          mensaje={toast.mensaje}
+          duracion={toast.duracion}
+          onClose={closeToast}
+        />
+      )}
 
-          <div className="trab-actions">
-            <button className="btn" onClick={abrirCrear}>
-              + Agregar
-            </button>
+      <div className="TP-Wrap TP-Workers">
+        <div className="TP-Card">
+          <header className="TP-Header">
+            <h2 className="TP-Title">Trabajadores</h2>
+          </header>
 
+          <section className="TP-Tools">
+            <div className="TP-SearchBox">
+              <FontAwesomeIcon icon={faMagnifyingGlass} />
+              <input
+                className="TP-SearchInput"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Buscar por nombre, email, rol, alias…"
+              />
+            </div>
+
+            {/* ✅ Botón para ver listado de bajas */}
             <button
-              className="btn btn-ghost"
-              onClick={() => navigate("/panel")}
+              type="button"
+              className="TP-Btn TP-Btn--ghost"
+              onClick={() => setOpenBajaListado(true)}
+              title="Ver trabajadores dados de baja"
             >
-              ← Volver
+              <FontAwesomeIcon icon={faUsersSlash} />
+              <span>Dados de baja</span>
             </button>
-          </div>
-        </header>
+          </section>
 
-        <section className="trab-tools">
-          <input
-            className="trab-search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar por nombre, email, rol, alias..."
-          />
-
-          <label className="trab-check">
-            <input
-              type="checkbox"
-              checked={verInactivos}
-              onChange={(e) => setVerInactivos(e.target.checked)}
-            />
-            Ver inactivos
-          </label>
-
-          <button className="btn" onClick={cargar} disabled={loading}>
-            {loading ? "Cargando..." : "Refrescar"}
-          </button>
-        </section>
-
-        {msg && <div className="trab-msg">{msg}</div>}
-
-        <div className="trab-tableWrap">
-          <table className="trab-table">
-            <thead>
-              <tr>
-                {[
-                  "ID",
-                  "Nombre",
-                  "Apellido",
-                  "Email",
-                  "Rol",
-                  "Alias pago",
-                  "Activo",
-                  "Acciones",
-                ].map((h) => (
-                  <th key={h}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-
-            <tbody>
-              {!loading && filtrados.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="trab-empty">
-                    Sin resultados.
-                  </td>
-                </tr>
-              )}
-
-              {filtrados.map((r) => (
-                <tr key={r.id} className={!r.activo ? "is-inactive" : ""}>
-                  <td>{r.id}</td>
-                  <td>{r.nombre}</td>
-                  <td>{r.apellido}</td>
-                  <td>{r.email ?? "-"}</td>
-                  <td>{r.rol}</td>
-                  <td>{r.alias_pago ?? "-"}</td>
-                  <td>{r.activo ? "Sí" : "No"}</td>
-                  <td>
-                    <div className="trab-rowActions">
-                      <button
-                        className="btn btn-small"
-                        onClick={() => abrirEditar(r)}
-                      >
-                        Editar
-                      </button>
-                      {r.activo && (
-                        <button
-                          className="btn btn-small btn-danger"
-                          onClick={() => baja(r)}
-                        >
-                          Baja
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ===== Modal ===== */}
-        {openForm && (
-          <div
-            className="trab-modalBackdrop"
-            onMouseDown={(e) => {
-              if (e.target === e.currentTarget) cerrarForm();
-            }}
-          >
-            <form className="trab-modal" onSubmit={guardar}>
-              <div className="trab-modalTop">
-                <h3>{editMode ? "Editar trabajador" : "Nuevo trabajador"}</h3>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={cerrarForm}
-                >
-                  X
-                </button>
+          {/* ✅ Tabla con columnas definidas en React */}
+          <div className="TP-GridTableWrap">
+            <div className="TP-GridTable">
+              {/* HEAD */}
+              <div
+                className="TP-GridHead"
+                style={{ gridTemplateColumns: COLS.head }}
+              >
+                <div className="TP-GridTh">ID</div>
+                <div className="TP-GridTh">Nombre</div>
+                <div className="TP-GridTh">Apellido</div>
+                <div className="TP-GridTh">Email</div>
+                <div className="TP-GridTh">Rol</div>
+                <div className="TP-GridTh">Alias pago</div>
+                <div className="TP-GridTh">Activo</div>
+                <div className="TP-GridTh TP-GridTh--right">Acciones</div>
               </div>
 
-              <div className="trab-formGrid">
-                <div>
-                  <label>Nombre *</label>
-                  <input
-                    value={form.nombre}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        nombre: e.target.value.toUpperCase(),
-                      }))
-                    }
-                  />
-                </div>
+              {/* BODY */}
+              <div className="TP-GridBody">
+                {!loading && filtrados.length === 0 ? (
+                  <div className="TP-GridEmpty">Sin resultados.</div>
+                ) : (
+                  filtrados.map((r, idx) => (
+                    <div
+                      key={r.id}
+                      className="TP-GridRow"
+                      style={{
+                        gridTemplateColumns: COLS.row,
+                        animationDelay: `${idx * 0.04}s`,
+                      }}
+                    >
+                      <div className="TP-GridTd" data-label="ID">
+                        {r.id}
+                      </div>
 
-                <div>
-                  <label>Apellido *</label>
-                  <input
-                    value={form.apellido}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        apellido: e.target.value.toUpperCase(),
-                      }))
-                    }
-                  />
-                </div>
+                      <div className="TP-GridTd" data-label="Nombre">
+                        {r.nombre}
+                      </div>
 
-                <div>
-                  <label>Email (opcional)</label>
-                  <input
-                    value={form.email}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, email: e.target.value }))
-                    }
-                  />
-                </div>
+                      <div className="TP-GridTd" data-label="Apellido">
+                        {r.apellido}
+                      </div>
 
-                <div>
-                  <label>Rol</label>
-                  <select
-                    value={form.rol}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, rol: e.target.value }))
-                    }
-                  >
-                    {ROLES.map((r) => (
-                      <option key={r.value} value={r.value}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                      <div className="TP-GridTd" data-label="Email">
+                        {r.email ?? "—"}
+                      </div>
 
-                <div className="trab-colFull">
-                  <label>Alias de pago (opcional)</label>
-                  <input
-                    value={form.alias_pago}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        alias_pago: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
+                      <div className="TP-GridTd" data-label="Rol">
+                        {r.rol}
+                      </div>
 
-                {editMode && (
-                  <label className="trab-colFull trab-check">
-                    <input
-                      type="checkbox"
-                      checked={!!form.activo}
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          activo: e.target.checked ? 1 : 0,
-                        }))
-                      }
-                    />
-                    Activo
-                  </label>
+                      <div className="TP-GridTd" data-label="Alias pago">
+                        {r.alias_pago ?? "—"}
+                      </div>
+
+                      <div className="TP-GridTd" data-label="Activo">
+                        <span className="TP-Pill TP-Pill--ok">Activo</span>
+                      </div>
+
+                      <div
+                        className="TP-GridTd TP-GridTd--right"
+                        data-label="Acciones"
+                      >
+                        <div className="TP-RowActions">
+                          <button
+                            type="button"
+                            className="TP-IconBtn TP-IconBtn--edit"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              abrirEditar(r);
+                            }}
+                            title="Editar"
+                            aria-label={`Editar ${r.nombre} ${r.apellido}`}
+                          >
+                            <FontAwesomeIcon icon={faPenToSquare} />
+                          </button>
+
+                          {/* ✅ IMPORTANTE: frenamos evento para evitar glitches */}
+                          <button
+                            type="button"
+                            className="TP-IconBtn TP-IconBtn--del"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              abrirBaja(r);
+                            }}
+                            title="Dar de baja"
+                            aria-label={`Dar de baja a ${r.nombre} ${r.apellido}`}
+                          >
+                            <FontAwesomeIcon icon={faUserSlash} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
-
-              <div className="trab-modalBottom">
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={cerrarForm}
-                >
-                  Cancelar
-                </button>
-                <button type="submit" className="btn" disabled={loading}>
-                  {loading ? "Guardando..." : "Guardar"}
-                </button>
-              </div>
-
-              <div className="trab-help">* Campos obligatorios</div>
-            </form>
+            </div>
           </div>
-        )}
+
+          <div className="TP-FooterActions">
+            <button className="TP-Btn" onClick={() => navigate("/panel")}>
+              <FontAwesomeIcon icon={faArrowLeft} />
+              <span>Volver</span>
+            </button>
+
+            <button className="TP-Btn TP-Btn--primary" onClick={abrirCrear}>
+              <FontAwesomeIcon icon={faPlus} />
+              <span>Agregar</span>
+            </button>
+          </div>
+        </div>
       </div>
+
+      {/* ===== Modales separados ===== */}
+      <ModalAgregarTrabajador
+        open={openCrear}
+        onClose={cerrarCrear}
+        onSaved={() => {
+          showToast("exito", "Trabajador creado", 2200);
+          cargar();
+        }}
+      />
+
+      <ModalEditarTrabajador
+        open={openEditar}
+        trabajador={sel}
+        onClose={cerrarEditar}
+        onSaved={() => {
+          showToast("exito", "Trabajador actualizado", 2200);
+          cargar();
+        }}
+      />
+
+      <ModalBajaTrabajador
+        open={openBaja}
+        trabajador={sel}
+        onClose={cerrarBaja}
+        onSaved={() => {
+          // ✅ lock anti doble disparo
+          if (bajaSavedLockRef.current) return;
+          bajaSavedLockRef.current = true;
+
+          showToast("exito", "Trabajador dado de baja", 2200);
+          cargar();
+
+          // liberamos lock
+          setTimeout(() => {
+            bajaSavedLockRef.current = false;
+          }, 500);
+        }}
+      />
+
+      {/* ✅ Modal listado de dados de baja */}
+      <ModalTrabajadoresBaja
+        open={openBajaListado}
+        onClose={() => setOpenBajaListado(false)}
+        onChanged={() => {
+          // si reactivás desde el modal, refrescamos la tabla principal
+          cargar();
+        }}
+      />
     </div>
   );
 }

@@ -129,11 +129,30 @@ try {
     }
   }
 
-} catch (Throwable $e) {
-  // duplicado email (unique) suele ser 1062
+} catch (PDOException $e) {
+  // ✅ Detectar duplicados (MySQL error 1062)
+  $mysqlCode = isset($e->errorInfo[1]) ? (int)$e->errorInfo[1] : 0;
+  $msg = $e->getMessage();
+
+  if ($mysqlCode === 1062 || str_contains($msg, 'Duplicate entry')) {
+    // Si querés, podés afinar por campo (email), pero con esto ya queda bien.
+    echo json_encode([
+      'exito' => false,
+      'mensaje' => 'Ya existe un trabajador con ese correo.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+  }
+
   echo json_encode([
     'exito' => false,
-    'mensaje' => 'Error trabajadores: ' . $e->getMessage()
+    'mensaje' => 'Error de base de datos al operar trabajadores.'
+  ], JSON_UNESCAPED_UNICODE);
+  exit;
+
+} catch (Throwable $e) {
+  echo json_encode([
+    'exito' => false,
+    'mensaje' => 'Error interno al operar trabajadores.'
   ], JSON_UNESCAPED_UNICODE);
   exit;
 }

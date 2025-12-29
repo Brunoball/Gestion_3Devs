@@ -1,0 +1,105 @@
+.mnt-modalOverlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 9999;
+
+  /* transición sutil */
+  animation: mntFade .14s ease-out;
+}
+
+.mnt-modal{
+  width: min(520px, 100%);
+  background: #0f1720;
+  color: #eaf0f6;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 16px;
+  box-shadow: 0 18px 55px rgba(0,0,0,.55);
+  overflow: hidden;
+
+  animation: mntPop .14s ease-out;
+}
+
+@keyframes mntFade{
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes mntPop{
+  from { transform: translateY(8px) scale(.98); opacity: .6; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.mnt-modalHeader{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 14px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+.mnt-modalTitle{
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.mnt-iconBtn{
+  border: 0;
+  background: rgba(255,255,255,.08);
+  color: #fff;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.mnt-modalBody{
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.mnt-label{
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(255,255,255,.8);
+}
+
+.mnt-input{
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
+  color: #fff;
+  outline: none;
+}
+
+.mnt-input:focus{
+  border-color: rgba(255,255,255,.25);
+  background: rgba(255,255,255,.08);
+}
+
+.mnt-modalFooter{
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+
+.mnt-modalError{
+  background: rgba(255,0,0,.12);
+  border: 1px solid rgba(255,0,0,.25);
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.mnt-modalText{ margin: 0; font-size: 14px; }
+.mnt-modalSubtext{ margin: 0; opacity: .75; font-size: 13px; }
