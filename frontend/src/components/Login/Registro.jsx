@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import BASE_URL from '../../config/config';
 import './registro.css';
-import logoRH from '../../imagenes/Escudo.png';
+import logoRH from '../../imagenes/Logo_3devs.jpeg';
 import Toast from '../Global/Toast';
 
 const ROLES = [
