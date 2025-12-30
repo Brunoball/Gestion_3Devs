@@ -7,6 +7,15 @@ import "./clientes.css";
 
 import SistemasModal from "./modales/SistemasModal";
 import AgregarSistemaModal from "./modales/AgregarSistemaModal";
+import EliminarClienteModal from "./modales/EliminarClienteModal";
+import QuitarTrabajadorModal from "./modales/QuitarTrabajadorModal";
+import EliminarSistemaModal from "./modales/EliminarSistemaModal";
+
+// ✅ mismos globales que Previas (estructura/fondo)
+import "../Global/roots.css";
+
+// ✅ iconos
+import { FaPen, FaTrashAlt, FaCubes, FaSave, FaTimes } from "react-icons/fa";
 
 const API = `${BASE_URL}/api.php?action=clientes`;
 
@@ -27,6 +36,22 @@ export default function Clientes() {
   // ✅ modal agregar sistema
   const [modalAddOpen, setModalAddOpen] = useState(false);
   const [addSubmitting, setAddSubmitting] = useState(false);
+
+  // ✅ modal eliminar cliente
+  const [delOpen, setDelOpen] = useState(false);
+  const [delCliente, setDelCliente] = useState(null);
+  const [delLoading, setDelLoading] = useState(false);
+
+  // ✅ modal quitar trabajador
+  const [qtOpen, setQtOpen] = useState(false);
+  const [qtSistema, setQtSistema] = useState(null);
+  const [qtTrabajador, setQtTrabajador] = useState(null);
+  const [qtLoading, setQtLoading] = useState(false);
+
+  // ✅ modal eliminar sistema
+  const [sysDelOpen, setSysDelOpen] = useState(false);
+  const [sysDelSistema, setSysDelSistema] = useState(null);
+  const [sysDelLoading, setSysDelLoading] = useState(false);
 
   // formularios clientes
   const [nuevoCliente, setNuevoCliente] = useState({ nombre: "", notas: "" });
@@ -93,11 +118,8 @@ export default function Clientes() {
         { method: "GET" }
       );
       const lista = Array.isArray(data?.sistemas) ? data.sistemas : [];
-      setSistemas((prev) => ({
-        ...prev,
-        [id_cliente]: lista,
-      }));
-      return lista; // ✅ importante para usar la lista real en el mismo flujo
+      setSistemas((prev) => ({ ...prev, [id_cliente]: lista }));
+      return lista;
     } catch (e) {
       mostrarToast("error", e.message || "No se pudieron cargar los sistemas");
       return [];
@@ -108,7 +130,9 @@ export default function Clientes() {
 
   const cargarTrabajadores = async () => {
     try {
-      const data = await fetchJSON(`${API}&op=trabajadores_list`, { method: "GET" });
+      const data = await fetchJSON(`${API}&op=trabajadores_list`, {
+        method: "GET",
+      });
       setTrabajadores(Array.isArray(data?.trabajadores) ? data.trabajadores : []);
     } catch (e) {
       mostrarToast("error", e.message || "No se pudieron cargar los trabajadores");
@@ -149,9 +173,23 @@ export default function Clientes() {
     }
   };
 
-  const quitarTrabajador = async (id_sistema, id_trabajador) => {
-    if (!window.confirm("¿Quitar este trabajador del sistema?")) return;
+  /* =========================
+     MODALES: QUITAR / ELIMINAR SISTEMA
+  ========================= */
 
+  const abrirQuitarTrabajador = (sistema, trabajador) => {
+    setQtSistema(sistema);
+    setQtTrabajador(trabajador);
+    setQtOpen(true);
+  };
+
+  const confirmarQuitarTrabajador = async (sistema, trabajador) => {
+    const id_sistema = sistema?.id_sistema;
+    const id_trabajador = trabajador?.id;
+
+    if (!id_sistema || !id_trabajador) return false;
+
+    setQtLoading(true);
     try {
       const data = await fetchJSON(`${API}&op=sistema_trabajadores_remove`, {
         method: "POST",
@@ -161,8 +199,48 @@ export default function Clientes() {
 
       mostrarToast("exito", data?.mensaje || "Trabajador quitado");
       await cargarAsignadosSistema(id_sistema);
+
+      setQtOpen(false);
+      setQtSistema(null);
+      setQtTrabajador(null);
+      return true;
     } catch (e) {
       mostrarToast("error", e.message || "No se pudo quitar el trabajador");
+      return false;
+    } finally {
+      setQtLoading(false);
+    }
+  };
+
+  const abrirEliminarSistema = (sistema) => {
+    setSysDelSistema(sistema);
+    setSysDelOpen(true);
+  };
+
+  const confirmarEliminarSistema = async (sistema) => {
+    const id_sistema = sistema?.id_sistema;
+    if (!id_sistema) return false;
+
+    setSysDelLoading(true);
+    try {
+      const data = await fetchJSON(`${API}&op=sistemas_delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_sistema }),
+      });
+
+      mostrarToast("exito", data?.mensaje || "Sistema eliminado");
+
+      if (modalClienteId) await cargarSistemasCliente(modalClienteId);
+
+      setSysDelOpen(false);
+      setSysDelSistema(null);
+      return true;
+    } catch (e) {
+      mostrarToast("error", e.message || "No se pudo eliminar el sistema");
+      return false;
+    } finally {
+      setSysDelLoading(false);
     }
   };
 
@@ -226,24 +304,37 @@ export default function Clientes() {
     }
   };
 
-  const eliminarCliente = async (id_cliente) => {
-    if (!window.confirm("¿Eliminar cliente? También se eliminarán sus sistemas.")) return;
+  // ✅ ahora sin window.confirm, lo maneja el modal
+  const abrirEliminarCliente = (c) => {
+    setDelCliente(c);
+    setDelOpen(true);
+  };
 
+  const confirmarEliminarCliente = async (cliente) => {
+    const id_cliente = cliente?.id_cliente;
+    if (!id_cliente) return false;
+
+    setDelLoading(true);
     try {
       const data = await fetchJSON(`${API}&op=delete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id_cliente }),
       });
+
       mostrarToast("exito", data?.mensaje || "Cliente eliminado");
 
-      if (modalClienteId === id_cliente) {
-        cerrarModal();
-      }
-
+      if (modalClienteId === id_cliente) cerrarModal();
       await cargarClientes();
+
+      setDelOpen(false);
+      setDelCliente(null);
+      return true;
     } catch (e) {
       mostrarToast("error", e.message || "No se pudo eliminar el cliente");
+      return false;
+    } finally {
+      setDelLoading(false);
     }
   };
 
@@ -314,7 +405,6 @@ export default function Clientes() {
 
       mostrarToast("exito", data?.mensaje || "Sistema agregado");
 
-      // reset form
       setNuevoSistema((prev) => ({
         ...prev,
         [id_cliente]: {
@@ -386,34 +476,14 @@ export default function Clientes() {
     }
   };
 
-  const eliminarSistema = async (id_cliente, id_sistema) => {
-    if (!window.confirm("¿Eliminar este sistema?")) return;
-
-    try {
-      const data = await fetchJSON(`${API}&op=sistemas_delete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id_sistema }),
-      });
-
-      mostrarToast("exito", data?.mensaje || "Sistema eliminado");
-      await cargarSistemasCliente(id_cliente);
-    } catch (e) {
-      mostrarToast("error", e.message || "No se pudo eliminar el sistema");
-    }
-  };
-
   /* =========================
      MODALES OPEN/CLOSE
   ========================= */
 
   const abrirSistemasModal = async (id_cliente) => {
     setModalClienteId(id_cliente);
-
-    // ✅ SIEMPRE refrescar (evita usar state viejo)
     const lista = await cargarSistemasCliente(id_cliente);
 
-    // ✅ precargar asignados con la lista real recién traída
     if (Array.isArray(lista) && lista.length > 0) {
       lista.forEach((s) => {
         if (asignadosPorSistema[s.id_sistema] === undefined) {
@@ -435,11 +505,8 @@ export default function Clientes() {
     setModalAddOpen(true);
   };
 
-  const closeAddModal = () => {
-    setModalAddOpen(false);
-  };
+  const closeAddModal = () => setModalAddOpen(false);
 
-  // cuando cambian sistemas del cliente abierto, asegurar carga de asignados
   useEffect(() => {
     const idc = modalClienteId;
     if (!idc) return;
@@ -456,357 +523,493 @@ export default function Clientes() {
   }, [modalClienteId, sistemas]);
 
   return (
-    <div className="clientes-page">
-      <div className="clientes-shell">
-        {/* Header */}
-        <div className="clientes-header">
-          <div className="clientes-title">
-            <h2>Clientes</h2>
-            <div className="clientes-subtitle">
-              Gestión de clientes, sistemas y asignación de trabajadores.
+    <div className="glob-profesor-container clientes-wrap">
+      <div className="glob-profesor-box clientes-box">
+        {toast && (
+          <Toast
+            tipo={toast.tipo}
+            mensaje={toast.mensaje}
+            duracion={toast.duracion}
+            onClose={() => setToast(null)}
+          />
+        )}
+
+        <div className="clientes-shell">
+          <div className="clientes-header">
+            <div className="clientes-title">
+              <h2>Clientes</h2>
+              <div className="clientes-subtitle">
+                Gestión de clientes, sistemas y asignación de trabajadores.
+              </div>
             </div>
-          </div>
 
-          <button className="btn-volver" onClick={() => navigate("/panel")} type="button">
-            ← Volver
-          </button>
-        </div>
-
-        {/* Crear cliente */}
-        <div className="card card-agregar">
-          <div className="card-head">
-            <h3>Agregar cliente</h3>
-            <span className="badge">Nuevo</span>
-          </div>
-
-          <div className="form-grid">
-            <input
-              placeholder="Nombre del cliente (ej: IPET 50)"
-              value={nuevoCliente.nombre}
-              onChange={(e) => setNuevoCliente((p) => ({ ...p, nombre: e.target.value }))}
-            />
-            <input
-              placeholder="Notas (opcional)"
-              value={nuevoCliente.notas}
-              onChange={(e) => setNuevoCliente((p) => ({ ...p, notas: e.target.value }))}
-            />
-            <button disabled={cargando} onClick={crearCliente} type="button">
-              Agregar
+            <button
+              className="btn-volver"
+              onClick={() => navigate("/panel")}
+              type="button"
+            >
+              ← Volver
             </button>
           </div>
-        </div>
 
-        {/* Lista clientes */}
-        <div className="clientes-lista">
-          {cargando && <div className="card">Cargando...</div>}
+          <div className="card card-agregar">
+            <div className="card-head">
+              <h3>Agregar cliente</h3>
+              <span className="badge">Nuevo</span>
+            </div>
 
-          {!cargando && clientesOrdenados.length === 0 && (
-            <div className="card">No hay clientes cargados todavía.</div>
-          )}
+            <div className="form-grid">
+              <input
+                placeholder="Nombre del cliente (ej: IPET 50)"
+                value={nuevoCliente.nombre}
+                onChange={(e) =>
+                  setNuevoCliente((p) => ({ ...p, nombre: e.target.value }))
+                }
+              />
+              <input
+                placeholder="Notas (opcional)"
+                value={nuevoCliente.notas}
+                onChange={(e) =>
+                  setNuevoCliente((p) => ({ ...p, notas: e.target.value }))
+                }
+              />
+              <button disabled={cargando} onClick={crearCliente} type="button">
+                Agregar
+              </button>
+            </div>
+          </div>
 
-          {clientesOrdenados.map((c) => (
-            <div key={c.id_cliente} className="cliente-card">
-              <div className="cliente-left">
-                <div className="cliente-nombre">{c.nombre}</div>
-                {c.notas ? <div className="cliente-notas">{c.notas}</div> : null}
-              </div>
+          <div className="clientes-lista">
+            {cargando && <div className="card">Cargando...</div>}
 
-              <div className="cliente-actions">
-                {editClienteId === c.id_cliente ? (
-                  <>
-                    <button onClick={guardarEditarCliente} type="button">
-                      Guardar
-                    </button>
-                    <button className="secundario" onClick={() => setEditClienteId(null)} type="button">
-                      Cancelar
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button className="secundario" onClick={() => iniciarEditarCliente(c)} type="button">
-                      Editar
-                    </button>
-                    <button className="peligro" onClick={() => eliminarCliente(c.id_cliente)} type="button">
-                      Eliminar
-                    </button>
-                    <button className="outline" onClick={() => abrirSistemasModal(c.id_cliente)} type="button">
-                      Ver sistemas
-                    </button>
-                  </>
+            {!cargando && clientesOrdenados.length === 0 && (
+              <div className="card">No hay clientes cargados todavía.</div>
+            )}
+
+            {clientesOrdenados.map((c) => (
+              <div key={c.id_cliente} className="cliente-card">
+                <div className="cliente-left">
+                  <div className="cliente-nombre">{c.nombre}</div>
+                  {c.notas ? <div className="cliente-notas">{c.notas}</div> : null}
+                </div>
+
+                <div className="cliente-actions">
+                  {editClienteId === c.id_cliente ? (
+                    <>
+                      <button
+                        className="icon-btn"
+                        onClick={guardarEditarCliente}
+                        type="button"
+                        aria-label="Guardar"
+                        title="Guardar"
+                      >
+                        <FaSave />
+                      </button>
+
+                      <button
+                        className="icon-btn secundario"
+                        onClick={() => setEditClienteId(null)}
+                        type="button"
+                        aria-label="Cancelar"
+                        title="Cancelar"
+                      >
+                        <FaTimes />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="icon-btn secundario"
+                        onClick={() => iniciarEditarCliente(c)}
+                        type="button"
+                        aria-label="Editar"
+                        title="Editar"
+                      >
+                        <FaPen />
+                      </button>
+
+                      <button
+                        className="icon-btn peligro"
+                        onClick={() => abrirEliminarCliente(c)}
+                        type="button"
+                        aria-label="Eliminar"
+                        title="Eliminar"
+                      >
+                        <FaTrashAlt />
+                      </button>
+
+                      <button
+                        className="icon-btn outline"
+                        onClick={() => abrirSistemasModal(c.id_cliente)}
+                        type="button"
+                        aria-label="Ver sistemas"
+                        title="Ver sistemas"
+                      >
+                        <FaCubes />
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {editClienteId === c.id_cliente && (
+                  <div className="inline-edit">
+                    <input
+                      value={editCliente.nombre}
+                      onChange={(e) =>
+                        setEditCliente((p) => ({ ...p, nombre: e.target.value }))
+                      }
+                      placeholder="Nombre"
+                    />
+                    <input
+                      value={editCliente.notas}
+                      onChange={(e) =>
+                        setEditCliente((p) => ({ ...p, notas: e.target.value }))
+                      }
+                      placeholder="Notas"
+                    />
+                  </div>
                 )}
               </div>
-
-              {editClienteId === c.id_cliente && (
-                <div className="inline-edit">
-                  <input
-                    value={editCliente.nombre}
-                    onChange={(e) => setEditCliente((p) => ({ ...p, nombre: e.target.value }))}
-                    placeholder="Nombre"
-                  />
-                  <input
-                    value={editCliente.notas}
-                    onChange={(e) => setEditCliente((p) => ({ ...p, notas: e.target.value }))}
-                    placeholder="Notas"
-                  />
-                </div>
-              )}
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* ✅ MODAL VER SISTEMAS (solo ver/editar/asignar) */}
-      <SistemasModal
-        open={!!modalClienteId}
-        onClose={cerrarModal}
-        cliente={clienteModal}
-        sistemas={sisModal}
-        cargando={cargandoSistemas}
-        onOpenAdd={openAddModal} // ✅ abre modal agregar
-      >
-        {/* ✅ Lista sistemas */}
-        {modalClienteId && (
-          <div className="panel-block">
-            <div className="block-title">Sistemas cargados</div>
+        {/* ✅ MODAL ELIMINAR CLIENTE */}
+        <EliminarClienteModal
+          open={delOpen}
+          onClose={() => {
+            if (delLoading) return;
+            setDelOpen(false);
+            setDelCliente(null);
+          }}
+          onConfirm={confirmarEliminarCliente}
+          loading={delLoading}
+          cliente={delCliente}
+          mensaje="También se eliminarán sus sistemas."
+        />
 
-            <div className="sistemas-grid">
-              {sisModal.map((s) => {
-                const editing = editSistemaId === s.id_sistema;
-                const form = editSistema[s.id_sistema] || {};
-                const asignados = asignadosPorSistema[s.id_sistema] || [];
+        {/* ✅ MODAL ELIMINAR SISTEMA */}
+        <EliminarSistemaModal
+          open={sysDelOpen}
+          onClose={() => {
+            if (sysDelLoading) return;
+            setSysDelOpen(false);
+            setSysDelSistema(null);
+          }}
+          onConfirm={confirmarEliminarSistema}
+          loading={sysDelLoading}
+          sistema={sysDelSistema}
+          mensaje="Esta acción no se puede deshacer."
+        />
 
-                return (
-                  <div key={s.id_sistema} className="sistema-item">
-                    <div className="sistema-top">
-                      <div className="sistema-title">
-                        {editing ? (
-                          <>
-                            <input
-                              value={form.nombre ?? ""}
-                              onChange={(e) =>
-                                setEditSistema((p) => ({
-                                  ...p,
-                                  [s.id_sistema]: { ...p[s.id_sistema], nombre: e.target.value },
-                                }))
-                              }
-                              placeholder="Nombre"
-                            />
-                            <input
-                              value={form.descripcion ?? ""}
-                              onChange={(e) =>
-                                setEditSistema((p) => ({
-                                  ...p,
-                                  [s.id_sistema]: { ...p[s.id_sistema], descripcion: e.target.value },
-                                }))
-                              }
-                              placeholder="Descripción"
-                              style={{ marginTop: 8 }}
-                            />
-                          </>
-                        ) : (
-                          <>
-                            <div className="sistema-nombre">{s.nombre}</div>
-                            {s.descripcion ? <div className="sistema-meta">{s.descripcion}</div> : null}
-                          </>
-                        )}
-                      </div>
+        {/* ✅ MODAL QUITAR TRABAJADOR */}
+        <QuitarTrabajadorModal
+          open={qtOpen}
+          onClose={() => {
+            if (qtLoading) return;
+            setQtOpen(false);
+            setQtSistema(null);
+            setQtTrabajador(null);
+          }}
+          onConfirm={confirmarQuitarTrabajador}
+          loading={qtLoading}
+          sistema={qtSistema}
+          trabajador={qtTrabajador}
+          mensaje="Esta acción solo lo desasigna, no elimina el trabajador."
+        />
 
-                      <div className="sistema-actions">
-                        {editing ? (
-                          <>
-                            <button onClick={() => guardarEditarSistema(modalClienteId)} type="button">
-                              Guardar
-                            </button>
-                            <button className="secundario" onClick={() => setEditSistemaId(null)} type="button">
-                              Cancelar
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button className="secundario" onClick={() => iniciarEditarSistema(s)} type="button">
-                              Editar
-                            </button>
-                            <button
-                              className="peligro"
-                              onClick={() => eliminarSistema(modalClienteId, s.id_sistema)}
-                              type="button"
-                            >
-                              Eliminar
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
+        {/* ✅ MODAL VER SISTEMAS */}
+        <SistemasModal
+          open={!!modalClienteId}
+          onClose={cerrarModal}
+          cliente={clienteModal}
+          sistemas={sisModal}
+          cargando={cargandoSistemas}
+          onOpenAdd={openAddModal}
+        >
+          {modalClienteId && (
+            <div className="panel-block">
+              <div className="block-title">Sistemas cargados</div>
 
-                    {/* datos / edición */}
-                    {editing ? (
-                      <div className="sistema-form">
-                        <select
-                          value={form.plan ?? "mensual"}
-                          onChange={(e) =>
-                            setEditSistema((p) => ({
-                              ...p,
-                              [s.id_sistema]: { ...p[s.id_sistema], plan: e.target.value },
-                            }))
-                          }
-                        >
-                          <option value="mensual">Mensual</option>
-                          <option value="anual">Anual</option>
-                          <option value="soporte">Soporte</option>
-                          <option value="proyecto">Proyecto</option>
-                        </select>
+              <div className="sistemas-grid">
+                {sisModal.map((s) => {
+                  const editing = editSistemaId === s.id_sistema;
+                  const form = editSistema[s.id_sistema] || {};
+                  const asignados = asignadosPorSistema[s.id_sistema] || [];
 
-                        <select
-                          value={form.estado ?? "activo"}
-                          onChange={(e) =>
-                            setEditSistema((p) => ({
-                              ...p,
-                              [s.id_sistema]: { ...p[s.id_sistema], estado: e.target.value },
-                            }))
-                          }
-                        >
-                          <option value="activo">Activo</option>
-                          <option value="pausado">Pausado</option>
-                          <option value="finalizado">Finalizado</option>
-                        </select>
-
-                        <input
-                          value={form.monto_desarrollo ?? 0}
-                          onChange={(e) =>
-                            setEditSistema((p) => ({
-                              ...p,
-                              [s.id_sistema]: { ...p[s.id_sistema], monto_desarrollo: e.target.value },
-                            }))
-                          }
-                          inputMode="numeric"
-                          placeholder="Monto desarrollo"
-                        />
-
-                        <input
-                          value={form.monto_mensual ?? 0}
-                          onChange={(e) =>
-                            setEditSistema((p) => ({
-                              ...p,
-                              [s.id_sistema]: { ...p[s.id_sistema], monto_mensual: e.target.value },
-                            }))
-                          }
-                          inputMode="numeric"
-                          placeholder="Monto mensual base"
-                        />
-
-                        <input
-                          type="date"
-                          value={form.fecha_inicio ?? ""}
-                          onChange={(e) =>
-                            setEditSistema((p) => ({
-                              ...p,
-                              [s.id_sistema]: { ...p[s.id_sistema], fecha_inicio: e.target.value },
-                            }))
-                          }
-                        />
-                      </div>
-                    ) : (
-                      <div className="sistema-info">
-                        <div className="pill">Plan: <b>{s.plan}</b></div>
-                        <div className="pill">Estado: <b>{s.estado}</b></div>
-                        <div className="pill">
-                          Desarrollo:{" "}
-                          <b>${Number(s.monto_desarrollo || 0).toLocaleString("es-AR")}</b>
-                        </div>
-                        <div className="pill">
-                          Base mes:{" "}
-                          <b>${Number(s.monto_mensual || 0).toLocaleString("es-AR")}</b>
-                        </div>
-                        <div className="pill">Inicio: <b>{s.fecha_inicio || "-"}</b></div>
-                      </div>
-                    )}
-
-                    {/* asignación */}
-                    {!editing && (
-                      <div className="asignacion">
-                        <div className="asignacion-title">Trabajadores asignados</div>
-
-                        <div className="asignacion-row">
-                          <select
-                            value={selectTrabajador?.[s.id_sistema] || ""}
-                            onChange={(e) =>
-                              setSelectTrabajador((p) => ({
-                                ...p,
-                                [s.id_sistema]: e.target.value,
-                              }))
-                            }
-                          >
-                            <option value="">Seleccionar trabajador...</option>
-                            {trabajadores.map((t) => (
-                              <option key={t.id} value={t.id}>
-                                {t.apellido}, {t.nombre}
-                              </option>
-                            ))}
-                          </select>
-
-                          <button type="button" onClick={() => asignarTrabajador(s.id_sistema)}>
-                            Asignar
-                          </button>
-                        </div>
-
-                        <div className="asignados-list">
-                          {asignados.length === 0 ? (
-                            <div className="mini-card">Sin trabajadores asignados.</div>
+                  return (
+                    <div key={s.id_sistema} className="sistema-item">
+                      <div className="sistema-top">
+                        <div className="sistema-title">
+                          {editing ? (
+                            <>
+                              <input
+                                value={form.nombre ?? ""}
+                                onChange={(e) =>
+                                  setEditSistema((p) => ({
+                                    ...p,
+                                    [s.id_sistema]: {
+                                      ...p[s.id_sistema],
+                                      nombre: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder="Nombre"
+                              />
+                              <input
+                                value={form.descripcion ?? ""}
+                                onChange={(e) =>
+                                  setEditSistema((p) => ({
+                                    ...p,
+                                    [s.id_sistema]: {
+                                      ...p[s.id_sistema],
+                                      descripcion: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder="Descripción"
+                                style={{ marginTop: 8 }}
+                              />
+                            </>
                           ) : (
-                            asignados.map((t) => (
-                              <div key={t.id} className="mini-card mini-row">
-                                <div className="mini-text">
-                                  <div className="mini-name">
-                                    {t.apellido}, {t.nombre}
-                                  </div>
-                                  <div className="mini-sub">
-                                    Rol: <b>{t.rol}</b>
-                                  </div>
-                                </div>
-                                <button
-                                  className="peligro"
-                                  type="button"
-                                  onClick={() => quitarTrabajador(s.id_sistema, t.id)}
-                                >
-                                  Quitar
-                                </button>
-                              </div>
-                            ))
+                            <>
+                              <div className="sistema-nombre">{s.nombre}</div>
+                              {s.descripcion ? (
+                                <div className="sistema-meta">{s.descripcion}</div>
+                              ) : null}
+                            </>
+                          )}
+                        </div>
+
+                        <div className="sistema-actions">
+                          {editing ? (
+                            <>
+                              <button
+                                onClick={() => guardarEditarSistema(modalClienteId)}
+                                type="button"
+                              >
+                                Guardar
+                              </button>
+                              <button
+                                className="secundario"
+                                onClick={() => setEditSistemaId(null)}
+                                type="button"
+                              >
+                                Cancelar
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                className="secundario"
+                                onClick={() => iniciarEditarSistema(s)}
+                                type="button"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                className="peligro"
+                                onClick={() => abrirEliminarSistema(s)}
+                                type="button"
+                              >
+                                Eliminar
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+
+                      {editing ? (
+                        <div className="sistema-form">
+                          <select
+                            value={form.plan ?? "mensual"}
+                            onChange={(e) =>
+                              setEditSistema((p) => ({
+                                ...p,
+                                [s.id_sistema]: {
+                                  ...p[s.id_sistema],
+                                  plan: e.target.value,
+                                },
+                              }))
+                            }
+                          >
+                            <option value="mensual">Mensual</option>
+                            <option value="anual">Anual</option>
+                            <option value="soporte">Soporte</option>
+                            <option value="proyecto">Proyecto</option>
+                          </select>
+
+                          <select
+                            value={form.estado ?? "activo"}
+                            onChange={(e) =>
+                              setEditSistema((p) => ({
+                                ...p,
+                                [s.id_sistema]: {
+                                  ...p[s.id_sistema],
+                                  estado: e.target.value,
+                                },
+                              }))
+                            }
+                          >
+                            <option value="activo">Activo</option>
+                            <option value="pausado">Pausado</option>
+                            <option value="finalizado">Finalizado</option>
+                          </select>
+
+                          <input
+                            value={form.monto_desarrollo ?? 0}
+                            onChange={(e) =>
+                              setEditSistema((p) => ({
+                                ...p,
+                                [s.id_sistema]: {
+                                  ...p[s.id_sistema],
+                                  monto_desarrollo: e.target.value,
+                                },
+                              }))
+                            }
+                            inputMode="numeric"
+                            placeholder="Monto desarrollo"
+                          />
+
+                          <input
+                            value={form.monto_mensual ?? 0}
+                            onChange={(e) =>
+                              setEditSistema((p) => ({
+                                ...p,
+                                [s.id_sistema]: {
+                                  ...p[s.id_sistema],
+                                  monto_mensual: e.target.value,
+                                },
+                              }))
+                            }
+                            inputMode="numeric"
+                            placeholder="Monto mensual base"
+                          />
+
+                          <input
+                            type="date"
+                            value={form.fecha_inicio ?? ""}
+                            onChange={(e) =>
+                              setEditSistema((p) => ({
+                                ...p,
+                                [s.id_sistema]: {
+                                  ...p[s.id_sistema],
+                                  fecha_inicio: e.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        </div>
+                      ) : (
+                        <div className="sistema-info">
+                          <div className="pill">
+                            Plan: <b>{s.plan}</b>
+                          </div>
+                          <div className="pill">
+                            Estado: <b>{s.estado}</b>
+                          </div>
+                          <div className="pill">
+                            Desarrollo:{" "}
+                            <b>
+                              $
+                              {Number(s.monto_desarrollo || 0).toLocaleString("es-AR")}
+                            </b>
+                          </div>
+                          <div className="pill">
+                            Base mes:{" "}
+                            <b>
+                              $
+                              {Number(s.monto_mensual || 0).toLocaleString("es-AR")}
+                            </b>
+                          </div>
+                          <div className="pill">
+                            Inicio: <b>{s.fecha_inicio || "-"}</b>
+                          </div>
+                        </div>
+                      )}
+
+                      {!editing && (
+                        <div className="asignacion">
+                          <div className="asignacion-title">Trabajadores asignados</div>
+
+                          <div className="asignacion-row">
+                            <select
+                              value={selectTrabajador?.[s.id_sistema] || ""}
+                              onChange={(e) =>
+                                setSelectTrabajador((p) => ({
+                                  ...p,
+                                  [s.id_sistema]: e.target.value,
+                                }))
+                              }
+                            >
+                              <option value="">Seleccionar trabajador...</option>
+                              {trabajadores.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                  {t.apellido}, {t.nombre}
+                                </option>
+                              ))}
+                            </select>
+
+                            <button
+                              type="button"
+                              onClick={() => asignarTrabajador(s.id_sistema)}
+                            >
+                              Asignar
+                            </button>
+                          </div>
+
+                          <div className="asignados-list">
+                            {asignados.length === 0 ? (
+                              <div className="mini-card">Sin trabajadores asignados.</div>
+                            ) : (
+                              asignados.map((t) => (
+                                <div key={t.id} className="mini-card mini-row">
+                                  <div className="mini-text">
+                                    <div className="mini-name">
+                                      {t.apellido}, {t.nombre}
+                                    </div>
+                                    <div className="mini-sub">
+                                      Rol: <b>{t.rol}</b>
+                                    </div>
+                                  </div>
+                                  <button
+                                    className="peligro"
+                                    type="button"
+                                    onClick={() => abrirQuitarTrabajador(s, t)}
+                                  >
+                                    Quitar
+                                  </button>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
-      </SistemasModal>
+          )}
+        </SistemasModal>
 
-      {/* ✅ MODAL AGREGAR SISTEMA (form separado) */}
-      <AgregarSistemaModal
-        open={modalAddOpen}
-        onClose={closeAddModal}
-        cliente={clienteModal}
-        form={
-          modalClienteId
-            ? nuevoSistema?.[modalClienteId] || ensureNuevoSistema(modalClienteId)
-            : null
-        }
-        onChange={(key, value) => modalClienteId && onChangeNuevoSistema(modalClienteId, key, value)}
-        onSubmit={() => modalClienteId && crearSistema(modalClienteId)}
-        submitting={addSubmitting}
-      />
-
-      {toast && (
-        <Toast
-          tipo={toast.tipo}
-          mensaje={toast.mensaje}
-          duracion={toast.duracion}
-          onClose={() => setToast(null)}
+        {/* ✅ MODAL AGREGAR SISTEMA */}
+        <AgregarSistemaModal
+          open={modalAddOpen}
+          onClose={closeAddModal}
+          cliente={clienteModal}
+          form={
+            modalClienteId
+              ? nuevoSistema?.[modalClienteId] || ensureNuevoSistema(modalClienteId)
+              : null
+          }
+          onChange={(key, value) =>
+            modalClienteId && onChangeNuevoSistema(modalClienteId, key, value)
+          }
+          onSubmit={() => modalClienteId && crearSistema(modalClienteId)}
+          submitting={addSubmitting}
         />
-      )}
+      </div>
     </div>
   );
 }

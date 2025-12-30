@@ -598,3 +598,13 @@
 /* Animaciones */
 @keyframes empb-fadeIn{ from{opacity:0} to{opacity:1} }
 @keyframes empb-pop{ from{ transform:translateY(4px); opacity:.98 } to{ transform:translateY(0); opacity:1 } }
+.mit-btn--danger{
+  border: 1px solid var( --blue-inst-danger);
+  background-color: var( --blue-inst-danger);
+  color:#fff ;
+}
+.mit-btn--danger:hover{
+  filter: brightness(.97);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(183,28,28,.22);
+}

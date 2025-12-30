@@ -1,5 +1,8 @@
+// src/components/Clientes/modales/SistemasModal.jsx
 import React, { useEffect } from "react";
 import "./SistemasModal.css";
+
+import { FaPlus } from "react-icons/fa";
 
 export default function SistemasModal({
   open,
@@ -7,47 +10,58 @@ export default function SistemasModal({
   cliente,
   sistemas,
   cargando,
-  onOpenAdd, // ✅ botón para abrir el otro modal
+  onOpenAdd,
   children,
 }) {
   useEffect(() => {
     if (!open) return;
-
-    const onKey = (e) => {
-      if (e.key === "Escape") onClose?.();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const onKey = (e) => e.key === "Escape" && onClose?.();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
   if (!open) return null;
 
   const nombre = cliente?.nombre || "Cliente";
+  const lista = Array.isArray(sistemas) ? sistemas : [];
 
   return (
-    <div className="sm-backdrop" onMouseDown={onClose}>
-      <div className="sm-modal" onMouseDown={(e) => e.stopPropagation()}>
-        {/* Header fijo */}
-        <div className="sm-header">
-          <div className="sm-title">
-            <div className="sm-title-big">Sistemas</div>
-            <div className="sm-title-sub">
+    <div
+      className="mi-modal__overlay"
+      onClick={(e) =>
+        e.target.classList.contains("mi-modal__overlay") && onClose?.()
+      }
+    >
+      <div
+        className="mi-modal__container"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mi-modal-title-sistemas"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="mi-modal__header">
+          <div className="mi-modal__head-left">
+            <h2 id="mi-modal-title-sistemas" className="mi-modal__title">
+              Sistemas
+            </h2>
+            <p className="mi-modal__subtitle">
               Cliente: <b>{nombre}</b>
-            </div>
+            </p>
           </div>
 
-          <div className="sm-header-actions">
+          <div className="mi-modal__head-actions">
             <button
-              className="sm-btn sm-btn-primary"
+              className="mi-btn mi-btn--primary"
               type="button"
               onClick={onOpenAdd}
               title="Agregar sistema"
             >
-              + Agregar
+              <FaPlus /> Agregar
             </button>
 
             <button
-              className="sm-close"
+              className="mi-modal__close"
               type="button"
               onClick={onClose}
               aria-label="Cerrar"
@@ -58,25 +72,27 @@ export default function SistemasModal({
           </div>
         </div>
 
-        {/* Body con scroll */}
-        <div className="sm-body">
+        {/* Body */}
+        <div className="mi-modal__content">
           {cargando ? (
-            <div className="sm-loading">Cargando sistemas…</div>
+            <div className="mi-loading">Cargando sistemas…</div>
           ) : (
             <>
-              <div className="sm-section">
-                <div className="sm-section-title">Administración</div>
-                <div className="sm-section-sub">
-                  Acá solo ves, editás, eliminás y asignás trabajadores. Para cargar un sistema nuevo usá “+ Agregar”.
+              <div className="mi-section">
+                <div className="mi-section__title">Administración</div>
+                <div className="mi-section__sub">
+                  Acá solo ves, editás, eliminás y asignás trabajadores. Para
+                  cargar un sistema nuevo usá “Agregar”.
                 </div>
               </div>
 
-              <div className="sm-content">{children}</div>
+              {/* ✅ IMPORTANTÍSIMO: seguimos renderizando lo de adentro desde Clientes.jsx */}
+              <div className="mi-content">{children}</div>
 
-              {!cargando && Array.isArray(sistemas) && sistemas.length === 0 && (
-                <div className="sm-empty">
-                  Este cliente todavía no tiene sistemas cargados.
-                  <button className="sm-link" type="button" onClick={onOpenAdd}>
+              {lista.length === 0 && (
+                <div className="mi-empty">
+                  <span>Este cliente todavía no tiene sistemas cargados.</span>
+                  <button className="mi-link" type="button" onClick={onOpenAdd}>
                     Agregar el primero
                   </button>
                 </div>
@@ -85,9 +101,13 @@ export default function SistemasModal({
           )}
         </div>
 
-        {/* Footer fijo */}
-        <div className="sm-footer">
-          <button className="sm-btn sm-btn-secondary" type="button" onClick={onClose}>
+        {/* Footer */}
+        <div className="mi-modal__footer">
+          <button
+            className="mi-btn mi-btn--secondary"
+            type="button"
+            onClick={onClose}
+          >
             Cerrar
           </button>
         </div>

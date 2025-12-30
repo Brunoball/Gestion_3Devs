@@ -5,7 +5,7 @@ import "./ModalEditarTrabajador.css";
 import "./ModalBajaTrabajador.css";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faUserCheck } from "@fortawesome/free-solid-svg-icons";
+import { faUserCheck, faTrashAlt } from "@fortawesome/free-solid-svg-icons";
 
 /* =========================
    Helpers API
@@ -25,10 +25,15 @@ const apiPost = async (url, payload) => {
 };
 
 /* =========================
-   Mini modal confirmación (verde)
-   - Mismo "estilo" que ModalBajaTrabajador, pero success
+   Modal confirmación (verde) - Reactivar
 ========================= */
-function ModalReactivarTrabajador({ open, onClose, onConfirm, loading, trabajador }) {
+function ModalReactivarTrabajador({
+  open,
+  onClose,
+  onConfirm,
+  loading,
+  trabajador,
+}) {
   useEffect(() => {
     if (!open) return;
     const handleEsc = (e) => e.key === "Escape" && onClose?.();
@@ -38,7 +43,9 @@ function ModalReactivarTrabajador({ open, onClose, onConfirm, loading, trabajado
 
   if (!open) return null;
 
-  const nombreCompleto = `${(trabajador?.nombre ?? "").trim()} ${(trabajador?.apellido ?? "").trim()}`.trim();
+  const nombreCompleto = `${(trabajador?.nombre ?? "").trim()} ${(
+    trabajador?.apellido ?? ""
+  ).trim()}`.trim();
 
   const cerrar = () => {
     if (loading) return;
@@ -97,15 +104,101 @@ function ModalReactivarTrabajador({ open, onClose, onConfirm, loading, trabajado
   );
 }
 
+/* =========================
+   ✅ NUEVO: Modal confirmación (rojo) - Eliminar definitivo
+========================= */
+function ModalEliminarPermanente({
+  open,
+  onClose,
+  onConfirm,
+  loading,
+  trabajador,
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const handleEsc = (e) => e.key === "Escape" && onClose?.();
+    document.addEventListener("keydown", handleEsc);
+    return () => document.removeEventListener("keydown", handleEsc);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const nombreCompleto = `${(trabajador?.nombre ?? "").trim()} ${(
+    trabajador?.apellido ?? ""
+  ).trim()}`.trim();
+
+  const cerrar = () => {
+    if (loading) return;
+    onClose?.();
+  };
+
+  return (
+    <div
+      className="emp-baja-modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-eliminar-permanente-title"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) cerrar();
+      }}
+    >
+      <div className="emp-baja-modal emp-baja-modal--danger">
+        <div className="emp-baja-modal__icon emp-baja-modal__icon--danger" aria-hidden="true">
+          <FontAwesomeIcon icon={faTrashAlt} />
+        </div>
+
+        <h3
+          id="modal-eliminar-permanente-title"
+          className="emp-baja-modal__title emp-baja-modal__title--danger"
+        >
+          Eliminar permanentemente
+        </h3>
+
+        <p className="emp-baja-modal__body">
+          Vas a eliminar de forma <strong>definitiva</strong> a{" "}
+          <strong>{nombreCompleto || "este trabajador"}</strong>.
+          <br />
+          <strong>Esta acción no se puede deshacer.</strong>
+        </p>
+
+        <div className="emp-baja-modal__actions">
+          <button
+            type="button"
+            className="emp-baja-btn emp-baja-btn--ghost"
+            onClick={cerrar}
+            disabled={loading}
+          >
+            Cancelar
+          </button>
+
+          <button
+            type="button"
+            className="emp-baja-btn emp-baja-btn--solid-danger"
+            onClick={() => onConfirm?.(trabajador)}
+            disabled={loading}
+          >
+            Sí, eliminar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ModalTrabajadoresBaja({ open, onClose, onChanged }) {
   const [rows, setRows] = useState([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // modal confirmación
+  // modal confirmación reactivar
   const [openConfirm, setOpenConfirm] = useState(false);
   const [sel, setSel] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  // ✅ NUEVO: modal confirmación eliminar definitivo
+  const [openDelete, setOpenDelete] = useState(false);
+  const [selDelete, setSelDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const [toast, setToast] = useState({
     open: false,
@@ -142,10 +235,7 @@ export default function ModalTrabajadoresBaja({ open, onClose, onChanged }) {
         }
 
         const list = Array.isArray(data.data) ? data.data : [];
-
-        // ✅ Filtrado en React: solo dados de baja
         const soloInactivos = list.filter((x) => Number(getActivo(x)) === 0);
-
         setRows(soloInactivos);
       } catch {
         showToast("error", "Error de red");
@@ -176,7 +266,7 @@ export default function ModalTrabajadoresBaja({ open, onClose, onChanged }) {
     );
   }, [rows, q]);
 
-  // abrir modal confirmación
+  // abrir modal confirmación reactivar
   const pedirReactivar = (r) => {
     setSel(r);
     setOpenConfirm(true);
@@ -189,10 +279,7 @@ export default function ModalTrabajadoresBaja({ open, onClose, onChanged }) {
   };
 
   const confirmarReactivar = async (r) => {
-    if (!r?.id) {
-      showToast("error", "Falta el ID del trabajador.");
-      return;
-    }
+    if (!r?.id) return showToast("error", "Falta el ID del trabajador.");
 
     setSaving(true);
     try {
@@ -201,10 +288,7 @@ export default function ModalTrabajadoresBaja({ open, onClose, onChanged }) {
         { ...r, activo: 1 }
       );
 
-      if (!data?.exito) {
-        showToast("error", data?.mensaje || "No se pudo reactivar");
-        return;
-      }
+      if (!data?.exito) return showToast("error", data?.mensaje || "No se pudo reactivar");
 
       showToast("exito", "Trabajador reactivado", 2000);
       setRows((prev) => prev.filter((x) => x.id !== r.id));
@@ -217,7 +301,49 @@ export default function ModalTrabajadoresBaja({ open, onClose, onChanged }) {
     }
   };
 
+  // ✅ NUEVO: abrir modal confirmación eliminar definitivo
+  const pedirEliminar = (r) => {
+    setSelDelete(r);
+    setOpenDelete(true);
+  };
+
+  const cerrarEliminar = () => {
+    if (deleting) return;
+    setOpenDelete(false);
+    setSelDelete(null);
+  };
+
+  // ✅ NUEVO: confirmar eliminación definitiva
+  const confirmarEliminar = async (r) => {
+    if (!r?.id) return showToast("error", "Falta el ID del trabajador.");
+
+    setDeleting(true);
+    try {
+      // ⬇️ Opción A (común): op=eliminar
+      const data = await apiPost(
+        `${BASE_URL}/api.php?action=trabajadores&op=eliminar`,
+        { id: r.id }
+      );
+
+      // ⬇️ Si tu backend usa otro nombre, cambiá arriba por:
+      // `${BASE_URL}/api.php?action=trabajadores&op=baja_definitiva`
+
+      if (!data?.exito) return showToast("error", data?.mensaje || "No se pudo eliminar");
+
+      showToast("exito", "Trabajador eliminado definitivamente", 2200);
+      setRows((prev) => prev.filter((x) => x.id !== r.id));
+      onChanged?.();
+      cerrarEliminar();
+    } catch {
+      showToast("error", "Error de red");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (!open) return null;
+
+  const busy = saving || deleting;
 
   return (
     <div
@@ -237,6 +363,15 @@ export default function ModalTrabajadoresBaja({ open, onClose, onChanged }) {
         trabajador={sel}
       />
 
+      {/* ✅ NUEVO: Modal confirmación rojo */}
+      <ModalEliminarPermanente
+        open={openDelete}
+        onClose={cerrarEliminar}
+        onConfirm={confirmarEliminar}
+        loading={deleting}
+        trabajador={selDelete}
+      />
+
       <div
         className="mi-modal__container"
         role="dialog"
@@ -254,7 +389,7 @@ export default function ModalTrabajadoresBaja({ open, onClose, onChanged }) {
         </div>
 
         <div className="mi-tabpanel is-active">
-          <div className="mi-card mi-card--full" >
+          <div className="mi-card mi-card--full">
             <div className="fl-field fl-col-full">
               <input
                 className="fl-input"
@@ -266,7 +401,10 @@ export default function ModalTrabajadoresBaja({ open, onClose, onChanged }) {
             </div>
           </div>
 
-          <div className="mi-card mi-card--full" style={ {display: "flex", flexDirection:"column", gap:"1rem"} }>
+          <div
+            className="mi-card mi-card--full"
+            style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+          >
             {loading ? (
               <p>Cargando…</p>
             ) : filtrados.length === 0 ? (
@@ -287,15 +425,26 @@ export default function ModalTrabajadoresBaja({ open, onClose, onChanged }) {
                     </div>
                   </div>
 
+                  {/* ✅ Botones: Reactivar + Eliminar definitivo */}
                   <div style={{ display: "flex", gap: 8 }}>
                     <button
                       className="mit-btn mit-btn--solid"
                       onClick={() => pedirReactivar(r)}
                       title="Reactivar"
                       aria-label={`Reactivar ${r.nombre} ${r.apellido}`}
-                      disabled={saving}
+                      disabled={busy}
                     >
                       <FontAwesomeIcon icon={faUserCheck} />
+                    </button>
+
+                    <button
+                      className="mit-btn mit-btn--danger"
+                      onClick={() => pedirEliminar(r)}
+                      title="Eliminar permanentemente"
+                      aria-label={`Eliminar permanentemente a ${r.nombre} ${r.apellido}`}
+                      disabled={busy}
+                    >
+                      <FontAwesomeIcon icon={faTrashAlt} />
                     </button>
                   </div>
                 </div>
@@ -305,7 +454,7 @@ export default function ModalTrabajadoresBaja({ open, onClose, onChanged }) {
         </div>
 
         <div className="mit-actions">
-          <button className="mit-btn mit-btn--ghost" onClick={onClose} disabled={saving}>
+          <button className="mit-btn mit-btn--ghost" onClick={onClose} disabled={busy}>
             Cerrar
           </button>
         </div>
