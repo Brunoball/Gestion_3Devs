@@ -5,6 +5,7 @@ import BASE_URL from "../../config/config";
 import Toast from "../Global/Toast";
 import "./clientes.css";
 
+// Modales
 import SistemasModal from "./modales/SistemasModal";
 import AgregarSistemaModal from "./modales/AgregarSistemaModal";
 import EliminarClienteModal from "./modales/EliminarClienteModal";

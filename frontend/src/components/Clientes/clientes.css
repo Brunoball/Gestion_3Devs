@@ -294,3 +294,107 @@
   transform: translateY(0);
   background: rgba(255, 255, 255, 0.10);
 }
+/* =========================
+   EDICIÓN DE SISTEMA (MODAL)
+   ========================= */
+
+.sistema-form {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: var(--blue-inst-radius);
+  background: var(--blue-inst-gray-100);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+/* inputs y selects */
+.sistema-form input,
+.sistema-form select {
+  width: 100%;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  border-radius: var(--blue-inst-radius);
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  background: #fff;
+  color: var(--blue-inst-gray-900);
+  transition: var(--blue-inst-transition);
+}
+
+.sistema-form input::placeholder {
+  color: var(--blue-inst-gray-500);
+}
+
+.sistema-form input:focus,
+.sistema-form select:focus {
+  outline: none;
+  border-color: rgba(29, 66, 138, 0.55);
+  box-shadow: 0 0 0 3px rgba(29, 66, 138, 0.18);
+}
+
+/* fecha ocupa todo el ancho */
+.sistema-form input[type="date"] {
+  grid-column: 1 / -1;
+}
+
+/* =========================
+   HEADER DE EDICIÓN
+   ========================= */
+
+.sistema-top input {
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  border-radius: var(--blue-inst-radius);
+  padding: 10px 12px;
+  font-weight: 700;
+}
+
+.sistema-top input:first-child {
+  font-size: 1rem;
+}
+
+.sistema-top input + input {
+  margin-top: 6px;
+  font-weight: 500;
+}
+
+/* =========================
+   BOTONES EDICIÓN
+   ========================= */
+
+.sistema-actions button {
+  border-radius: var(--blue-inst-radius);
+  padding: 8px 14px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: var(--blue-inst-transition);
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  background: #fff;
+}
+
+.sistema-actions button:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--blue-inst-shadow-sm);
+}
+
+.sistema-actions button.secundario {
+  background: var(--blue-inst-gray-200);
+  border-color: rgba(15, 23, 42, 0.14);
+}
+
+.sistema-actions button:not(.secundario) {
+  background: var(--blue-inst-primary);
+  color: #fff;
+  border-color: rgba(29, 66, 138, 0.6);
+}
+
+/* =========================
+   RESPONSIVE
+   ========================= */
+
+@media (max-width: 720px) {
+  .sistema-form {
+    grid-template-columns: 1fr;
+  }
+}
