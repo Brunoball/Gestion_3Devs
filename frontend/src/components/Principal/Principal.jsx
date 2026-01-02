@@ -9,10 +9,11 @@ import {
   faUserTie,
   faLayerGroup,
   faChartLine,
+  faUserPlus, // ✅ NUEVO (Registro)
 } from "@fortawesome/free-solid-svg-icons";
 import "./principal.css";
 import "../Global/roots.css";
-import logoRH from "../../imagenes/Escudo.png";
+import logo3devs from "../../imagenes/Logo_3devs.jpeg";
 
 /* =========== Modal cierre de sesión ============= */
 const ConfirmLogoutModal = ({ open, onClose, onConfirm }) => {
@@ -119,17 +120,21 @@ const Principal = () => {
     { icon: faUsers, text: "Clientes", ruta: "/clientes" },
     { icon: faMoneyBillWave, text: "Pagos", ruta: "/pagos" },
     { icon: faUserTie, text: "Trabajadores", ruta: "/trabajadores" },
-
-    // ✅ REEMPLAZO: Distribución -> Mantenimiento
     { icon: faLayerGroup, text: "Mantenimiento", ruta: "/mantenimiento" },
-
     { icon: faChartLine, text: "Reportes", ruta: "/reportes" },
+
+    // ✅ NUEVO: REGISTRO (solo admin, recomendado)
+    { icon: faUserPlus, text: "Registro", ruta: "/registro" },
   ];
 
   const menuVista = [
     { icon: faUsers, text: "Clientes", ruta: "/clientes" },
     { icon: faMoneyBillWave, text: "Pagos", ruta: "/pagos" },
     { icon: faChartLine, text: "Reportes", ruta: "/reportes" },
+
+    // ✅ NUEVO: REGISTRO (si también querés que lo vea "vista", dejalo)
+    // Si NO querés que rol vista lo vea, borrá esta línea.
+    { icon: faUserPlus, text: "Registro", ruta: "/registro" },
   ];
 
   const visibleItems = isAdmin ? menuAdmin : menuVista;
@@ -152,13 +157,15 @@ const Principal = () => {
 
   return (
     <div
-      className={`pagina-principal-container ${isExiting ? "slide-fade-out" : ""}`}
+      className={`pagina-principal-container ${
+        isExiting ? "slide-fade-out" : ""
+      }`}
     >
       <div className="pagina-principal-card">
         <div className="pagina-principal-header header--row">
           <div className="header-text">
             <h1 className="title">
-              Sistema interno <span className="title-accent">3DEVs</span>
+              Sistema interno <span className="title-accent">3Devs</span>
             </h1>
             <p className="subtitle">
               {isAdmin
@@ -168,7 +175,7 @@ const Principal = () => {
           </div>
 
           <div className="logo-container logo-container--right">
-            <img src={logoRH} alt="Logo" className="logo" />
+            <img src={logo3devs} alt="Logo 3Devs" className="logo" />
           </div>
         </div>
 
