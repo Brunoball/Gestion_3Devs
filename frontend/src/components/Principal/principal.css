@@ -82,7 +82,11 @@ body { margin: 0; }
   align-items: center;
   min-height: 100vh;
   font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: url('../../imagenes/img_fondo.png') center center / cover no-repeat fixed;
+  background: linear-gradient(
+    135deg,
+    #ffebee 30%,
+    var(--td-primary) 70%
+  );
   box-sizing: border-box;
   transition: opacity .3s ease;
 }

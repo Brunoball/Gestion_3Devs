@@ -533,15 +533,7 @@
   color: #fff;
 }
 
-.Gelemts-Title::after{
-  content:'';
-  display:block;
-  margin: 8px auto 0;
-  width: 72px;
-  height: 4px;
-  border-radius: 999px;
-  background: rgba(255,255,255,.85);
-}
+
 
 /* ====== Alert ====== */
 .Gelemts-Alert{

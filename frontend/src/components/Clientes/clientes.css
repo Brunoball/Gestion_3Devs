@@ -138,7 +138,7 @@
   border: 0;
   border-radius: var(--blue-inst-radius);
   cursor: pointer;
-  font-weight: 900;
+  font-size: 1rem;
   color: #fff;
 
   background: var(--blue-inst-secondary);
@@ -207,7 +207,7 @@
   border: 1px solid rgba(15, 23, 42, 0.14);
   background: #fff;
   font-weight: 900;
-  color: var(--blue-inst-gray-900);
+  color: var(--ini-primary);
   transition: var(--blue-inst-transition);
 }
 
@@ -352,6 +352,7 @@
 
 .sistema-top input:first-child {
   font-size: 1rem;
+  font-weight: 500;
 }
 
 .sistema-top input + input {
@@ -366,7 +367,8 @@
 .sistema-actions button {
   border-radius: var(--blue-inst-radius);
   padding: 8px 14px;
-  font-weight: 900;
+  font-weight: 500;
+  font-size: 1rem;
   cursor: pointer;
   transition: var(--blue-inst-transition);
   border: 1px solid rgba(15, 23, 42, 0.18);

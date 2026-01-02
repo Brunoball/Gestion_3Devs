@@ -126,7 +126,7 @@
 .mi-btn{
   border-radius:12px;
   padding:10px 14px;
-  font-weight:900;
+  font-weight:600;
   border:1px solid var(--mi-border);
   cursor:pointer;
   transition:.15s;
@@ -372,10 +372,12 @@
 
 .sistema-title{
   min-width: 260px;
+  display: flex;
+  gap: 10px;
 }
 
 .sistema-nombre{
-  font-weight:900;
+  font-weight:500;
   font-size:18px;
   color:var(--mi-text);
   letter-spacing:-.01em;
@@ -398,7 +400,6 @@
 .sistema-actions button{
   border-radius:12px;
   padding:9px 12px;
-  font-weight:900;
   border:1px solid var(--mi-border);
   background:#fff;
   cursor:pointer;
@@ -505,7 +506,6 @@
 .asignacion-row button{
   border-radius:12px;
   padding:10px 14px;
-  font-weight:900;
   cursor:pointer;
   border:1px solid rgba(37,99,235,.35);
   background: var(--mi-primary-600);
@@ -555,7 +555,7 @@
 .mini-row button.peligro{
   border-radius:12px;
   padding:9px 12px;
-  font-weight:900;
+  font-size: 1rem;
   border:1px solid rgba(211,47,47,.25);
   background: rgba(211,47,47,.06);
   color: var(--reg-danger);
