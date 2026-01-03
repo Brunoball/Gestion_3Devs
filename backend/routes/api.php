@@ -25,11 +25,15 @@ $action = $_GET['action'] ?? '';
 // ✅ DB UNA SOLA VEZ (define $pdo)
 require_once __DIR__ . '/../config/db.php';
 
-// 👉 Routers de módulos (solo estructura)
+// 👉 Routers de módulos
 require_once __DIR__ . '/../modules/login/route.php';
 require_once __DIR__ . '/../modules/clientes/route.php';
 require_once __DIR__ . '/../modules/trabajadores/route.php';
 require_once __DIR__ . '/../modules/mantenimiento/route.php';
+require_once __DIR__ . '/../modules/pagos/route.php';
+
+// ✅ AGREGAR: reportes
+require_once __DIR__ . '/../modules/reportes/route.php';
 
 try {
 
@@ -37,6 +41,12 @@ try {
   if (route_clientes($action)) exit;
   if (route_trabajadores($action)) exit;
   if (route_mantenimiento($action)) exit;
+
+  // ✅ pagos (incluye action=pagos y action=anios_pagos)
+  if (route_pagos($action)) exit;
+
+  // ✅ reportes (action=reportes)
+  if (route_reportes($action)) exit;
 
   http_response_code(200);
   echo json_encode([

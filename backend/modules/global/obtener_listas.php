@@ -95,21 +95,43 @@ try {
     $planes_mantenimiento = [];
     foreach ($pdo->query($sqlPlanes, PDO::FETCH_ASSOC) as $r) {
         $planes_mantenimiento[] = [
-            'id'            => (int)$r['id'],
-            'nombre'        => (string)$r['nombre'],
-            'descripcion'   => $r['descripcion'] !== null ? (string)$r['descripcion'] : null,
-            'monto'         => (float)$r['monto'], // decimal(10,2)
-            'activo'        => (int)$r['activo'],
-            'fecha_creacion'=> (string)$r['fecha_creacion'],
+            'id'             => (int)$r['id'],
+            'nombre'         => (string)$r['nombre'],
+            'descripcion'    => $r['descripcion'] !== null ? (string)$r['descripcion'] : null,
+            'monto'          => (float)$r['monto'], // decimal(10,2)
+            'activo'         => (int)$r['activo'],
+            'fecha_creacion' => (string)$r['fecha_creacion'],
+        ];
+    }
+
+    /* =========================
+       4) MESES (tabla meses)
+       Tabla: gestion_3devs.meses
+       Campos: id_mes (PK), mes (varchar(15) UNIQUE)
+    ========================== */
+    $sqlMeses = "
+        SELECT
+            id_mes AS id,
+            mes
+        FROM meses
+        ORDER BY id_mes ASC
+    ";
+
+    $meses = [];
+    foreach ($pdo->query($sqlMeses, PDO::FETCH_ASSOC) as $r) {
+        $meses[] = [
+            'id'  => (int)$r['id'],
+            'mes' => (string)$r['mes'],
         ];
     }
 
     echo json_encode([
         'exito' => true,
         'listas' => [
-            'trabajadores'        => $trabajadores,
-            'medios_pago'         => $medios_pago,
-            'planes_mantenimiento'=> $planes_mantenimiento,
+            'trabajadores'         => $trabajadores,
+            'medios_pago'          => $medios_pago,
+            'planes_mantenimiento' => $planes_mantenimiento,
+            'meses'                => $meses,
         ],
     ], JSON_UNESCAPED_UNICODE);
 

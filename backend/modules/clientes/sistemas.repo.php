@@ -15,7 +15,7 @@ function clientes_sistemas_listar(): void {
     $st = $pdo->prepare("
       SELECT
         id_sistema, id_cliente, nombre, descripcion,
-        plan, monto_desarrollo, monto_mensual, estado, fecha_inicio
+        estado, fecha_inicio
       FROM clientes_sistemas
       WHERE id_cliente=:id
       ORDER BY nombre ASC
@@ -31,22 +31,15 @@ function clientes_sistemas_crear(): void {
   global $pdo;
   $in = read_json();
 
-  $id_cliente = (int)($in['id_cliente'] ?? 0);
-  $nombre     = trim((string)($in['nombre'] ?? ''));
-  $descripcion= trim((string)($in['descripcion'] ?? ''));
-  $plan       = trim((string)($in['plan'] ?? 'mensual'));
+  $id_cliente  = (int)($in['id_cliente'] ?? 0);
+  $nombre      = trim((string)($in['nombre'] ?? ''));
+  $descripcion = trim((string)($in['descripcion'] ?? ''));
 
-  $monto_desarrollo = (float)($in['monto_desarrollo'] ?? 0);
-  $monto_mensual    = (float)($in['monto_mensual'] ?? 0);
-
-  $estado     = trim((string)($in['estado'] ?? 'activo'));
+  $estado      = trim((string)($in['estado'] ?? 'activo'));
   $fecha_inicio = trim((string)($in['fecha_inicio'] ?? ''));
 
   if ($id_cliente <= 0) json_out(['exito' => false, 'mensaje' => 'id_cliente inválido']);
   if ($nombre === '') json_out(['exito' => false, 'mensaje' => 'Nombre del sistema requerido']);
-
-  $allowedPlan = ['mensual','anual','soporte','proyecto'];
-  if (!in_array($plan, $allowedPlan, true)) $plan = 'mensual';
 
   $allowedEstado = ['activo','pausado','finalizado'];
   if (!in_array($estado, $allowedEstado, true)) $estado = 'activo';
@@ -59,17 +52,14 @@ function clientes_sistemas_crear(): void {
   try {
     $st = $pdo->prepare("
       INSERT INTO clientes_sistemas
-        (id_cliente, nombre, descripcion, plan, monto_desarrollo, monto_mensual, estado, fecha_inicio)
+        (id_cliente, nombre, descripcion, estado, fecha_inicio)
       VALUES
-        (:idc, :n, :d, :p, :md, :mm, :e, :fi)
+        (:idc, :n, :d, :e, :fi)
     ");
     $st->execute([
       ':idc' => $id_cliente,
       ':n'   => $nombre,
       ':d'   => ($descripcion === '' ? null : $descripcion),
-      ':p'   => $plan,
-      ':md'  => $monto_desarrollo,
-      ':mm'  => $monto_mensual,
       ':e'   => $estado,
       ':fi'  => $fi,
     ]);
@@ -84,22 +74,15 @@ function clientes_sistemas_actualizar(): void {
   global $pdo;
   $in = read_json();
 
-  $id_sistema = (int)($in['id_sistema'] ?? 0);
-  $nombre     = trim((string)($in['nombre'] ?? ''));
-  $descripcion= trim((string)($in['descripcion'] ?? ''));
-  $plan       = trim((string)($in['plan'] ?? 'mensual'));
+  $id_sistema  = (int)($in['id_sistema'] ?? 0);
+  $nombre      = trim((string)($in['nombre'] ?? ''));
+  $descripcion = trim((string)($in['descripcion'] ?? ''));
 
-  $monto_desarrollo = (float)($in['monto_desarrollo'] ?? 0);
-  $monto_mensual    = (float)($in['monto_mensual'] ?? 0);
-
-  $estado     = trim((string)($in['estado'] ?? 'activo'));
+  $estado      = trim((string)($in['estado'] ?? 'activo'));
   $fecha_inicio = trim((string)($in['fecha_inicio'] ?? ''));
 
   if ($id_sistema <= 0) json_out(['exito' => false, 'mensaje' => 'id_sistema inválido']);
   if ($nombre === '') json_out(['exito' => false, 'mensaje' => 'Nombre requerido']);
-
-  $allowedPlan = ['mensual','anual','soporte','proyecto'];
-  if (!in_array($plan, $allowedPlan, true)) $plan = 'mensual';
 
   $allowedEstado = ['activo','pausado','finalizado'];
   if (!in_array($estado, $allowedEstado, true)) $estado = 'activo';
@@ -115,9 +98,6 @@ function clientes_sistemas_actualizar(): void {
       SET
         nombre=:n,
         descripcion=:d,
-        plan=:p,
-        monto_desarrollo=:md,
-        monto_mensual=:mm,
         estado=:e,
         fecha_inicio=:fi
       WHERE id_sistema=:id
@@ -125,9 +105,6 @@ function clientes_sistemas_actualizar(): void {
     $st->execute([
       ':n'  => $nombre,
       ':d'  => ($descripcion === '' ? null : $descripcion),
-      ':p'  => $plan,
-      ':md' => $monto_desarrollo,
-      ':mm' => $monto_mensual,
       ':e'  => $estado,
       ':fi' => $fi,
       ':id' => $id_sistema,
