@@ -12,6 +12,7 @@ import {
   faCoins,
   faMoneyBillTrendUp,
   faMoneyBillTransfer,
+  faUsers,
 } from "@fortawesome/free-solid-svg-icons";
 import * as XLSX from "xlsx";
 
@@ -98,10 +99,10 @@ function GridTable({ title, icon, columns, rows, loading }) {
 export default function Reportes() {
   const navigate = useNavigate();
 
-  // ✅ Tabs (2 botones)
-  const [view, setView] = useState("pagos"); // "pagos" | "egresos"
+  // ✅ Tabs (3 botones)
+  const [view, setView] = useState("pagos"); // "pagos" | "egresos" | "trabajadores"
 
-  // ✅ Filtro Año (AHORA viene del backend op=anios)
+  // ✅ Filtro Año (backend op=anios)
   const [aniosDisponibles, setAniosDisponibles] = useState([]);
   const [loadingAnios, setLoadingAnios] = useState(true);
   const [anioSeleccionado, setAnioSeleccionado] = useState("TODOS"); // ✅ "TODOS" | YYYY
@@ -124,24 +125,54 @@ export default function Reportes() {
   // Data
   const [pagos, setPagos] = useState([]);
   const [egresos, setEgresos] = useState([]);
+  const [trabajadores, setTrabajadores] = useState([]);
+
+  // ✅ opcional: mostrar error en UI
+  const [errorMsg, setErrorMsg] = useState("");
 
   const volver = useCallback(() => navigate(-1), [navigate]);
 
+  // ✅ FIX: fetch robusto (no revienta con HTML)
   const fetchJSON = useCallback(async (url) => {
     const sep = url.includes("?") ? "&" : "?";
-    const res = await fetch(`${url}${sep}ts=${Date.now()}`, { method: "GET" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+    const finalUrl = `${url}${sep}ts=${Date.now()}`;
+
+    const res = await fetch(finalUrl, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+
+    const text = await res.text();
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} :: ${text.slice(0, 300)}`);
+    }
+
+    const trimmed = (text || "").trim();
+
+    if (trimmed.startsWith("<")) {
+      throw new Error(
+        `Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(
+          0,
+          300
+        )}`
+      );
+    }
+
+    try {
+      return JSON.parse(trimmed || "{}");
+    } catch (e) {
+      throw new Error(`JSON inválido. Primeros chars: ${trimmed.slice(0, 300)}`);
+    }
   }, []);
 
-  /* ===== AÑOS (backend) =====
-     Backend:
-     GET /api.php?action=reportes&op=anios
-     -> { exito:true, anios:[2026,2025,...] }
-  */
+  /* ===== AÑOS (backend) ===== */
   useEffect(() => {
+    let alive = true;
+
     (async () => {
       try {
+        setErrorMsg("");
         setLoadingAnios(true);
 
         const data = await fetchJSON(
@@ -149,45 +180,49 @@ export default function Reportes() {
         ).catch(() => null);
 
         const arr = Array.isArray(data?.anios) ? data.anios : [];
-
-        // normaliza: strings para el select + agrega TODOS
         const years = ["TODOS", ...arr.map((y) => String(y))];
 
+        if (!alive) return;
         setAniosDisponibles(years);
 
-        // ✅ default: año actual si existe; si no, el más nuevo; si no, TODOS
         if (!didInitAnios.current) {
           const now = new Date();
           const yNow = String(now.getFullYear());
 
           let yDefault = "TODOS";
           if (years.includes(yNow)) yDefault = yNow;
-          else if (arr.length > 0) yDefault = String(arr[0]); // viene ORDER BY DESC
+          else if (arr.length > 0) yDefault = String(arr[0]); // ORDER BY DESC
 
           setAnioSeleccionado(yDefault);
           didInitAnios.current = true;
         }
       } catch (e) {
         console.error("Error cargando años:", e);
+        if (!alive) return;
+
+        setErrorMsg(String(e?.message || e));
         setAniosDisponibles(["TODOS"]);
         if (!didInitAnios.current) {
           setAnioSeleccionado("TODOS");
           didInitAnios.current = true;
         }
       } finally {
-        setLoadingAnios(false);
+        if (alive) setLoadingAnios(false);
       }
     })();
+
+    return () => {
+      alive = false;
+    };
   }, [fetchJSON]);
 
-  /* ===== Cargar MESES =====
-     Backend:
-     GET /api.php?action=listas
-     -> { exito:true, listas:{ meses:[{id, mes}], ... } }
-  */
+  /* ===== Cargar MESES ===== */
   useEffect(() => {
+    let alive = true;
+
     (async () => {
       try {
+        setErrorMsg("");
         setLoadingMeses(true);
 
         const data = await fetchJSON(`${BASE_URL}/api.php?action=listas`).catch(
@@ -195,12 +230,13 @@ export default function Reportes() {
         );
 
         const meses = Array.isArray(data?.listas?.meses) ? data.listas.meses : [];
+        if (!alive) return;
+
         setMesesDisponibles(meses);
 
-        // ✅ default: mes actual si existe (id_mes 1..12); si no, TODOS
         if (!didInitMeses.current) {
           const now = new Date();
-          const mNow = String(now.getMonth() + 1); // 1..12
+          const mNow = String(now.getMonth() + 1);
 
           const exists = meses.some((m) => String(m.id) === mNow);
           setMesSeleccionado(exists ? mNow : "TODOS");
@@ -208,41 +244,67 @@ export default function Reportes() {
         }
       } catch (e) {
         console.error("Error cargando meses:", e);
+        if (!alive) return;
+
+        setErrorMsg(String(e?.message || e));
         setMesesDisponibles([]);
         if (!didInitMeses.current) {
           setMesSeleccionado("TODOS");
           didInitMeses.current = true;
         }
       } finally {
-        setLoadingMeses(false);
+        if (alive) setLoadingMeses(false);
       }
     })();
+
+    return () => {
+      alive = false;
+    };
   }, [fetchJSON]);
 
-  /* ===== Carga de DATOS (REPORTES) =====
-     Backend actual:
-     GET /api.php?action=reportes&op=movimientos
-     GET /api.php?action=reportes&op=movimientos&mes=ID_MES
-     GET /api.php?action=reportes&op=movimientos&anio=YYYY
-  */
+  /* ===== Carga de DATOS (REPORTES) ===== */
   useEffect(() => {
+    let alive = true;
+
     (async () => {
       try {
+        setErrorMsg("");
         setLoadingData(true);
 
         const u = new URL(`${BASE_URL}/api.php`);
         u.searchParams.set("action", "reportes");
-        u.searchParams.set("op", "movimientos");
 
-        // ✅ anio opcional (solo si no es TODOS)
         if (anioSeleccionado !== "TODOS") {
           u.searchParams.set("anio", String(parseInt(anioSeleccionado, 10)));
         }
-
         if (mesSeleccionado !== "TODOS") {
           u.searchParams.set("mes", String(parseInt(mesSeleccionado, 10)));
         }
 
+        if (view === "trabajadores") {
+          u.searchParams.set("op", "trabajadores");
+          const data = await fetchJSON(u.toString());
+
+          const arr = Array.isArray(data?.trabajadores) ? data.trabajadores : [];
+          const normT = (r) => ({
+            id: r.id ?? r.id_trabajador ?? null,
+            nombre: r.nombre ?? "",
+            apellido: r.apellido ?? "",
+            // email: r.email ?? "", // 👈 lo dejamos fuera de uso
+            rol: r.rol ?? "",
+            alias_pago: r.alias_pago ?? "",
+            sistemas_cobrados: Number(r.sistemas_cobrados ?? 0) || 0,
+            monto: Number(r.monto ?? 0) || 0,
+          });
+
+          if (!alive) return;
+          setTrabajadores(arr.map(normT));
+          setPagos([]);
+          setEgresos([]);
+          return;
+        }
+
+        u.searchParams.set("op", "movimientos");
         const data = await fetchJSON(u.toString());
 
         const pagosArr = Array.isArray(data?.pagos)
@@ -253,7 +315,6 @@ export default function Reportes() {
 
         const egresosArr = Array.isArray(data?.egresos) ? data.egresos : [];
 
-        // Normaliza para que siempre existan estas keys
         const norm = (r) => ({
           id: r.id ?? r.ID ?? r.id_mov ?? r.id_pago ?? r.id_egreso ?? null,
           fecha:
@@ -271,17 +332,27 @@ export default function Reportes() {
           monto: Number(r.monto ?? r.Monto ?? r.importe ?? r.Precio ?? 0) || 0,
         });
 
+        if (!alive) return;
         setPagos(pagosArr.map(norm));
         setEgresos(egresosArr.map(norm));
+        setTrabajadores([]);
       } catch (e) {
         console.error("Error cargando reportes:", e);
+        if (!alive) return;
+
+        setErrorMsg(String(e?.message || e));
         setPagos([]);
         setEgresos([]);
+        setTrabajadores([]);
       } finally {
-        setLoadingData(false);
+        if (alive) setLoadingData(false);
       }
     })();
-  }, [mesSeleccionado, anioSeleccionado, fetchJSON]);
+
+    return () => {
+      alive = false;
+    };
+  }, [mesSeleccionado, anioSeleccionado, view, fetchJSON]);
 
   /* ===== Totales ===== */
   const totalPagos = useMemo(
@@ -297,6 +368,11 @@ export default function Reportes() {
   const balance = useMemo(
     () => totalPagos - totalEgresos,
     [totalPagos, totalEgresos]
+  );
+
+  const totalTrabajadores = useMemo(
+    () => trabajadores.reduce((acc, r) => acc + (Number(r.monto || 0) || 0), 0),
+    [trabajadores]
   );
 
   /* ===== Búsqueda ===== */
@@ -320,8 +396,17 @@ export default function Reportes() {
     });
   }, [egresos, q]);
 
+  const trabajadoresFiltrados = useMemo(() => {
+    if (!q) return trabajadores;
+    return trabajadores.filter((r) => {
+      const blob =
+        `${r.nombre} ${r.apellido} ${r.rol} ${r.alias_pago} ${r.sistemas_cobrados} ${r.monto}`.toLowerCase();
+      return blob.includes(q);
+    });
+  }, [trabajadores, q]);
+
   /* ===== Columnas ===== */
-  const cols = useMemo(
+  const colsMov = useMemo(
     () => [
       { key: "fecha", label: "Fecha", fr: "0.9fr" },
       {
@@ -357,30 +442,99 @@ export default function Reportes() {
     []
   );
 
+  // ✅ SIN EMAIL
+  const colsTrab = useMemo(
+    () => [
+      {
+        key: "trabajador",
+        label: "Trabajador",
+        fr: "1.8fr",
+        render: (r) => `${r.apellido || ""} ${r.nombre || ""}`.trim() || "—",
+      },
+      { key: "rol", label: "Rol", fr: "1fr" },
+      {
+        key: "alias_pago",
+        label: "Alias",
+        fr: "1.4fr",
+        render: (r) => r.alias_pago || "—",
+      },
+      {
+        key: "sistemas_cobrados",
+        label: "Sistemas",
+        fr: "0.9fr",
+        center: true,
+        render: (r) => String(r.sistemas_cobrados ?? 0),
+      },
+      {
+        key: "monto",
+        label: "A pagar",
+        fr: "1fr",
+        center: true,
+        render: (r) => `$${nfPesos.format(Number(r.monto || 0))}`,
+      },
+    ],
+    []
+  );
+
   /* ===== Export Excel (según tab activo) ===== */
   const exportarExcel = useCallback(() => {
     const wb = XLSX.utils.book_new();
 
-    const rows = view === "pagos" ? pagosFiltrados : egresosFiltrados;
+    const mesTxt =
+      mesSeleccionado === "TODOS"
+        ? "TODOS"
+        : mesesDisponibles.find((m) => String(m.id) === String(mesSeleccionado))
+            ?.mes || `MES_${mesSeleccionado}`;
 
-    const makeSheet = (arr) =>
-      XLSX.utils.json_to_sheet(
-        arr.map((r) => ({
-          FECHA: r.fecha,
-          CLIENTE:
-            r.cliente_nombre || String(r.concepto || "").split(" - ")[0] || "",
-          SISTEMA:
-            r.sistema_nombre || String(r.concepto || "").split(" - ")[1] || "",
-          MES: r.categoria,
-          MEDIO: r.medio,
-          MONTO: r.monto,
+    const anioTxt = anioSeleccionado === "TODOS" ? "TODOS" : anioSeleccionado;
+
+    if (view === "trabajadores") {
+      const ws = XLSX.utils.json_to_sheet(
+        trabajadoresFiltrados.map((r) => ({
+          TRABAJADOR: `${r.apellido || ""} ${r.nombre || ""}`.trim(),
+          ROL: r.rol,
+          ALIAS: r.alias_pago,
+          SISTEMAS: r.sistemas_cobrados,
+          A_PAGAR: r.monto,
         })),
-        { header: ["FECHA", "CLIENTE", "SISTEMA", "MES", "MEDIO", "MONTO"] }
+        {
+          header: ["TRABAJADOR", "ROL", "ALIAS", "SISTEMAS", "A_PAGAR"],
+        }
       );
 
-    const nombreHoja = view === "pagos" ? "Pagos" : "Egresos";
+      ws["!cols"] = [
+        { wch: 28 },
+        { wch: 14 },
+        { wch: 22 },
+        { wch: 10 },
+        { wch: 14 },
+      ];
 
-    const ws = makeSheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, "Trabajadores");
+      XLSX.writeFile(wb, `reportes_trabajadores_${anioTxt}_${mesTxt}.xlsx`);
+      return;
+    }
+
+    const rows = view === "pagos" ? pagosFiltrados : egresosFiltrados;
+
+    const ws = XLSX.utils.json_to_sheet(
+      rows.map((r) => ({
+        FECHA: r.fecha,
+        CLIENTE:
+          r.cliente_nombre ||
+          String(r.concepto || "").split(" - ")[0] ||
+          "",
+        SISTEMA:
+          r.sistema_nombre ||
+          String(r.concepto || "").split(" - ")[1] ||
+          "",
+        MES: r.categoria,
+        MEDIO: r.medio,
+        MONTO: r.monto,
+      })),
+      { header: ["FECHA", "CLIENTE", "SISTEMA", "MES", "MEDIO", "MONTO"] }
+    );
+
     ws["!cols"] = [
       { wch: 12 },
       { wch: 22 },
@@ -389,21 +543,14 @@ export default function Reportes() {
       { wch: 16 },
       { wch: 12 },
     ];
-    XLSX.utils.book_append_sheet(wb, ws, nombreHoja);
 
-    const mesTxt =
-      mesSeleccionado === "TODOS"
-        ? "TODOS"
-        : (mesesDisponibles.find((m) => String(m.id) === String(mesSeleccionado))
-            ?.mes || `MES_${mesSeleccionado}`);
-
-    const anioTxt = anioSeleccionado === "TODOS" ? "TODOS" : anioSeleccionado;
-
+    XLSX.utils.book_append_sheet(wb, ws, view === "pagos" ? "Pagos" : "Egresos");
     XLSX.writeFile(wb, `reportes_${view}_${anioTxt}_${mesTxt}.xlsx`);
   }, [
     view,
     pagosFiltrados,
     egresosFiltrados,
+    trabajadoresFiltrados,
     mesSeleccionado,
     mesesDisponibles,
     anioSeleccionado,
@@ -412,8 +559,8 @@ export default function Reportes() {
   const labelMes =
     mesSeleccionado === "TODOS"
       ? "Todos los meses"
-      : (mesesDisponibles.find((m) => String(m.id) === String(mesSeleccionado))
-          ?.mes || "");
+      : mesesDisponibles.find((m) => String(m.id) === String(mesSeleccionado))
+          ?.mes || "";
 
   const labelAnio =
     anioSeleccionado === "TODOS" ? "Todos los años" : `Año ${anioSeleccionado}`;
@@ -494,17 +641,32 @@ export default function Reportes() {
                 <FontAwesomeIcon icon={faFileExcel} /> Excel
               </button>
             </div>
+
+            {/* Error visible */}
+            {errorMsg ? (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  background: "rgba(220,38,38,.08)",
+                  border: "1px solid rgba(220,38,38,.25)",
+                  color: "#991b1b",
+                  fontSize: 12,
+                  lineHeight: 1.35,
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                <b>Error:</b> {errorMsg}
+              </div>
+            ) : null}
           </section>
         </aside>
 
         {/* MAIN */}
         <main className="contable-main">
-          {/* Toolbar arriba (2 botones) */}
-          <div
-            className="main-switch"
-            role="tablist"
-            aria-label="Cambiar vista principal"
-          >
+          {/* Toolbar arriba (3 botones) */}
+          <div className="main-switch" role="tablist" aria-label="Cambiar vista principal">
             <div className="switch-left">
               <button
                 type="button"
@@ -525,6 +687,16 @@ export default function Reportes() {
               >
                 <FontAwesomeIcon icon={faMoneyBillTransfer} /> Egresos
               </button>
+
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === "trabajadores"}
+                className={`segmented ${view === "trabajadores" ? "is-active" : ""}`}
+                onClick={() => setView("trabajadores")}
+              >
+                <FontAwesomeIcon icon={faUsers} /> Trabajadores
+              </button>
             </div>
 
             <div className="switch-right">
@@ -532,7 +704,7 @@ export default function Reportes() {
                 <FontAwesomeIcon icon={faSearch} />
                 <input
                   type="text"
-                  placeholder="Buscar por fecha, cliente, sistema, mes, medio o monto…"
+                  placeholder="Buscar…"
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
                   disabled={loadingMeses || loadingAnios}
@@ -594,30 +766,54 @@ export default function Reportes() {
                 borderRadius: 12,
                 padding: "10px 16px",
                 background: "#fff",
-                borderColor: balance < 0 ? "#dc2626" : "#16a34a",
+                borderColor:
+                  view === "trabajadores"
+                    ? "#0ea5e9"
+                    : balance < 0
+                    ? "#dc2626"
+                    : "#16a34a",
               }}
             >
               <div
                 style={{
                   fontSize: 13,
                   fontWeight: 600,
-                  color: balance < 0 ? "#dc2626" : "#16a34a",
+                  color:
+                    view === "trabajadores"
+                      ? "#0ea5e9"
+                      : balance < 0
+                      ? "#dc2626"
+                      : "#16a34a",
                 }}
               >
-                Balance (pagos − egresos)
+                {view === "trabajadores"
+                  ? "Total a pagar (trabajadores)"
+                  : "Balance (pagos − egresos)"}
               </div>
               <div
                 style={{
                   fontSize: 22,
                   fontWeight: 800,
                   marginTop: 4,
-                  color: balance < 0 ? "#dc2626" : "#16a34a",
+                  color:
+                    view === "trabajadores"
+                      ? "#0ea5e9"
+                      : balance < 0
+                      ? "#dc2626"
+                      : "#16a34a",
                 }}
               >
-                ${nfPesos.format(Math.abs(balance))}
+                $
+                {nfPesos.format(
+                  view === "trabajadores" ? totalTrabajadores : Math.abs(balance)
+                )}
               </div>
               <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-                {balance < 0 ? "Déficit" : "Superávit"}
+                {view === "trabajadores"
+                  ? `${labelAnio} • ${labelMes || "Todos los meses"}`
+                  : balance < 0
+                  ? "Déficit"
+                  : "Superávit"}
               </div>
             </div>
           </div>
@@ -628,7 +824,7 @@ export default function Reportes() {
               <GridTable
                 title="Pagos"
                 icon={faMoneyBillTrendUp}
-                columns={cols}
+                columns={colsMov}
                 rows={pagosFiltrados}
                 loading={loadingData}
               />
@@ -638,8 +834,18 @@ export default function Reportes() {
               <GridTable
                 title="Egresos"
                 icon={faMoneyBillTransfer}
-                columns={cols}
+                columns={colsMov}
                 rows={egresosFiltrados}
+                loading={loadingData}
+              />
+            )}
+
+            {view === "trabajadores" && (
+              <GridTable
+                title="Trabajadores"
+                icon={faUsers}
+                columns={colsTrab}
+                rows={trabajadoresFiltrados}
                 loading={loadingData}
               />
             )}
