@@ -83,7 +83,41 @@ try {
       json_ok([
         'reportes' => [
           ['id' => 'movimientos', 'nombre' => 'Pagos (movimientos)', 'metodo' => 'GET'],
+          ['id' => 'anios', 'nombre' => 'Años disponibles (pagos)', 'metodo' => 'GET'],
         ]
+      ]);
+    }
+
+    /* =========================================================
+       ✅ AÑOS DISPONIBLES (desde pagos.fecha_pago)
+       GET /api.php?action=reportes&op=anios
+
+       Devuelve:
+       - anios: [2026, 2025, 2024, ...]
+    ========================================================= */
+    case 'anios': {
+      $method = req_method();
+      if ($method !== 'GET') json_fail('Método no permitido. Se esperaba GET');
+
+      $sql = "
+        SELECT DISTINCT YEAR(p.fecha_pago) AS anio
+        FROM pagos p
+        WHERE p.fecha_pago IS NOT NULL
+        ORDER BY anio DESC
+      ";
+
+      $st = $pdo->prepare($sql);
+      $st->execute();
+      $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+      $anios = [];
+      foreach ($rows as $r) {
+        $y = (int)($r['anio'] ?? 0);
+        if ($y > 0) $anios[] = $y;
+      }
+
+      json_ok([
+        'anios' => $anios,
       ]);
     }
 

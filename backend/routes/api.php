@@ -43,22 +43,119 @@ require_once __DIR__ . '/../modules/reportes/route.php';
  */
 require_once __DIR__ . '/../modules/Global/route.php';
 
+/**
+ * ✅ Fallback de REPORTES:
+ * Si tu módulo reportes todavía no devuelve egresos (o no está implementado),
+ * este handler lo resuelve SIN crear archivos extra.
+ */
+function fallback_reportes(PDO $pdo): void
+{
+  $op = $_GET['op'] ?? '';
+
+  // GET /api.php?action=reportes&op=anios
+  if ($op === 'anios') {
+    // Años disponibles basados en egresos (podés sumar ingresos/pagos después si querés)
+    $stmt = $pdo->query("
+      SELECT DISTINCT YEAR(fecha) AS anio
+      FROM egresos
+      ORDER BY anio DESC
+    ");
+    $anios = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+    echo json_encode([
+      'exito' => true,
+      'anios' => $anios,
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+  }
+
+  // GET /api.php?action=reportes&op=movimientos&anio=YYYY&mes=ID_MES
+  if ($op === 'movimientos') {
+
+    $anio = isset($_GET['anio']) ? (int)$_GET['anio'] : null;
+    $mes  = isset($_GET['mes'])  ? (int)$_GET['mes']  : null;
+
+    // 🔸 EGRESOS
+    // Basado en tu tabla egresos: id_egreso, concepto, descripcion, monto, fecha, id_medio_pago...
+    // Se asume:
+    // - tabla "meses" con columnas: id, mes (como usás en action=listas)
+    // - tabla "medios_pago" con columnas: id_medio_pago, nombre
+    //
+    // Si tu tabla de medios se llama distinto, decime el nombre y lo ajusto 1:1.
+    $sqlE = "
+      SELECT
+        e.id_egreso AS id,
+        e.fecha     AS fecha,
+        e.concepto  AS concepto,
+        UPPER(COALESCE(m.mes, '')) AS categoria,
+        COALESCE(mp.nombre, '')    AS medio,
+        e.monto     AS monto
+      FROM egresos e
+      LEFT JOIN meses m
+        ON m.id = MONTH(e.fecha)
+      LEFT JOIN medios_pago mp
+        ON mp.id_medio_pago = e.id_medio_pago
+      WHERE 1=1
+    ";
+
+    $params = [];
+
+    if ($anio) {
+      $sqlE .= " AND YEAR(e.fecha) = :anio ";
+      $params[':anio'] = $anio;
+    }
+
+    if ($mes) {
+      $sqlE .= " AND MONTH(e.fecha) = :mes ";
+      $params[':mes'] = $mes;
+    }
+
+    $sqlE .= " ORDER BY e.fecha DESC, e.id_egreso DESC ";
+
+    $stE = $pdo->prepare($sqlE);
+    $stE->execute($params);
+    $egresos = $stE->fetchAll(PDO::FETCH_ASSOC);
+
+    // 👇 Para no romper tu React, devolvemos ambos arrays.
+    // Tu frontend ya soporta pagosArr desde data.pagos o data.ingresos.
+    echo json_encode([
+      'exito'   => true,
+      'pagos'   => [],       // si todavía no lo implementaste en módulo
+      'egresos' => $egresos,
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+  }
+
+  // op inválido
+  echo json_encode([
+    'exito'   => false,
+    'mensaje' => 'op no válida en reportes: ' . $op
+  ], JSON_UNESCAPED_UNICODE);
+  exit;
+}
+
 try {
 
-  if (route_login($action)) exit;
-  if (route_clientes($action)) exit;
-  if (route_trabajadores($action)) exit;
-  if (route_mantenimiento($action)) exit;
+  if (function_exists('route_login') && route_login($action)) exit;
+  if (function_exists('route_clientes') && route_clientes($action)) exit;
+  if (function_exists('route_trabajadores') && route_trabajadores($action)) exit;
+  if (function_exists('route_mantenimiento') && route_mantenimiento($action)) exit;
 
   // ✅ pagos (incluye action=pagos y action=anios_pagos)
-  if (route_pagos($action)) exit;
+  if (function_exists('route_pagos') && route_pagos($action)) exit;
 
   // ✅ reportes (action=reportes)
-  if (route_reportes($action)) exit;
+  // Si el módulo reportes no respondió (o no está completo), usamos fallback para egresos.
+  if ($action === 'reportes') {
+    if (function_exists('route_reportes') && route_reportes($action)) {
+      exit;
+    }
+    fallback_reportes($pdo);
+    exit;
+  }
 
-  // ✅ listas (action=listas) -> backend/modules/Global/obtener_listas.php
-  // (El router lo llamamos route_listas para que coincida con action=listas)
-  if (route_listas($action)) exit;
+  // ✅ listas (action=listas)
+  if (function_exists('route_listas') && route_listas($action)) exit;
 
   http_response_code(200);
   echo json_encode([

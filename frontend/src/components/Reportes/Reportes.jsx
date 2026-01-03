@@ -1,5 +1,5 @@
 // src/components/Contable/Reportes.jsx
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./dashboard.css"; // ✅ misma estética del Dashboard Contable
 import BASE_URL from "../../config/config";
@@ -101,7 +101,7 @@ export default function Reportes() {
   // ✅ Tabs (2 botones)
   const [view, setView] = useState("pagos"); // "pagos" | "egresos"
 
-  // ✅ Filtro Año (FRONT por ahora: no existe op=anios en backend)
+  // ✅ Filtro Año (AHORA viene del backend op=anios)
   const [aniosDisponibles, setAniosDisponibles] = useState([]);
   const [loadingAnios, setLoadingAnios] = useState(true);
   const [anioSeleccionado, setAnioSeleccionado] = useState("TODOS"); // ✅ "TODOS" | YYYY
@@ -110,6 +110,10 @@ export default function Reportes() {
   const [mesesDisponibles, setMesesDisponibles] = useState([]);
   const [loadingMeses, setLoadingMeses] = useState(true);
   const [mesSeleccionado, setMesSeleccionado] = useState("TODOS"); // "TODOS" | id_mes
+
+  // ✅ evita pisar el default cuando vuelven a cargar selects
+  const didInitAnios = useRef(false);
+  const didInitMeses = useRef(false);
 
   // Búsqueda
   const [searchText, setSearchText] = useState("");
@@ -130,14 +134,51 @@ export default function Reportes() {
     return res.json();
   }, []);
 
-  /* ===== AÑOS (front) ===== */
+  /* ===== AÑOS (backend) =====
+     Backend:
+     GET /api.php?action=reportes&op=anios
+     -> { exito:true, anios:[2026,2025,...] }
+  */
   useEffect(() => {
-    const yNow = new Date().getFullYear();
-    const years = ["TODOS", ...Array.from({ length: 7 }).map((_, i) => String(yNow - i))];
-    setAniosDisponibles(years);
-    setAnioSeleccionado("TODOS");
-    setLoadingAnios(false);
-  }, []);
+    (async () => {
+      try {
+        setLoadingAnios(true);
+
+        const data = await fetchJSON(
+          `${BASE_URL}/api.php?action=reportes&op=anios`
+        ).catch(() => null);
+
+        const arr = Array.isArray(data?.anios) ? data.anios : [];
+
+        // normaliza: strings para el select + agrega TODOS
+        const years = ["TODOS", ...arr.map((y) => String(y))];
+
+        setAniosDisponibles(years);
+
+        // ✅ default: año actual si existe; si no, el más nuevo; si no, TODOS
+        if (!didInitAnios.current) {
+          const now = new Date();
+          const yNow = String(now.getFullYear());
+
+          let yDefault = "TODOS";
+          if (years.includes(yNow)) yDefault = yNow;
+          else if (arr.length > 0) yDefault = String(arr[0]); // viene ORDER BY DESC
+
+          setAnioSeleccionado(yDefault);
+          didInitAnios.current = true;
+        }
+      } catch (e) {
+        console.error("Error cargando años:", e);
+        setAniosDisponibles(["TODOS"]);
+        if (!didInitAnios.current) {
+          setAnioSeleccionado("TODOS");
+          didInitAnios.current = true;
+        }
+      } finally {
+        setLoadingAnios(false);
+      }
+    })();
+  }, [fetchJSON]);
 
   /* ===== Cargar MESES =====
      Backend:
@@ -155,11 +196,23 @@ export default function Reportes() {
 
         const meses = Array.isArray(data?.listas?.meses) ? data.listas.meses : [];
         setMesesDisponibles(meses);
-        setMesSeleccionado("TODOS");
+
+        // ✅ default: mes actual si existe (id_mes 1..12); si no, TODOS
+        if (!didInitMeses.current) {
+          const now = new Date();
+          const mNow = String(now.getMonth() + 1); // 1..12
+
+          const exists = meses.some((m) => String(m.id) === mNow);
+          setMesSeleccionado(exists ? mNow : "TODOS");
+          didInitMeses.current = true;
+        }
       } catch (e) {
         console.error("Error cargando meses:", e);
         setMesesDisponibles([]);
-        setMesSeleccionado("TODOS");
+        if (!didInitMeses.current) {
+          setMesSeleccionado("TODOS");
+          didInitMeses.current = true;
+        }
       } finally {
         setLoadingMeses(false);
       }
@@ -170,7 +223,7 @@ export default function Reportes() {
      Backend actual:
      GET /api.php?action=reportes&op=movimientos
      GET /api.php?action=reportes&op=movimientos&mes=ID_MES
-     (y ahora también permitimos anio si después lo implementás)
+     GET /api.php?action=reportes&op=movimientos&anio=YYYY
   */
   useEffect(() => {
     (async () => {
@@ -210,9 +263,7 @@ export default function Reportes() {
             r.fechaPago ??
             r.fecha_pago ??
             "",
-          // 👇 backend puede enviar "concepto" armado (Cliente - Sistema)
           concepto: r.concepto ?? r.Concepto ?? r.detalle ?? r.descripcion ?? "",
-          // 👇 si mañana mandás separados, ya los soporta
           cliente_nombre: r.cliente_nombre ?? r.cliente ?? "",
           sistema_nombre: r.sistema_nombre ?? r.sistema ?? "",
           categoria: r.categoria ?? r.Categoria ?? r.nombre_categoria ?? "",
@@ -243,7 +294,10 @@ export default function Reportes() {
     [egresos]
   );
 
-  const balance = useMemo(() => totalPagos - totalEgresos, [totalPagos, totalEgresos]);
+  const balance = useMemo(
+    () => totalPagos - totalEgresos,
+    [totalPagos, totalEgresos]
+  );
 
   /* ===== Búsqueda ===== */
   const q = (searchText || "").trim().toLowerCase();
@@ -266,26 +320,20 @@ export default function Reportes() {
     });
   }, [egresos, q]);
 
-  /* ===== Columnas =====
-     ✅ Dejé 2 columnas: Cliente y Sistema.
-     Si tu backend hoy no manda cliente/sistema separados, igual se ve porque hacemos fallback desde "concepto".
-  */
+  /* ===== Columnas ===== */
   const cols = useMemo(
     () => [
       { key: "fecha", label: "Fecha", fr: "0.9fr" },
-
       {
         key: "cliente_nombre",
         label: "Cliente",
         fr: "1.3fr",
         render: (r) => {
           if (r.cliente_nombre) return r.cliente_nombre;
-          // fallback si solo viene concepto: "Cliente - Sistema"
           const parts = String(r.concepto || "").split(" - ");
           return parts[0] || r.concepto || "";
         },
       },
-
       {
         key: "sistema_nombre",
         label: "Sistema",
@@ -296,7 +344,6 @@ export default function Reportes() {
           return parts[1] || "";
         },
       },
-
       { key: "categoria", label: "Mes", fr: "1.1fr" },
       { key: "medio", label: "Medio", fr: "1.1fr" },
       {
@@ -321,13 +368,9 @@ export default function Reportes() {
         arr.map((r) => ({
           FECHA: r.fecha,
           CLIENTE:
-            r.cliente_nombre ||
-            String(r.concepto || "").split(" - ")[0] ||
-            "",
+            r.cliente_nombre || String(r.concepto || "").split(" - ")[0] || "",
           SISTEMA:
-            r.sistema_nombre ||
-            String(r.concepto || "").split(" - ")[1] ||
-            "",
+            r.sistema_nombre || String(r.concepto || "").split(" - ")[1] || "",
           MES: r.categoria,
           MEDIO: r.medio,
           MONTO: r.monto,
@@ -351,20 +394,29 @@ export default function Reportes() {
     const mesTxt =
       mesSeleccionado === "TODOS"
         ? "TODOS"
-        : (mesesDisponibles.find((m) => String(m.id) === String(mesSeleccionado))?.mes ||
-            `MES_${mesSeleccionado}`);
+        : (mesesDisponibles.find((m) => String(m.id) === String(mesSeleccionado))
+            ?.mes || `MES_${mesSeleccionado}`);
 
     const anioTxt = anioSeleccionado === "TODOS" ? "TODOS" : anioSeleccionado;
 
     XLSX.writeFile(wb, `reportes_${view}_${anioTxt}_${mesTxt}.xlsx`);
-  }, [view, pagosFiltrados, egresosFiltrados, mesSeleccionado, mesesDisponibles, anioSeleccionado]);
+  }, [
+    view,
+    pagosFiltrados,
+    egresosFiltrados,
+    mesSeleccionado,
+    mesesDisponibles,
+    anioSeleccionado,
+  ]);
 
   const labelMes =
     mesSeleccionado === "TODOS"
       ? "Todos los meses"
-      : (mesesDisponibles.find((m) => String(m.id) === String(mesSeleccionado))?.mes || "");
+      : (mesesDisponibles.find((m) => String(m.id) === String(mesSeleccionado))
+          ?.mes || "");
 
-  const labelAnio = anioSeleccionado === "TODOS" ? "Todos los años" : `Año ${anioSeleccionado}`;
+  const labelAnio =
+    anioSeleccionado === "TODOS" ? "Todos los años" : `Año ${anioSeleccionado}`;
 
   return (
     <div className="contable-viewport">
@@ -374,7 +426,11 @@ export default function Reportes() {
           <FontAwesomeIcon icon={faCoins} /> Reportes
         </h1>
 
-        <button className="contable-back-button" onClick={volver} aria-label="Volver">
+        <button
+          className="contable-back-button"
+          onClick={volver}
+          aria-label="Volver"
+        >
           <FontAwesomeIcon icon={faArrowLeft} />
           &nbsp; Volver
         </button>
@@ -391,7 +447,10 @@ export default function Reportes() {
             {/* Año */}
             <label className="side-field">
               <span>
-                Año {loadingAnios ? <span style={{ opacity: 0.7 }}>(cargando…)</span> : null}
+                Año{" "}
+                {loadingAnios ? (
+                  <span style={{ opacity: 0.7 }}>(cargando…)</span>
+                ) : null}
               </span>
               <select
                 value={anioSeleccionado}
@@ -441,7 +500,11 @@ export default function Reportes() {
         {/* MAIN */}
         <main className="contable-main">
           {/* Toolbar arriba (2 botones) */}
-          <div className="main-switch" role="tablist" aria-label="Cambiar vista principal">
+          <div
+            className="main-switch"
+            role="tablist"
+            aria-label="Cambiar vista principal"
+          >
             <div className="switch-left">
               <button
                 type="button"
