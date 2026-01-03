@@ -22,7 +22,6 @@ import {
   faExclamationTriangle,
   faExclamationCircle,
   faCreditCard,
-  faPrint,
   faTimes,
 } from "@fortawesome/free-solid-svg-icons";
 
@@ -30,10 +29,13 @@ import BASE_URL from "../../config/config";
 import Toast from "../Global/Toast";
 import "./Pagos.css";
 
-// 🔧 action de pagos
-const ACTION_PAGOS = "pagos";
+// ✅ Modal de pago
+import ModalPago from "./modales/ModalPago";
 
-// ✅ API base
+// ✅ Modal eliminar pago (NUEVO)
+import ModalEliminarPago from "./modales/ModalEliminarPago";
+
+const ACTION_PAGOS = "pagos";
 const API = `${BASE_URL}/api.php`;
 
 // ✅ GLOBAL (meses/medios/planes/trabajadores)
@@ -44,6 +46,9 @@ const GLOBAL_API = `${API}?action=${GLOBAL_ACTION}&op=${GLOBAL_OP}`;
 // ✅ fallback directo al archivo (por si no está ruteado en api.php)
 const GLOBAL_DIRECT = `${BASE_URL}/../modules/global/obtener_listas.php`;
 
+/* =========================
+   UI helpers
+========================= */
 const LoadingIndicator = memo(() => (
   <div className="gpagos-loading-container">
     <div className="gpagos-loading-spinner"></div>
@@ -76,7 +81,9 @@ const NoFiltersApplied = memo(() => (
   </div>
 ));
 
-// 🔥 Outer: agrega gutter solo si hay scroll real
+/* =========================
+   Outer: gutter solo si hay scroll real
+========================= */
 const Outer = React.forwardRef((props, ref) => {
   const { className, ...rest } = props;
   const localRef = useRef(null);
@@ -113,18 +120,9 @@ const Outer = React.forwardRef((props, ref) => {
   );
 });
 
-// ======= Helpers =======
-function buildClienteLabel(item) {
-  const a = (item?.apellido || "").trim();
-  const n = (item?.nombre || "").trim();
-  const rs = (item?.razon_social || "").trim();
-  const cli = (item?.cliente || item?.cliente_nombre || "").trim();
-  if (a || n) return `${a} ${n}`.trim();
-  if (rs) return rs;
-  if (cli) return cli;
-  return item?.nombre_cliente || item?.titular || "—";
-}
-
+/* =========================
+   Helpers
+========================= */
 function normalizeText(s) {
   return String(s || "")
     .toLowerCase()
@@ -133,19 +131,73 @@ function normalizeText(s) {
     .trim();
 }
 
+function buildClienteLabel(item) {
+  const a = (item?.apellido || item?.Apellido || item?.APELLIDO || "")
+    .toString()
+    .trim();
+  const n = (item?.nombre || item?.Nombre || item?.NOMBRE || "")
+    .toString()
+    .trim();
+
+  const rs = (item?.razon_social || item?.RazonSocial || item?.RAZON_SOCIAL || "")
+    .toString()
+    .trim();
+  const cli = (
+    item?.cliente ||
+    item?.cliente_nombre ||
+    item?.nombre_cliente ||
+    item?.titular ||
+    ""
+  )
+    .toString()
+    .trim();
+
+  if (a || n) return `${a} ${n}`.trim();
+  if (rs) return rs;
+  if (cli) return cli;
+  return "—";
+}
+
 function buildSistemaLabel(item) {
   const s =
     (item?.sistema ?? "").toString().trim() ||
     (item?.concepto ?? "").toString().trim() ||
     (item?.detalle ?? "").toString().trim() ||
     (item?.descripcion ?? "").toString().trim();
-
   return s || "—";
 }
 
-// ======= Row virtualizado (3 columnas, acciones siempre visibles) =======
+function getIdSistema(item) {
+  const v =
+    item?.id_sistema ??
+    item?.idSistema ??
+    item?.IdSistema ??
+    item?.ID_SISTEMA ??
+    item?.sistema_id ??
+    item?.id ??
+    null;
+
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function getIdPago(item) {
+  const v =
+    item?.id_pago ??
+    item?.idPago ??
+    item?.IdPago ??
+    item?.ID_PAGO ??
+    null;
+
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/* =========================
+   Row virtualizado
+========================= */
 const Row = memo(
-  ({ index, style, data, activeTab, onPayClick, onPrintClick, onDeleteClick }) => {
+  ({ index, style, data, activeTab, onPayClick, onDeleteClick }) => {
     const item = data[index];
 
     if (!item) {
@@ -168,7 +220,7 @@ const Row = memo(
 
         <div className="gpagos-virtual-cell gpagos-virtual-actions">
           <div className="gpagos-actions-inline">
-            {/* ✅ DEUDORES: botón $ (registrar/pagar) */}
+            {/* ✅ DEUDORES: botón $ */}
             {!isPagado && (
               <button
                 className="gpagos-action-button gpagos-pay-button"
@@ -183,20 +235,7 @@ const Row = memo(
               </button>
             )}
 
-            {/* Imprimir (en ambos) */}
-            <button
-              className="gpagos-action-button gpagos-print-button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onPrintClick?.(item);
-              }}
-              title="Imprimir"
-              type="button"
-            >
-              <FontAwesomeIcon icon={faPrint} />
-            </button>
-
-            {/* ✅ PAGADO: eliminar */}
+            {/* ✅ PAGADO: eliminar (X) */}
             {isPagado && (
               <button
                 className="gpagos-action-button gpagos-delete-button"
@@ -204,7 +243,7 @@ const Row = memo(
                   e.stopPropagation();
                   onDeleteClick?.(item);
                 }}
-                title="Eliminar"
+                title="Eliminar pago"
                 type="button"
               >
                 <FontAwesomeIcon icon={faTimes} />
@@ -257,6 +296,33 @@ function Pagos() {
     []
   );
 
+  // ✅ MODAL PAGO
+  const [modalPago, setModalPago] = useState(null);
+  const openModalPago = useCallback(
+    (row) => {
+      const id_sistema = getIdSistema(row);
+      if (!id_sistema) {
+        showToast(
+          "error",
+          "No pude abrir el modal: el registro no trae id_sistema (o viene inválido). Revisá el endpoint de deudores."
+        );
+        return;
+      }
+      setModalPago({
+        open: true,
+        id_sistema,
+        labelCliente: buildClienteLabel(row),
+        labelSistema: buildSistemaLabel(row),
+      });
+    },
+    [showToast]
+  );
+  const closeModalPago = useCallback(() => setModalPago(null), []);
+
+  // ✅ MODAL ELIMINAR (NUEVO)
+  const [modalEliminar, setModalEliminar] = useState(null);
+  const closeModalEliminar = useCallback(() => setModalEliminar(null), []);
+
   // ===== Virtual / infinite =====
   const [limit, setLimit] = useState(120);
   const [offset, setOffset] = useState(0);
@@ -265,7 +331,7 @@ function Pagos() {
 
   // ===== Cache =====
   const cacheRef = useRef({
-    pagos: { pagado: {}, deudor: {}, lastUpdated: {} }, // key = `${anio}|${mes}`
+    pagos: { pagado: {}, deudor: {}, lastUpdated: {} },
     mesesGlobal: null,
     years: null,
     mediosPago: [],
@@ -275,6 +341,7 @@ function Pagos() {
   const fetchJSON = useCallback(async (url, opts) => {
     const res = await fetch(url, opts);
     let data = null;
+
     try {
       data = await res.json();
     } catch {
@@ -348,13 +415,17 @@ function Pagos() {
 
   // ===== MESES DESDE GLOBAL =====
   const fetchMesesGlobal = useCallback(async () => {
-    if (Array.isArray(cacheRef.current.mesesGlobal) && cacheRef.current.mesesGlobal.length) {
+    if (
+      Array.isArray(cacheRef.current.mesesGlobal) &&
+      cacheRef.current.mesesGlobal.length
+    ) {
       return cacheRef.current.mesesGlobal;
     }
 
     try {
       const data = await fetchJSON(GLOBAL_API, { method: "GET" });
-      const mesesRaw = data?.listas?.meses || data?.meses || data?.listas?.mes || [];
+      const mesesRaw =
+        data?.listas?.meses || data?.meses || data?.listas?.mes || [];
 
       const normalizados = (Array.isArray(mesesRaw) ? mesesRaw : [])
         .map((m) => ({
@@ -439,8 +510,15 @@ function Pagos() {
 
         const adapt = raw
           .map((item) => ({
-            id: item?.id ?? item?.IdMedios_pago ?? item?.id_medio_pago ?? null,
-            nombre: (item?.nombre ?? item?.Medio_Pago ?? item?.medio_pago ?? "").toString().trim(),
+            id:
+              item?.id ??
+              item?.IdMedios_pago ??
+              item?.id_medio_pago ??
+              item?.idMedios_Pago ??
+              null,
+            nombre: (item?.nombre ?? item?.Medio_Pago ?? item?.medio_pago ?? "")
+              .toString()
+              .trim(),
           }))
           .filter((m) => m.nombre);
 
@@ -479,11 +557,17 @@ function Pagos() {
 
       setLoading((p) => ({ ...p, pagos: true }));
       try {
-        const qp = `&anio=${encodeURIComponent(anio)}&mes=${encodeURIComponent(mes)}`;
+        const qp = `&anio=${encodeURIComponent(anio)}&mes=${encodeURIComponent(
+          mes
+        )}`;
 
         const [pagados, deudores] = await Promise.all([
-          fetchJSON(`${API}?action=${ACTION_PAGOS}&estado=pagado${qp}`, { method: "GET" }),
-          fetchJSON(`${API}?action=${ACTION_PAGOS}&estado=deudor${qp}`, { method: "GET" }),
+          fetchJSON(`${API}?action=${ACTION_PAGOS}&estado=pagado${qp}`, {
+            method: "GET",
+          }),
+          fetchJSON(`${API}?action=${ACTION_PAGOS}&estado=deudor${qp}`, {
+            method: "GET",
+          }),
         ]);
 
         const arrP = Array.isArray(pagados) ? pagados : pagados?.pagos || [];
@@ -611,23 +695,28 @@ function Pagos() {
     [selectedMonth, selectedYear]
   );
 
-  const onPayClick = useCallback(
-    (item) => {
-      showToast("advertencia", `Registrar pago (pendiente): ${buildClienteLabel(item)}`);
-    },
-    [showToast]
-  );
+  // ✅ ABRE MODAL SOLO EN DEUDORES (icono $)
+  const onPayClick = useCallback((row) => openModalPago(row), [openModalPago]);
 
-  const onPrintClick = useCallback(
-    (item) => {
-      showToast("advertencia", `Imprimir (pendiente): ${buildClienteLabel(item)}`);
-    },
-    [showToast]
-  );
-
+  // ✅ ABRE MODAL ELIMINAR SOLO EN PAGADO (X)
   const onDeleteClick = useCallback(
-    (item) => {
-      showToast("advertencia", `Eliminar (pendiente): ${buildClienteLabel(item)}`);
+    (row) => {
+      const id_pago = getIdPago(row);
+      if (!id_pago) {
+        showToast(
+          "error",
+          "No pude eliminar: el registro no trae id_pago. Revisá el endpoint de pagados."
+        );
+        return;
+      }
+      setModalEliminar({
+        open: true,
+        id_pago,
+        labelCliente: buildClienteLabel(row),
+        labelSistema: buildSistemaLabel(row),
+        fecha: row?.fecha_pago ?? null,
+        monto: row?.monto ?? null,
+      });
     },
     [showToast]
   );
@@ -654,6 +743,39 @@ function Pagos() {
     [activeTab, selectedYear, selectedMonth, selectedMedioPago, searchTerm]
   );
 
+  // ✅ refrescar listados
+  const recargarListado = useCallback(() => {
+    if (!selectedYear || !selectedMonth) return;
+    const k = cacheKey(selectedYear, selectedMonth);
+    delete cacheRef.current.pagos.pagado[k];
+    delete cacheRef.current.pagos.deudor[k];
+    delete cacheRef.current.pagos.lastUpdated[k];
+    cargarPagosPorMes(selectedYear, selectedMonth, true);
+  }, [selectedYear, selectedMonth, cacheKey, cargarPagosPorMes]);
+
+  // ✅ confirmar eliminación (backend)
+  const confirmarEliminarPago = useCallback(async () => {
+    if (!modalEliminar?.id_pago) return;
+
+    try {
+      setLoading((p) => ({ ...p, pagos: true }));
+
+      await fetchJSON(`${API}?action=${ACTION_PAGOS}&op=eliminar_pago`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_pago: modalEliminar.id_pago }),
+      });
+
+      showToast("exito", "Pago eliminado correctamente");
+      closeModalEliminar();
+      recargarListado();
+    } catch (e) {
+      showToast("error", e.message || "No se pudo eliminar el pago");
+    } finally {
+      setLoading((p) => ({ ...p, pagos: false }));
+    }
+  }, [modalEliminar, fetchJSON, showToast, closeModalEliminar, recargarListado]);
+
   // ===== render tabla =====
   const renderTabla = useMemo(() => {
     if (!selectedYear) return <NoFiltersApplied />;
@@ -664,18 +786,18 @@ function Pagos() {
     if (isMobileRef.current) {
       return (
         <div className="gpagos-mobile-list">
-          {datosFiltradosPaginated.map((item, index) => {
+          {datosFiltradosPaginated.map((row, index) => {
             const isPagado = activeTab === "pagado";
             return (
               <div key={index} className="gpagos-mobile-card">
                 <div className="gpagos-mobile-row">
                   <span className="gpagos-mobile-label">Cliente:</span>
-                  <span>{buildClienteLabel(item)}</span>
+                  <span>{buildClienteLabel(row)}</span>
                 </div>
 
                 <div className="gpagos-mobile-row">
                   <span className="gpagos-mobile-label">Sistema:</span>
-                  <span>{buildSistemaLabel(item)}</span>
+                  <span>{buildSistemaLabel(row)}</span>
                 </div>
 
                 <div className="gpagos-mobile-actions">
@@ -684,7 +806,7 @@ function Pagos() {
                       className="gpagos-mobile-pay-button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onPayClick(item);
+                        onPayClick(row);
                       }}
                       type="button"
                       title="Registrar pago"
@@ -694,26 +816,15 @@ function Pagos() {
                     </button>
                   )}
 
-                  <button
-                    className="gpagos-mobile-print-button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onPrintClick(item);
-                    }}
-                    type="button"
-                  >
-                    <FontAwesomeIcon icon={faPrint} />
-                    <span>Imprimir</span>
-                  </button>
-
                   {isPagado && (
                     <button
                       className="gpagos-mobile-delete-button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onDeleteClick(item);
+                        onDeleteClick(row);
                       }}
                       type="button"
+                      title="Eliminar pago"
                     >
                       <FontAwesomeIcon icon={faTimes} />
                       <span>Eliminar</span>
@@ -751,8 +862,9 @@ function Pagos() {
           width={"100%"}
           outerElementType={Outer}
           onItemsRendered={({ visibleStopIndex }) => {
-            if (visibleStopIndex >= datosFiltradosPaginated.length - 5 && hasMore)
+            if (visibleStopIndex >= datosFiltradosPaginated.length - 5 && hasMore) {
               loadMoreItems();
+            }
           }}
         >
           {(props) => {
@@ -764,7 +876,6 @@ function Pagos() {
                 {...props}
                 activeTab={activeTab}
                 onPayClick={onPayClick}
-                onPrintClick={onPrintClick}
                 onDeleteClick={onDeleteClick}
               />
             );
@@ -780,7 +891,6 @@ function Pagos() {
     datosFiltradosPaginated,
     activeTab,
     onPayClick,
-    onPrintClick,
     onDeleteClick,
     hasMore,
     loadMoreItems,
@@ -790,6 +900,29 @@ function Pagos() {
 
   return (
     <div className="gpagos-container">
+      {/* ✅ MODAL PAGO */}
+      {modalPago?.open && (
+        <ModalPago
+          id_sistema={modalPago.id_sistema}
+          cerrarModal={closeModalPago}
+          onPagoRealizado={() => {
+            closeModalPago();
+            recargarListado();
+          }}
+        />
+      )}
+
+      {/* ✅ MODAL ELIMINAR (NUEVO) */}
+      {modalEliminar?.open && (
+        <ModalEliminarPago
+          open={modalEliminar.open}
+          onClose={closeModalEliminar}
+          onConfirm={confirmarEliminarPago}
+          loading={loading.pagos}
+          data={modalEliminar}
+        />
+      )}
+
       {toast && (
         <Toast
           tipo={toast.tipo}
@@ -929,22 +1062,12 @@ function Pagos() {
             <div className="gpagos-buttons-container">
               <button
                 className="gpagos-button gpagos-button-back"
-                onClick={() => navigate(-1)}
+                onClick={handleVolver}
                 disabled={loading.pagos}
                 type="button"
               >
                 <FontAwesomeIcon icon={faArrowLeft} />
                 <span>Volver</span>
-              </button>
-
-              <button
-                className="gpagos-button gpagos-button-print"
-                onClick={() => showToast("advertencia", "Registro (pendiente)")}
-                disabled={loading.pagos || !selectedYear || !selectedMonth}
-                type="button"
-              >
-                <FontAwesomeIcon icon={faPrint} />
-                <span>Registro</span>
               </button>
             </div>
           </div>
@@ -952,10 +1075,16 @@ function Pagos() {
       </div>
 
       {/* RIGHT */}
-      <div className={`gpagos-right-section gpagos-box ${isMobile ? "gpagos-has-bottombar" : ""}`}>
+      <div
+        className={`gpagos-right-section gpagos-box ${
+          isMobile ? "gpagos-has-bottombar" : ""
+        }`}
+      >
         <div className="gpagos-table-header">
           <h3>
-            <FontAwesomeIcon icon={activeTab === "pagado" ? faCheckCircle : faExclamationTriangle} />
+            <FontAwesomeIcon
+              icon={activeTab === "pagado" ? faCheckCircle : faExclamationTriangle}
+            />
             {activeTab === "pagado" ? "Pagos Registrados" : "Pagos Pendientes"}
           </h3>
 
@@ -1015,16 +1144,6 @@ function Pagos() {
           >
             <FontAwesomeIcon icon={faArrowLeft} />
             <span>Volver</span>
-          </button>
-
-          <button
-            className="gpagos-mbar-btn mbar-registro"
-            onClick={() => showToast("advertencia", "Registro (pendiente)")}
-            disabled={loading.pagos || !selectedYear || !selectedMonth}
-            type="button"
-          >
-            <FontAwesomeIcon icon={faPrint} />
-            <span>Registro</span>
           </button>
 
           <button
