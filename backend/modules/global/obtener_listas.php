@@ -2,14 +2,14 @@
 // backend/modules/listas/obtener_listas.php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../config/db.php';
+global $pdo;
 
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     http_response_code(204);
     exit;
 }
@@ -125,6 +125,25 @@ try {
         ];
     }
 
+    /* =========================
+       5) AÑOS CON REGISTROS (pagos)
+       Se usa para el filtro de Año en Reportes
+       (NO filtra nada, solo lista los años existentes)
+    ========================== */
+    $sqlAnios = "
+        SELECT DISTINCT YEAR(fecha_pago) AS anio
+        FROM pagos
+        WHERE fecha_pago IS NOT NULL
+        ORDER BY anio DESC
+    ";
+
+    $anios = [];
+    foreach ($pdo->query($sqlAnios, PDO::FETCH_ASSOC) as $r) {
+        if ($r['anio'] !== null) {
+            $anios[] = (int)$r['anio'];
+        }
+    }
+
     echo json_encode([
         'exito' => true,
         'listas' => [
@@ -132,6 +151,7 @@ try {
             'medios_pago'          => $medios_pago,
             'planes_mantenimiento' => $planes_mantenimiento,
             'meses'                => $meses,
+            'anios'                => $anios, // ✅ NUEVO
         ],
     ], JSON_UNESCAPED_UNICODE);
 

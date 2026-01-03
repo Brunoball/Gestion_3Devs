@@ -34,13 +34,6 @@ function req_method(): string {
   return strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 }
 
-function read_json_body(): array {
-  $raw = file_get_contents('php://input');
-  if (!$raw) return [];
-  $data = json_decode($raw, true);
-  return is_array($data) ? $data : [];
-}
-
 function int_param(string $key, int $default = 0): int {
   $v = $_GET[$key] ?? null;
   if ($v === null || $v === '') return $default;
@@ -57,6 +50,13 @@ function str_param(string $key, string $default = ''): string {
    Dispatch de operaciones
 ========================= */
 try {
+  if (!($pdo instanceof PDO)) {
+    json_fail('Conexión PDO no disponible.');
+  }
+
+  $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+  $pdo->exec("SET NAMES utf8mb4");
+
   if ($op === '') {
     json_fail('Falta parámetro op en reportes');
   }
@@ -64,7 +64,7 @@ try {
   switch ($op) {
 
     /* =========================================================
-       ✅ EJEMPLO 1: ping
+       ✅ ping
        GET /api.php?action=reportes&op=ping
     ========================================================= */
     case 'ping': {
@@ -76,79 +76,109 @@ try {
     }
 
     /* =========================================================
-       ✅ EJEMPLO 2: catálogo de reportes disponibles
+       ✅ catálogo
        GET /api.php?action=reportes&op=lista
     ========================================================= */
     case 'lista': {
       json_ok([
         'reportes' => [
-          // Tu backend puede mantener esta lista acá y que el front la lea
-          // ['id' => 'pagos_resumen', 'nombre' => 'Resumen de pagos', 'metodo' => 'GET'],
+          ['id' => 'movimientos', 'nombre' => 'Pagos (movimientos)', 'metodo' => 'GET'],
         ]
       ]);
     }
 
     /* =========================================================
-       ✅ PLANTILLA: reporte tipo tabla (GET)
-       GET /api.php?action=reportes&op=xxx&desde=2026-01-01&hasta=2026-01-31
-       - Armá tu query y devolvé rows
+       ✅ MOVIMIENTOS (PAGOS)
+       GET /api.php?action=reportes&op=movimientos
+       GET /api.php?action=reportes&op=movimientos&mes=3
+       GET /api.php?action=reportes&op=movimientos&anio=2026
+       GET /api.php?action=reportes&op=movimientos&anio=2026&mes=3
+
+       Devuelve formato compatible con tu Reportes.jsx:
+       - pagos: [{id, fecha, concepto, categoria, medio, monto, ...extras }]
+       - egresos: []
     ========================================================= */
-    case 'reporte_ejemplo_get': {
+    case 'movimientos': {
       $method = req_method();
       if ($method !== 'GET') json_fail('Método no permitido. Se esperaba GET');
 
-      $desde = str_param('desde', '');
-      $hasta = str_param('hasta', '');
+      $mes  = int_param('mes', 0);   // id_mes
+      $anio = int_param('anio', 0);  // YEAR(fecha_pago)
 
-      // Validaciones mínimas (ajustá según necesites)
-      if ($desde === '' || $hasta === '') {
-        json_fail('Parámetros requeridos: desde, hasta (YYYY-MM-DD)');
+      $sql = "
+        SELECT
+          p.id_pago    AS id,
+          p.fecha_pago AS fecha,
+
+          -- Nombres reales:
+          c.nombre     AS cliente_nombre,
+          cs.nombre    AS sistema_nombre,
+
+          -- Para tu front actual:
+          CONCAT(c.nombre, ' - ', cs.nombre) AS concepto,
+
+          m.mes        AS categoria,
+          mp.nombre    AS medio,
+          p.monto      AS monto,
+
+          -- Extras por si después querés usarlos:
+          p.id_sistema AS id_sistema,
+          p.id_mes     AS id_mes,
+          p.id_medio_pago AS id_medio_pago
+        FROM pagos p
+        JOIN clientes_sistemas cs ON cs.id_sistema = p.id_sistema
+        JOIN clientes c          ON c.id_cliente  = cs.id_cliente
+        LEFT JOIN meses m        ON m.id_mes      = p.id_mes
+        LEFT JOIN medios_pago mp ON mp.id_medio_pago = p.id_medio_pago
+        WHERE 1=1
+      ";
+
+      $params = [];
+
+      if ($mes > 0) {
+        $sql .= " AND p.id_mes = :mes ";
+        $params[':mes'] = $mes;
       }
 
-      // ✅ Ejemplo de query (reemplazar por una real)
-      // $stmt = $pdo->prepare("SELECT ... WHERE fecha BETWEEN ? AND ? ORDER BY fecha ASC");
-      // $stmt->execute([$desde, $hasta]);
-      // $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+      if ($anio > 0) {
+        $sql .= " AND YEAR(p.fecha_pago) = :anio ";
+        $params[':anio'] = $anio;
+      }
 
-      $rows = []; // placeholder
+      $sql .= " ORDER BY p.fecha_pago DESC, p.id_pago DESC ";
+
+      $st = $pdo->prepare($sql);
+      $st->execute($params);
+      $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+      $pagos = array_map(function ($r) {
+        return [
+          'id'             => (int)($r['id'] ?? 0),
+          'fecha'          => (string)($r['fecha'] ?? ''),
+          'concepto'       => (string)($r['concepto'] ?? ''), // Cliente - Sistema (compat)
+          'categoria'      => $r['categoria'] !== null ? (string)$r['categoria'] : '',
+          'medio'          => $r['medio'] !== null ? (string)$r['medio'] : '',
+          'monto'          => (float)($r['monto'] ?? 0),
+
+          // extras
+          'cliente_nombre' => $r['cliente_nombre'] !== null ? (string)$r['cliente_nombre'] : '',
+          'sistema_nombre' => $r['sistema_nombre'] !== null ? (string)$r['sistema_nombre'] : '',
+          'id_sistema'     => (int)($r['id_sistema'] ?? 0),
+          'id_mes'         => (int)($r['id_mes'] ?? 0),
+          'id_medio_pago'  => (int)($r['id_medio_pago'] ?? 0),
+        ];
+      }, $rows);
 
       json_ok([
-        'filtros' => ['desde' => $desde, 'hasta' => $hasta],
-        'rows' => $rows,
+        'filtros' => [
+          'mes'  => $mes > 0 ? $mes : null,
+          'anio' => $anio > 0 ? $anio : null,
+        ],
+        'pagos' => $pagos,
+        'egresos' => [],
       ]);
     }
 
-    /* =========================================================
-       ✅ PLANTILLA: reporte con body JSON (POST)
-       POST /api.php?action=reportes&op=xxx
-       Body: { ... }
-    ========================================================= */
-    case 'reporte_ejemplo_post': {
-      $method = req_method();
-      if ($method !== 'POST') json_fail('Método no permitido. Se esperaba POST');
-
-      $body = read_json_body();
-
-      // ejemplo de lectura
-      $anio = (int)($body['anio'] ?? 0);
-      if ($anio <= 0) json_fail('Campo requerido: anio');
-
-      // ✅ Acá tu equipo arma la query real
-      // $stmt = $pdo->prepare("SELECT ... WHERE YEAR(fecha)=?");
-      // $stmt->execute([$anio]);
-      // $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-      $rows = []; // placeholder
-
-      json_ok([
-        'filtros' => ['anio' => $anio],
-        'rows' => $rows,
-      ]);
-    }
-
-    /* =========================================================
-       ❌ op desconocida
-    ========================================================= */
     default: {
       json_fail('op no válida en reportes: ' . $op);
     }
