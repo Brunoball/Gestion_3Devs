@@ -16,13 +16,13 @@ import {
   faMoneyCheckAlt, // ✅ $ botón registrar/pagar
   faFilter,
   faCalendarAlt,
-  faUsers,
+  faUsers, // ✅ equipo
   faList,
   faCheckCircle,
   faExclamationTriangle,
   faExclamationCircle,
   faCreditCard,
-  faTimes,
+  faTimes, // ✅ eliminar
 } from "@fortawesome/free-solid-svg-icons";
 
 import BASE_URL from "../../config/config";
@@ -31,20 +31,28 @@ import "./Pagos.css";
 
 // ✅ Modal de pago
 import ModalPago from "./modales/ModalPago";
-
-// ✅ Modal eliminar pago (NUEVO)
+// ✅ Modal eliminar pago
 import ModalEliminarPago from "./modales/ModalEliminarPago";
+// ✅ NUEVO MODAL: equipo + monto a pagar
+import ModalEquipoPago from "./modales/ModalEquipoPago";
 
 const ACTION_PAGOS = "pagos";
 const API = `${BASE_URL}/api.php`;
 
-// ✅ GLOBAL (meses/medios/planes/trabajadores)
-const GLOBAL_ACTION = "global";
-const GLOBAL_OP = "listas";
-const GLOBAL_API = `${API}?action=${GLOBAL_ACTION}&op=${GLOBAL_OP}`;
+/**
+ * ✅ LISTAS desde /api.php?action=listas
+ */
+const LISTAS_ACTION = "listas";
+const LISTAS_API = `${API}?action=${LISTAS_ACTION}`;
 
-// ✅ fallback directo al archivo (por si no está ruteado en api.php)
-const GLOBAL_DIRECT = `${BASE_URL}/../modules/global/obtener_listas.php`;
+/**
+ * ✅ Fallback directo al archivo global (si tu router listas no está incluido)
+ * Estructura: backend/modules/global/obtener_listas.php
+ */
+const BACKEND_BASE = BASE_URL.endsWith("/routes")
+  ? BASE_URL.replace(/\/routes$/, "")
+  : BASE_URL;
+const LISTAS_DIRECT = `${BACKEND_BASE}/modules/global/obtener_listas.php`;
 
 /* =========================
    UI helpers
@@ -139,7 +147,10 @@ function buildClienteLabel(item) {
     .toString()
     .trim();
 
-  const rs = (item?.razon_social || item?.RazonSocial || item?.RAZON_SOCIAL || "")
+  const rs = (item?.razon_social ||
+    item?.RazonSocial ||
+    item?.RAZON_SOCIAL ||
+    "")
     .toString()
     .trim();
   const cli = (
@@ -183,12 +194,7 @@ function getIdSistema(item) {
 
 function getIdPago(item) {
   const v =
-    item?.id_pago ??
-    item?.idPago ??
-    item?.IdPago ??
-    item?.ID_PAGO ??
-    null;
-
+    item?.id_pago ?? item?.idPago ?? item?.IdPago ?? item?.ID_PAGO ?? null;
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
@@ -197,7 +203,15 @@ function getIdPago(item) {
    Row virtualizado
 ========================= */
 const Row = memo(
-  ({ index, style, data, activeTab, onPayClick, onDeleteClick }) => {
+  ({
+    index,
+    style,
+    data,
+    activeTab,
+    onPayClick,
+    onDeleteClick,
+    onTeamClick,
+  }) => {
     const item = data[index];
 
     if (!item) {
@@ -235,7 +249,22 @@ const Row = memo(
               </button>
             )}
 
-            {/* ✅ PAGADO: eliminar (X) */}
+            {/* ✅ PAGADO: EQUIPO 👥 */}
+            {isPagado && (
+              <button
+                className="gpagos-action-button gpagos-team-button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTeamClick?.(item);
+                }}
+                title="Equipo / monto a pagar"
+                type="button"
+              >
+                <FontAwesomeIcon icon={faUsers} />
+              </button>
+            )}
+
+            {/* ✅ PAGADO: ELIMINAR ❌ */}
             {isPagado && (
               <button
                 className="gpagos-action-button gpagos-delete-button"
@@ -270,6 +299,7 @@ function Pagos() {
   // ===== Filtros =====
   const [years, setYears] = useState([]);
   const [selectedYear, setSelectedYear] = useState("");
+
   const [meses, setMeses] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState("");
 
@@ -285,9 +315,7 @@ function Pagos() {
   // ===== UI =====
   const [loading, setLoading] = useState({
     pagos: false,
-    meses: false,
-    years: false,
-    mediosPago: false,
+    listas: false,
   });
 
   const [toast, setToast] = useState(null);
@@ -319,9 +347,38 @@ function Pagos() {
   );
   const closeModalPago = useCallback(() => setModalPago(null), []);
 
-  // ✅ MODAL ELIMINAR (NUEVO)
+  // ✅ MODAL ELIMINAR
   const [modalEliminar, setModalEliminar] = useState(null);
   const closeModalEliminar = useCallback(() => setModalEliminar(null), []);
+
+  // ✅ MODAL EQUIPO
+  const [modalEquipo, setModalEquipo] = useState(null);
+  const closeModalEquipo = useCallback(() => setModalEquipo(null), []);
+  const openModalEquipo = useCallback(
+    (row) => {
+      const id_sistema = getIdSistema(row);
+      if (!id_sistema) {
+        showToast(
+          "error",
+          "No pude abrir Equipo: el registro no trae id_sistema. Revisá el endpoint de pagados."
+        );
+        return;
+      }
+
+      setModalEquipo({
+        open: true,
+        id_sistema,
+        anio: selectedYear || "",
+        mes: selectedMonth || "",
+        labelCliente: buildClienteLabel(row),
+        labelSistema: buildSistemaLabel(row),
+        monto: row?.monto ?? null,
+        fecha_pago: row?.fecha_pago ?? null,
+        id_pago: getIdPago(row),
+      });
+    },
+    [selectedYear, selectedMonth, showToast]
+  );
 
   // ===== Virtual / infinite =====
   const [limit, setLimit] = useState(120);
@@ -332,9 +389,7 @@ function Pagos() {
   // ===== Cache =====
   const cacheRef = useRef({
     pagos: { pagado: {}, deudor: {}, lastUpdated: {} },
-    mesesGlobal: null,
-    years: null,
-    mediosPago: [],
+    listas: null,
     cacheDuration: 30 * 60 * 1000,
   });
 
@@ -367,172 +422,104 @@ function Pagos() {
     [selectedYear, selectedMonth]
   );
 
-  // ===== AÑOS =====
-  const fetchYears = useCallback(async () => {
-    setLoading((p) => ({ ...p, years: true }));
-    try {
-      const data = await fetchJSON(`${API}?action=anios_pagos`, { method: "GET" });
+  /* =========================================================
+     ✅ LISTAS
+  ========================================================= */
+  const fetchListas = useCallback(
+    async (force = false) => {
+      if (!force && cacheRef.current.listas) return cacheRef.current.listas;
 
-      const lista = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.anios)
-        ? data.anios
-        : [];
-
-      const norm = lista
-        .map((a) => (typeof a === "object" ? a.anio ?? a.year ?? a.value : a))
-        .filter((v) => v != null)
-        .map((n) => parseInt(n, 10))
-        .filter((n) => Number.isFinite(n))
-        .sort((a, b) => b - a);
-
-      cacheRef.current.years = norm;
-      setYears(norm);
-
-      const current = new Date().getFullYear();
-
-      if (!selectedYear) {
-        if (norm.includes(current)) setSelectedYear(String(current));
-        else if (norm.length) setSelectedYear(String(norm[0]));
-        else setSelectedYear("");
-      } else {
-        const cur = parseInt(selectedYear, 10);
-        if (!norm.includes(cur)) {
-          if (norm.includes(current)) setSelectedYear(String(current));
-          else setSelectedYear(norm.length ? String(norm[0]) : "");
-        }
-      }
-    } catch (e) {
-      showToast("error", e.message || "No se pudieron cargar los años");
-    } finally {
-      setLoading((p) => ({ ...p, years: false }));
-    }
-  }, [fetchJSON, selectedYear, showToast]);
-
-  useEffect(() => {
-    fetchYears();
-  }, [fetchYears]);
-
-  // ===== MESES DESDE GLOBAL =====
-  const fetchMesesGlobal = useCallback(async () => {
-    if (
-      Array.isArray(cacheRef.current.mesesGlobal) &&
-      cacheRef.current.mesesGlobal.length
-    ) {
-      return cacheRef.current.mesesGlobal;
-    }
-
-    try {
-      const data = await fetchJSON(GLOBAL_API, { method: "GET" });
-      const mesesRaw =
-        data?.listas?.meses || data?.meses || data?.listas?.mes || [];
-
-      const normalizados = (Array.isArray(mesesRaw) ? mesesRaw : [])
-        .map((m) => ({
-          id: m?.id ?? m?.id_mes ?? null,
-          mes: (m?.mes ?? m?.nombre ?? "").toString().trim(),
-        }))
-        .filter((m) => m.mes)
-        .sort((a, b) => (a.id ?? 99999) - (b.id ?? 99999))
-        .map((m) => ({ mes: m.mes }));
-
-      if (!normalizados.length) throw new Error("Global no devolvió meses");
-
-      cacheRef.current.mesesGlobal = normalizados;
-      return normalizados;
-    } catch {
-      const data2 = await fetchJSON(GLOBAL_DIRECT, { method: "GET" });
-      const mesesRaw2 = data2?.listas?.meses || data2?.meses || [];
-
-      const normalizados2 = (Array.isArray(mesesRaw2) ? mesesRaw2 : [])
-        .map((m) => ({
-          id: m?.id ?? m?.id_mes ?? null,
-          mes: (m?.mes ?? m?.nombre ?? "").toString().trim(),
-        }))
-        .filter((m) => m.mes)
-        .sort((a, b) => (a.id ?? 99999) - (b.id ?? 99999))
-        .map((m) => ({ mes: m.mes }));
-
-      cacheRef.current.mesesGlobal = normalizados2;
-      return normalizados2;
-    }
-  }, [fetchJSON]);
-
-  useEffect(() => {
-    const run = async () => {
-      if (!selectedYear) {
-        setMeses([]);
-        return;
-      }
-
-      setLoading((p) => ({ ...p, meses: true }));
-      try {
-        let lista = await fetchMesesGlobal();
-
-        if (selectedMonth && !lista.some((m) => m.mes === selectedMonth)) {
-          lista = [{ mes: selectedMonth, _extra: true }, ...lista];
-        }
-
-        setMeses(lista);
-      } catch (e) {
-        showToast("error", e.message || "Error al cargar los meses (Global)");
-        setMeses([]);
-      } finally {
-        setLoading((p) => ({ ...p, meses: false }));
-      }
-    };
-
-    run();
-  }, [selectedYear, selectedMonth, fetchMesesGlobal, showToast]);
-
-  // ===== MEDIOS DE PAGO =====
-  useEffect(() => {
-    const fetchMediosPago = async () => {
-      if (cacheRef.current.mediosPago.length > 0) {
-        setMediosPago(cacheRef.current.mediosPago);
-        return;
-      }
-
-      setLoading((p) => ({ ...p, mediosPago: true }));
+      setLoading((p) => ({ ...p, listas: true }));
       try {
         let data;
         try {
-          data = await fetchJSON(GLOBAL_API, { method: "GET" });
+          data = await fetchJSON(LISTAS_API, { method: "GET" });
         } catch {
-          data = await fetchJSON(GLOBAL_DIRECT, { method: "GET" });
+          data = await fetchJSON(LISTAS_DIRECT, { method: "GET" });
         }
 
-        const raw = Array.isArray(data?.listas?.medios_pago)
-          ? data.listas.medios_pago
-          : Array.isArray(data?.mediosPago)
-          ? data.mediosPago
-          : [];
+        const listas = data?.listas || data || {};
+        cacheRef.current.listas = listas;
+        return listas;
+      } finally {
+        setLoading((p) => ({ ...p, listas: false }));
+      }
+    },
+    [fetchJSON]
+  );
 
-        const adapt = raw
+  // Cargar listas al montar
+  useEffect(() => {
+    const run = async () => {
+      try {
+        const listas = await fetchListas(false);
+
+        // meses
+        const rawMeses = Array.isArray(listas?.meses) ? listas.meses : [];
+        const mesesNorm = rawMeses
+          .map((m) => ({
+            id: m?.id ?? m?.id_mes ?? null,
+            mes: (m?.mes ?? m?.nombre ?? "").toString().trim(),
+          }))
+          .filter((m) => m.mes)
+          .sort((a, b) => Number(a.id ?? 99999) - Number(b.id ?? 99999))
+          .map((m) => ({ mes: m.mes }));
+        setMeses(mesesNorm);
+
+        // medios_pago
+        const rawMP = Array.isArray(listas?.medios_pago)
+          ? listas.medios_pago
+          : [];
+        const mpNorm = rawMP
           .map((item) => ({
             id:
               item?.id ??
-              item?.IdMedios_pago ??
               item?.id_medio_pago ??
+              item?.IdMedios_Pago ??
               item?.idMedios_Pago ??
               null,
             nombre: (item?.nombre ?? item?.Medio_Pago ?? item?.medio_pago ?? "")
               .toString()
               .trim(),
           }))
-          .filter((m) => m.nombre);
+          .filter((m) => m.nombre)
+          .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+        setMediosPago(mpNorm);
 
-        cacheRef.current.mediosPago = adapt;
-        setMediosPago(adapt);
+        // años
+        const rawAnios = Array.isArray(listas?.anios) ? listas.anios : [];
+        const aniosNorm = rawAnios
+          .map((a) => (typeof a === "object" ? a.anio ?? a.year ?? a.value : a))
+          .filter((v) => v != null)
+          .map((n) => parseInt(n, 10))
+          .filter((n) => Number.isFinite(n))
+          .sort((a, b) => b - a);
+
+        setYears(aniosNorm);
+
+        // elegir año por defecto
+        const current = new Date().getFullYear();
+        if (!selectedYear) {
+          if (aniosNorm.includes(current)) setSelectedYear(String(current));
+          else if (aniosNorm.length) setSelectedYear(String(aniosNorm[0]));
+          else setSelectedYear("");
+        } else {
+          const cur = parseInt(selectedYear, 10);
+          if (!aniosNorm.includes(cur)) {
+            if (aniosNorm.includes(current)) setSelectedYear(String(current));
+            else setSelectedYear(aniosNorm.length ? String(aniosNorm[0]) : "");
+          }
+        }
       } catch (e) {
-        showToast("error", e.message || "Error al cargar medios de pago");
-      } finally {
-        setLoading((p) => ({ ...p, mediosPago: false }));
+        showToast(
+          "error",
+          e.message || "No se pudieron cargar las listas (Global)"
+        );
       }
     };
-
-    fetchMediosPago();
-  }, [fetchJSON, showToast]);
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchListas]);
 
   // ===== Carga pagos por mes/año =====
   const cargarPagosPorMes = useCallback(
@@ -583,13 +570,13 @@ function Pagos() {
         showToast(
           "error",
           e.message ||
-            `No se pudieron cargar los pagos (${mes}/${anio}). Revisa el endpoint action=${ACTION_PAGOS}`
+            `No se pudieron cargar los pagos (${mes}/${anio}). Revisá el endpoint action=${ACTION_PAGOS}`
         );
       } finally {
         setLoading((p) => ({ ...p, pagos: false }));
       }
     },
-    [cacheKey, fetchJSON, loading.pagos, showToast]
+    [API, cacheKey, fetchJSON, loading.pagos, showToast]
   );
 
   useEffect(() => {
@@ -604,7 +591,13 @@ function Pagos() {
     }, searchTerm ? 250 : 0);
 
     return () => clearTimeout(deb);
-  }, [filtrosCompletos, selectedYear, selectedMonth, searchTerm, cargarPagosPorMes]);
+  }, [
+    filtrosCompletos,
+    selectedYear,
+    selectedMonth,
+    searchTerm,
+    cargarPagosPorMes,
+  ]);
 
   // ===== Filtrado (medio + búsqueda) =====
   const filterData = useCallback(
@@ -695,10 +688,13 @@ function Pagos() {
     [selectedMonth, selectedYear]
   );
 
-  // ✅ ABRE MODAL SOLO EN DEUDORES (icono $)
+  // ✅ ABRE MODAL SOLO EN DEUDORES ($)
   const onPayClick = useCallback((row) => openModalPago(row), [openModalPago]);
 
-  // ✅ ABRE MODAL ELIMINAR SOLO EN PAGADO (X)
+  // ✅ ABRE MODAL EQUIPO (solo pagados)
+  const onTeamClick = useCallback((row) => openModalEquipo(row), [openModalEquipo]);
+
+  // ✅ ABRE MODAL ELIMINAR (pagados)
   const onDeleteClick = useCallback(
     (row) => {
       const id_pago = getIdPago(row);
@@ -817,18 +813,33 @@ function Pagos() {
                   )}
 
                   {isPagado && (
-                    <button
-                      className="gpagos-mobile-delete-button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteClick(row);
-                      }}
-                      type="button"
-                      title="Eliminar pago"
-                    >
-                      <FontAwesomeIcon icon={faTimes} />
-                      <span>Eliminar</span>
-                    </button>
+                    <>
+                      <button
+                        className="gpagos-mobile-team-button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onTeamClick(row);
+                        }}
+                        type="button"
+                        title="Equipo / monto a pagar"
+                      >
+                        <FontAwesomeIcon icon={faUsers} />
+                        <span>Equipo</span>
+                      </button>
+
+                      <button
+                        className="gpagos-mobile-delete-button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteClick(row);
+                        }}
+                        type="button"
+                        title="Eliminar pago"
+                      >
+                        <FontAwesomeIcon icon={faTimes} />
+                        <span>Eliminar</span>
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -862,14 +873,19 @@ function Pagos() {
           width={"100%"}
           outerElementType={Outer}
           onItemsRendered={({ visibleStopIndex }) => {
-            if (visibleStopIndex >= datosFiltradosPaginated.length - 5 && hasMore) {
+            if (
+              visibleStopIndex >= datosFiltradosPaginated.length - 5 &&
+              hasMore
+            ) {
               loadMoreItems();
             }
           }}
         >
           {(props) => {
             if (props.index >= datosFiltradosPaginated.length) {
-              return <div style={props.style} className="gpagos-loading-row"></div>;
+              return (
+                <div style={props.style} className="gpagos-loading-row"></div>
+              );
             }
             return (
               <Row
@@ -877,6 +893,7 @@ function Pagos() {
                 activeTab={activeTab}
                 onPayClick={onPayClick}
                 onDeleteClick={onDeleteClick}
+                onTeamClick={onTeamClick}
               />
             );
           }}
@@ -892,6 +909,7 @@ function Pagos() {
     activeTab,
     onPayClick,
     onDeleteClick,
+    onTeamClick,
     hasMore,
     loadMoreItems,
     listKey,
@@ -912,7 +930,18 @@ function Pagos() {
         />
       )}
 
-      {/* ✅ MODAL ELIMINAR (NUEVO) */}
+      {/* ✅ MODAL EQUIPO */}
+      {modalEquipo?.open && (
+        <ModalEquipoPago
+          open={modalEquipo.open}
+          onClose={closeModalEquipo}
+          apiBase={API}
+          action={ACTION_PAGOS}
+          data={modalEquipo}
+        />
+      )}
+
+      {/* ✅ MODAL ELIMINAR */}
       {modalEliminar?.open && (
         <ModalEliminarPago
           open={modalEliminar.open}
@@ -936,7 +965,10 @@ function Pagos() {
       <div className="gpagos-left-section gpagos-box">
         <div className="gpagos-header-section">
           <h2 className="gpagos-title">
-            <FontAwesomeIcon icon={faMoneyCheckAlt} className="gpagos-title-icon" />
+            <FontAwesomeIcon
+              icon={faMoneyCheckAlt}
+              className="gpagos-title-icon"
+            />
             Pagos
           </h2>
           <div className="gpagos-divider"></div>
@@ -961,8 +993,11 @@ function Pagos() {
                   value={selectedYear}
                   onChange={handleYearChange}
                   className="gpagos-dropdown"
-                  disabled={loading.years || loading.meses || loading.pagos}
+                  disabled={loading.listas || loading.pagos}
                 >
+                  <option value="" disabled>
+                    Año
+                  </option>
                   {years.map((y, i) => (
                     <option key={i} value={y}>
                       {y}
@@ -981,7 +1016,7 @@ function Pagos() {
                   value={selectedMonth}
                   onChange={handleMonthChange}
                   className="gpagos-dropdown"
-                  disabled={!selectedYear || loading.meses || loading.pagos}
+                  disabled={!selectedYear || loading.listas || loading.pagos}
                 >
                   <option value="" disabled>
                     Mes
@@ -1069,21 +1104,36 @@ function Pagos() {
                 <FontAwesomeIcon icon={faArrowLeft} />
                 <span>Volver</span>
               </button>
+
+              <button
+                className="gpagos-button"
+                onClick={() => {
+                  cacheRef.current.listas = null;
+                  fetchListas(true).catch(() => {});
+                  recargarListado();
+                }}
+                disabled={loading.pagos || loading.listas}
+                type="button"
+                title="Refrescar"
+              >
+                <FontAwesomeIcon icon={faMoneyCheckAlt} />
+                <span>Refrescar</span>
+              </button>
             </div>
           </div>
         </div>
       </div>
 
       {/* RIGHT */}
-      <div
-        className={`gpagos-right-section gpagos-box ${
-          isMobile ? "gpagos-has-bottombar" : ""
-        }`}
-      >
+      <div className="gpagos-right-section gpagos-box">
         <div className="gpagos-table-header">
           <h3>
             <FontAwesomeIcon
-              icon={activeTab === "pagado" ? faCheckCircle : faExclamationTriangle}
+              icon={
+                activeTab === "pagado"
+                  ? faCheckCircle
+                  : faExclamationTriangle
+              }
             />
             {activeTab === "pagado" ? "Pagos Registrados" : "Pagos Pendientes"}
           </h3>
@@ -1106,77 +1156,11 @@ function Pagos() {
               <FontAwesomeIcon icon={faUsers} />
               Total: {filtrosCompletos ? datosFiltrados.length : 0}
             </span>
-
-            {selectedYear && (
-              <span className="gpagos-summary-item">
-                <FontAwesomeIcon icon={faCalendarAlt} />
-                Año: {selectedYear}
-              </span>
-            )}
-
-            {selectedMonth && (
-              <span className="gpagos-summary-item">
-                <FontAwesomeIcon icon={faCalendarAlt} />
-                Mes: {selectedMonth}
-              </span>
-            )}
-
-            {selectedMedioPago && (
-              <span className="gpagos-summary-item">
-                <FontAwesomeIcon icon={faCreditCard} />
-                Medio: {selectedMedioPago}
-              </span>
-            )}
           </div>
         </div>
 
         <div className="gpagos-table-container">{renderTabla}</div>
       </div>
-
-      {/* Bottom bar mobile */}
-      {isMobile && (
-        <div className="gpagos-mobile-bottombar">
-          <button
-            className="gpagos-mbar-btn mbar-back"
-            onClick={handleVolver}
-            disabled={loading.pagos}
-            type="button"
-          >
-            <FontAwesomeIcon icon={faArrowLeft} />
-            <span>Volver</span>
-          </button>
-
-          <button
-            className="gpagos-mbar-btn mbar-refresh"
-            onClick={() => {
-              if (!selectedYear || !selectedMonth) return;
-              const k = cacheKey(selectedYear, selectedMonth);
-              delete cacheRef.current.pagos.pagado[k];
-              delete cacheRef.current.pagos.deudor[k];
-              delete cacheRef.current.pagos.lastUpdated[k];
-              cargarPagosPorMes(selectedYear, selectedMonth, true);
-            }}
-            disabled={loading.pagos || !selectedYear || !selectedMonth}
-            type="button"
-          >
-            <FontAwesomeIcon icon={faMoneyCheckAlt} />
-            <span>Actualizar</span>
-          </button>
-
-          <button
-            className="gpagos-mbar-btn mbar-clear"
-            onClick={() => {
-              setSelectedMedioPago("");
-              setSearchTerm("");
-            }}
-            disabled={loading.pagos}
-            type="button"
-          >
-            <FontAwesomeIcon icon={faTimes} />
-            <span>Limpiar</span>
-          </button>
-        </div>
-      )}
     </div>
   );
 }

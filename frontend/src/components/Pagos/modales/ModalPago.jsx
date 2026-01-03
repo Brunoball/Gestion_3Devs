@@ -80,6 +80,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     const dd = String(d.getDate()).padStart(2, "0");
     return `${yyyy}-${mm}-${dd}`;
   });
+
   const [idMedioPago, setIdMedioPago] = useState("");
 
   const [mesesCatalogo, setMesesCatalogo] = useState([]);
@@ -89,20 +90,25 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
   const yearNow = hoy.getFullYear();
   const [selectedYear, setSelectedYear] = useState(yearNow);
 
+  // ✅ API base (misma que Pagos.jsx)
   const API = useMemo(() => `${BASE_URL}/api.php`, []);
 
-  // ✅ EXACTAMENTE IGUAL QUE EN Pagos.jsx
-  const GLOBAL_ACTION = "global";
-  const GLOBAL_OP = "listas";
-  const GLOBAL_API = useMemo(
-    () => `${API}?action=${GLOBAL_ACTION}&op=${GLOBAL_OP}`,
-    [API]
-  );
+  /* =========================================================
+     ✅ LISTAS
+     - Router: /api.php?action=listas
+     - Fallback: /modules/global/obtener_listas.php
+  ========================================================= */
+  const LISTAS_API = useMemo(() => `${API}?action=listas`, [API]);
 
-  // ✅ fallback directo (mismo enfoque que Pagos.jsx)
-  const GLOBAL_DIRECT = useMemo(
-    () => `${BASE_URL}/../modules/global/obtener_listas.php`,
-    []
+  // Si BASE_URL termina en /routes, lo recorto para apuntar a /modules
+  const BACKEND_BASE = useMemo(() => {
+    if (typeof BASE_URL !== "string") return "";
+    return BASE_URL.endsWith("/routes") ? BASE_URL.replace(/\/routes$/, "") : BASE_URL;
+  }, []);
+
+  const LISTAS_DIRECT = useMemo(
+    () => `${BACKEND_BASE}/modules/global/obtener_listas.php`,
+    [BACKEND_BASE]
   );
 
   const fetchJSON = useCallback(async (url, opts) => {
@@ -127,41 +133,30 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
   }, []);
 
   const normalizarMeses = useCallback((data) => {
-    const raw = data?.listas?.meses || data?.meses || data?.listas?.mes || [];
+    const raw = data?.listas?.meses || data?.meses || [];
     const arr = Array.isArray(raw) ? raw : [];
     return arr
       .map((m) => ({
         id_mes: Number(m?.id_mes ?? m?.id ?? null),
         mes: String(m?.mes ?? m?.nombre ?? "").trim(),
       }))
-      .filter(
-        (m) =>
-          Number.isFinite(m.id_mes) &&
-          m.id_mes >= 1 &&
-          m.id_mes <= 12 &&
-          m.mes
-      )
+      .filter((m) => Number.isFinite(m.id_mes) && m.id_mes >= 1 && m.id_mes <= 12 && m.mes)
       .sort((a, b) => a.id_mes - b.id_mes);
   }, []);
 
   const normalizarMedios = useCallback((data) => {
-    const raw =
-      data?.listas?.medios_pago ||
-      data?.mediosPago ||
-      data?.medios_pago ||
-      [];
+    const raw = data?.listas?.medios_pago || data?.medios_pago || data?.mediosPago || [];
     const arr = Array.isArray(raw) ? raw : [];
     return arr
       .map((x) => ({
         id_medio_pago: Number(x?.id_medio_pago ?? x?.id ?? null),
-        nombre: String(
-          x?.nombre ?? x?.Medio_Pago ?? x?.medio_pago ?? ""
-        ).trim(),
+        nombre: String(x?.nombre ?? x?.Medio_Pago ?? x?.medio_pago ?? "").trim(),
       }))
-      .filter((x) => Number.isFinite(x.id_medio_pago) && x.nombre);
+      .filter((x) => Number.isFinite(x.id_medio_pago) && x.nombre)
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, []);
 
-  // ✅ Catálogos desde GLOBAL_API
+  // ✅ Cargar catálogos
   useEffect(() => {
     let alive = true;
 
@@ -169,9 +164,9 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       try {
         let data;
         try {
-          data = await fetchJSON(GLOBAL_API, { method: "GET" });
+          data = await fetchJSON(LISTAS_API, { method: "GET" });
         } catch {
-          data = await fetchJSON(GLOBAL_DIRECT, { method: "GET" });
+          data = await fetchJSON(LISTAS_DIRECT, { method: "GET" });
         }
         if (!alive) return;
 
@@ -181,18 +176,15 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         setMesesCatalogo(m.length ? m : []);
         setMediosPago(mp.length ? mp : []);
 
-        if (!idMedioPago && mp.length) {
-          setIdMedioPago(String(mp[0].id_medio_pago));
-        }
+        if (!idMedioPago && mp.length) setIdMedioPago(String(mp[0].id_medio_pago));
       } catch {
         if (!alive) return;
 
+        // fallback duro
         setMesesCatalogo(
           Array.from({ length: 12 }, (_, i) => ({
             id_mes: i + 1,
-            mes: new Date(0, i)
-              .toLocaleString("es", { month: "long" })
-              .toUpperCase(),
+            mes: new Date(0, i).toLocaleString("es", { month: "long" }).toUpperCase(),
           }))
         );
         setMediosPago([]);
@@ -202,14 +194,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     return () => {
       alive = false;
     };
-  }, [
-    GLOBAL_API,
-    GLOBAL_DIRECT,
-    fetchJSON,
-    normalizarMeses,
-    normalizarMedios,
-    idMedioPago,
-  ]);
+  }, [LISTAS_API, LISTAS_DIRECT, fetchJSON, normalizarMeses, normalizarMedios, idMedioPago]);
 
   // ESC para cerrar
   useEffect(() => {
@@ -236,7 +221,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       try {
         if (!id_sistema) throw new Error("Falta id_sistema");
 
-        const url = `${BASE_URL}/api.php?action=pagos&op=detalle_sistema&id_sistema=${encodeURIComponent(
+        const url = `${API}?action=pagos&op=detalle_sistema&id_sistema=${encodeURIComponent(
           id_sistema
         )}`;
         const data = await fetchJSON(url, { method: "GET" });
@@ -245,21 +230,15 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         setDetalle(data?.detalle || data?.sistema || data || null);
 
         const pagos =
-          data?.pagosPorAnio && typeof data.pagosPorAnio === "object"
-            ? data.pagosPorAnio
-            : {};
+          data?.pagosPorAnio && typeof data.pagosPorAnio === "object" ? data.pagosPorAnio : {};
         setPagosPorAnio(pagos);
 
         const years = Object.keys(pagos).map(Number).filter(Boolean);
         if (years.length) {
           const maxYear = Math.max(...years, yearNow);
-          setSelectedYear((prev) =>
-            Number.isFinite(Number(prev)) ? Number(prev) : maxYear
-          );
+          setSelectedYear((prev) => (Number.isFinite(Number(prev)) ? Number(prev) : maxYear));
         } else {
-          setSelectedYear((prev) =>
-            Number.isFinite(Number(prev)) ? Number(prev) : yearNow
-          );
+          setSelectedYear((prev) => (Number.isFinite(Number(prev)) ? Number(prev) : yearNow));
         }
       } catch (e) {
         if (!alive) return;
@@ -274,7 +253,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     return () => {
       alive = false;
     };
-  }, [id_sistema, fetchJSON, yearNow]);
+  }, [id_sistema, fetchJSON, yearNow, API]);
 
   const yearOptions = useMemo(() => {
     const years = new Set([yearNow, yearNow + 1, yearNow + 2]);
@@ -282,6 +261,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     return Array.from(years).filter(Boolean).sort((a, b) => b - a);
   }, [pagosPorAnio, yearNow]);
 
+  // ✅ evita loop de setSelectedYear
   const lastFixedYearRef = useRef(null);
   useEffect(() => {
     if (!yearOptions.length) return;
@@ -306,9 +286,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         ? mesesCatalogo
         : Array.from({ length: 12 }, (_, i) => ({
             id_mes: i + 1,
-            mes: new Date(0, i)
-              .toLocaleString("es", { month: "long" })
-              .toUpperCase(),
+            mes: new Date(0, i).toLocaleString("es", { month: "long" }).toUpperCase(),
           }));
 
     return catalogo.map((m) => ({
@@ -317,6 +295,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     }));
   }, [mesesCatalogo, selectedYear]);
 
+  // ✅ ESTA LINEA ES LA QUE TE ROMPIA: SIN TABS, SIN NADA RARO
   const isMesPagado = useCallback(
     (mesId) => {
       const arr = pagosPorAnio?.[selectedYear] || [];
@@ -393,14 +372,14 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     setError("");
 
     try {
-      const url = `${BASE_URL}/api.php?action=pagos&op=registrar_pago`;
+      const url = `${API}?action=pagos&op=registrar_pago`;
 
       const payload = {
         id_sistema: Number(id_sistema),
         anio: Number(selectedYear),
         meses: mesesSeleccionados,
         monto: montoNum,
-        fecha_pago: String(fechaPago), // ✅ esta es la que ahora el backend guarda
+        fecha_pago: String(fechaPago),
         id_medio_pago: Number(idMedioPago),
       };
 
@@ -410,43 +389,29 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         body: JSON.stringify(payload),
       });
 
-      // backend devuelve { exito: true, insertados:[], omitidos:[] }
       if (result?.exito !== true) {
         throw new Error(result?.mensaje || "Error al registrar el pago");
       }
 
-      // ✅ reflejar en UI lo insertado
       const insertados = Array.isArray(result?.insertados)
         ? result.insertados
         : mesesSeleccionados;
 
       setPagosPorAnio((prev) => {
         const copia = { ...(prev || {}) };
-        const arr = new Set(copia[selectedYear] || []);
-        insertados.forEach((m) => arr.add(Number(m)));
-        copia[selectedYear] = Array.from(arr).sort((a, b) => a - b);
+        const set = new Set(copia[selectedYear] || []);
+        insertados.forEach((m) => set.add(Number(m)));
+        copia[selectedYear] = Array.from(set).sort((a, b) => a - b);
         return copia;
       });
 
       setPagoExitoso(true);
-
-      // opcional: limpiar campos
       setMesesSeleccionados([]);
-      // setMonto(""); // si querés que se limpie, descomentá
       onPagoRealizado?.();
     } catch (e) {
       setError(e?.message || "Ocurrió un error al realizar el pago.");
     }
-  }, [
-    id_sistema,
-    mesesSeleccionados,
-    monto,
-    fechaPago,
-    idMedioPago,
-    selectedYear,
-    fetchJSON,
-    onPagoRealizado,
-  ]);
+  }, [id_sistema, mesesSeleccionados, monto, fechaPago, idMedioPago, selectedYear, fetchJSON, onPagoRealizado, API]);
 
   const tituloCliente = useMemo(() => {
     const c = detalle?.cliente || detalle?.nombre_cliente || detalle?.cliente_nombre;

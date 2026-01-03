@@ -13,7 +13,9 @@ declare(strict_types=1);
  *
  * ✅ Modal:
  * - GET  /api.php?action=pagos&op=detalle_sistema&id_sistema=5
+ * - GET  /api.php?action=pagos&op=equipo_sistema&id_sistema=5&anio=2026&mes=1
  * - POST /api.php?action=pagos&op=registrar_pago
+ * - POST /api.php?action=pagos&op=eliminar_pago
  */
 
 function route_pagos(string $action): bool
@@ -34,8 +36,19 @@ function route_pagos(string $action): bool
     return true;
   }
 
+  // ✅ NUEVO: equipo del sistema + monto cobrado
+  if ($op === 'equipo_sistema') {
+    pagos_equipo_sistema();
+    return true;
+  }
+
   if ($op === 'registrar_pago') {
     pagos_registrar_pago();
+    return true;
+  }
+
+  if ($op === 'eliminar_pago') {
+    pagos_eliminar_pago();
     return true;
   }
 
@@ -54,7 +67,7 @@ function route_pagos(string $action): bool
   http_response_code(200);
   echo json_encode([
     'exito' => false,
-    'mensaje' => 'Parámetros inválidos. Usá: ?estado=pagado|deudor o ?op=detalle_sistema|registrar_pago'
+    'mensaje' => 'Parámetros inválidos. Usá: ?estado=pagado|deudor o ?op=detalle_sistema|equipo_sistema|registrar_pago|eliminar_pago'
   ], JSON_UNESCAPED_UNICODE);
   return true;
 }

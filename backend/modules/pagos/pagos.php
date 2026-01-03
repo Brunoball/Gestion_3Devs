@@ -10,6 +10,8 @@ declare(strict_types=1);
  * - medios_pago (id_medio_pago, nombre, activo)
  * - clientes_sistemas (id_sistema, id_cliente, nombre, descripcion, estado, fecha_inicio, created_at)
  * - clientes (id_cliente, nombre, notas, activo)
+ * - sistemas_trabajadores (id_sistema, id_trabajador, rol_en_sistema, fecha_asignacion)
+ * - trabajadores (id, nombre, apellido, email, rol, alias_pago, activo, fecha_alta)
  */
 
 /* =========================
@@ -111,6 +113,11 @@ function build_obligaciones_por_anio(DateTime $inicio, DateTime $hoy): array {
 
   return $out;
 }
+
+/* =========================================================
+   ✅ INCLUIR ENDPOINT NUEVO (equipo_sistema)
+========================================================= */
+require_once __DIR__ . '/equipo_sistema.php';
 
 /* =========================================================
    ✅ LISTAR AÑOS (global)
@@ -403,7 +410,6 @@ function pagos_registrar_pago(): void
   if (!is_numeric($monto) || $monto <= 0) json_error("Monto inválido");
   if ($fecha_pago === '') json_error("Falta fecha_pago");
 
-  // validar formato YYYY-MM-DD
   $dt = DateTime::createFromFormat('Y-m-d', $fecha_pago);
   $dtErrors = DateTime::getLastErrors();
   if (!$dt || ($dtErrors['warning_count'] ?? 0) > 0 || ($dtErrors['error_count'] ?? 0) > 0) {
@@ -411,17 +417,14 @@ function pagos_registrar_pago(): void
   }
   $fecha_pago = $dt->format('Y-m-d');
 
-  // validar sistema
   $stSys = $pdo->prepare("SELECT id_sistema FROM clientes_sistemas WHERE id_sistema = ? LIMIT 1");
   $stSys->execute([$id_sistema]);
   if (!$stSys->fetchColumn()) json_error("Sistema inexistente");
 
-  // validar medio pago
   $stMP = $pdo->prepare("SELECT id_medio_pago FROM medios_pago WHERE id_medio_pago = ? AND activo = 1 LIMIT 1");
   $stMP->execute([$id_medio_pago]);
   if (!$stMP->fetchColumn()) json_error("Medio de pago inválido o inactivo");
 
-  // normalizar meses
   $mesesNorm = [];
   foreach ($meses as $m) {
     if (!is_numeric($m)) continue;
@@ -546,6 +549,11 @@ if ($action === 'pagos') {
   // operaciones GET
   if ($op === 'detalle_sistema') {
     pagos_detalle_sistema();
+  }
+
+  // ✅ NUEVO
+  if ($op === 'equipo_sistema') {
+    pagos_equipo_sistema();
   }
 
   if ($estado === 'pagado') {

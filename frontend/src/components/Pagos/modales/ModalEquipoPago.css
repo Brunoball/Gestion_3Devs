@@ -1,0 +1,172 @@
+/* src/components/Pagos/modales/ModalEquipoPago.css */
+.meq_overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  padding: 16px;
+}
+
+.meq_modal {
+  width: min(980px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  background: #0f1115;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px;
+  box-shadow: 0 18px 60px rgba(0,0,0,.55);
+}
+
+.meq_header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+.meq_title {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: #fff;
+}
+
+.meq_title h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.meq_subtitle {
+  margin: 2px 0 0 0;
+  color: rgba(255,255,255,.7);
+  font-size: 13px;
+}
+
+.meq_close {
+  background: transparent;
+  border: 0;
+  color: rgba(255,255,255,.8);
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.meq_body {
+  padding: 16px;
+  color: rgba(255,255,255,.9);
+}
+
+.meq_error {
+  background: rgba(255, 80, 80, .14);
+  border: 1px solid rgba(255, 80, 80, .35);
+  padding: 10px 12px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.meq_grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 760px) {
+  .meq_grid { grid-template-columns: 1fr; }
+}
+
+.meq_field label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: rgba(255,255,255,.85);
+}
+
+.meq_field input {
+  width: 100%;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.05);
+  color: #fff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.meq_field small {
+  display: block;
+  margin-top: 6px;
+  color: rgba(255,255,255,.6);
+  font-size: 12px;
+}
+
+.meq_section {
+  margin-top: 16px;
+}
+
+.meq_section h4 {
+  margin: 0 0 10px 0;
+  font-size: 15px;
+}
+
+.meq_loading,
+.meq_empty {
+  padding: 12px;
+  border: 1px dashed rgba(255,255,255,.18);
+  border-radius: 10px;
+  color: rgba(255,255,255,.75);
+}
+
+.meq_tablewrap {
+  overflow: auto;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 10px;
+}
+
+.meq_table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+.meq_table th,
+.meq_table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  text-align: left;
+  font-size: 13px;
+}
+
+.meq_table th {
+  background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.85);
+  font-weight: 700;
+}
+
+.meq_footer {
+  padding: 12px 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+
+.meq_btn {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.meq_btn_ghost {
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.9);
+  border: 1px solid rgba(255,255,255,.12);
+}
+
+.meq_btn_primary {
+  background: #2f7df6;
+  color: #fff;
+}
