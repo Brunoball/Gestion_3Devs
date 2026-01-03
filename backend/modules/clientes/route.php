@@ -2,7 +2,7 @@
 // backend/modules/clientes/route.php
 declare(strict_types=1);
 
-require_once __DIR__ . '/clientes.php'; // carga helpers + repos
+require_once __DIR__ . '/clientes.php'; // carga helpers + repos + handlers
 
 function route_clientes(string $action): bool
 {
@@ -31,6 +31,9 @@ function route_clientes(string $action): bool
     case 'sistema_trabajadores_list':   sistema_trabajadores_listar(); return true;
     case 'sistema_trabajadores_add':    sistema_trabajadores_agregar(); return true;
     case 'sistema_trabajadores_remove': sistema_trabajadores_quitar(); return true;
+
+    // ✅ PLANES DE MANTENIMIENTO
+    case 'planes_mantenimiento_list': planes_mantenimiento_listar(); return true;
 
     default:
       http_response_code(200);

@@ -12,6 +12,9 @@ import EliminarClienteModal from "./modales/EliminarClienteModal";
 import QuitarTrabajadorModal from "./modales/QuitarTrabajadorModal";
 import EliminarSistemaModal from "./modales/EliminarSistemaModal";
 
+// ✅ NUEVO: modal presupuesto
+import GenerarPresupuestoModal from "./modales/GenerarPresupuestoModal";
+
 // ✅ mismos globales que Previas (estructura/fondo)
 import "../Global/roots.css";
 
@@ -53,6 +56,9 @@ export default function Clientes() {
   const [sysDelOpen, setSysDelOpen] = useState(false);
   const [sysDelSistema, setSysDelSistema] = useState(null);
   const [sysDelLoading, setSysDelLoading] = useState(false);
+
+  // ✅ NUEVO: modal presupuesto
+  const [presOpen, setPresOpen] = useState(false);
 
   // formularios clientes
   const [nuevoCliente, setNuevoCliente] = useState({ nombre: "", notas: "" });
@@ -544,13 +550,26 @@ export default function Clientes() {
               </div>
             </div>
 
-            <button
-              className="btn-volver"
-              onClick={() => navigate("/panel")}
-              type="button"
-            >
-              ← Volver
-            </button>
+            {/* ✅ BOTONES HEADER */}
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <button
+                className="btn-volver"
+                onClick={() => navigate("/panel")}
+                type="button"
+              >
+                ← Volver
+              </button>
+
+              <button
+                className="btn-volver"
+                onClick={() => setPresOpen(true)}
+                type="button"
+                title="Generar presupuesto en PDF"
+                aria-label="Generar presupuesto"
+              >
+                💼 Generar presupuesto
+              </button>
+            </div>
           </div>
 
           <div className="card card-agregar">
@@ -1009,6 +1028,13 @@ export default function Clientes() {
           }
           onSubmit={() => modalClienteId && crearSistema(modalClienteId)}
           submitting={addSubmitting}
+        />
+
+        {/* ✅ NUEVO: MODAL GENERAR PRESUPUESTO */}
+        <GenerarPresupuestoModal
+          open={presOpen}
+          onClose={() => setPresOpen(false)}
+          onToast={(tipo, msg) => mostrarToast(tipo, msg)}
         />
       </div>
     </div>
