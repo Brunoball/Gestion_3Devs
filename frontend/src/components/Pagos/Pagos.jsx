@@ -24,7 +24,10 @@ import {
   faCreditCard,
   faTimes, // ✅ eliminar
   faFileInvoiceDollar, // ✅ ARCA
+  faFileExcel, // ✅ Excel
 } from "@fortawesome/free-solid-svg-icons";
+
+import * as XLSX from "xlsx";
 
 import BASE_URL from "../../config/config";
 import Toast from "../Global/Toast";
@@ -608,7 +611,6 @@ function Pagos() {
           }),
         ]);
 
-        // ✅ FIX: acá estaba el bug "pagos is not defined"
         const arrP = Array.isArray(pagados) ? pagados : pagados?.pagos || [];
         const arrD = Array.isArray(deudores) ? deudores : deudores?.pagos || [];
 
@@ -643,7 +645,13 @@ function Pagos() {
     }, searchTerm ? 250 : 0);
 
     return () => clearTimeout(deb);
-  }, [filtrosCompletos, selectedYear, selectedMonth, searchTerm, cargarPagosPorMes]);
+  }, [
+    filtrosCompletos,
+    selectedYear,
+    selectedMonth,
+    searchTerm,
+    cargarPagosPorMes,
+  ]);
 
   // ===== Filtrado =====
   const filterData = useCallback(
@@ -714,29 +722,19 @@ function Pagos() {
   // ===== handlers =====
   const handleVolver = useCallback(() => navigate(-1), [navigate]);
 
-  const handleYearChange = useCallback((e) => {
-    setSelectedYear(e.target.value);
-    setSelectedMonth("");
-    setSelectedMedioPago("");
-    setSearchTerm("");
-  }, []);
-
-  const handleMonthChange = useCallback((e) => {
-    setSelectedMonth(e.target.value);
-    setSearchTerm("");
-  }, []);
-
-  const handleMedioPagoChange = useCallback((e) => {
-    setSelectedMedioPago(e.target.value);
-  }, []);
-
   const handleSearchChange = useCallback((e) => {
     setSearchTerm(e.target.value);
   }, []);
 
   const onPayClick = useCallback((row) => openModalPago(row), [openModalPago]);
-  const onTeamClick = useCallback((row) => openModalEquipo(row), [openModalEquipo]);
-  const onArcaClick = useCallback((row) => openModalArca(row), [openModalArca]);
+  const onTeamClick = useCallback(
+    (row) => openModalEquipo(row),
+    [openModalEquipo]
+  );
+  const onArcaClick = useCallback(
+    (row) => openModalArca(row),
+    [openModalArca]
+  );
 
   const onDeleteClick = useCallback(
     (row) => {
@@ -779,7 +777,7 @@ function Pagos() {
     [activeTab, selectedYear, selectedMonth, selectedMedioPago, searchTerm]
   );
 
-  // ✅ refrescar
+  // ✅ refrescar (se usa internamente)
   const recargarListado = useCallback(() => {
     if (!selectedYear || !selectedMonth) return;
     const k = cacheKey(selectedYear, selectedMonth);
@@ -788,6 +786,54 @@ function Pagos() {
     delete cacheRef.current.pagos.lastUpdated[k];
     cargarPagosPorMes(selectedYear, selectedMonth, true);
   }, [selectedYear, selectedMonth, cacheKey, cargarPagosPorMes]);
+
+  // ✅ EXPORTAR EXCEL
+  const exportarExcel = useCallback(() => {
+    if (!filtrosCompletos) {
+      showToast("error", "Seleccioná año y mes antes de exportar.");
+      return;
+    }
+
+    const data = Array.isArray(datosFiltrados) ? datosFiltrados : [];
+    if (!data.length) {
+      showToast("error", "No hay datos para exportar con los filtros actuales.");
+      return;
+    }
+
+    const rows = data.map((x) => ({
+      Cliente: buildClienteLabel(x),
+      Sistema: buildSistemaLabel(x),
+      "Medio de Pago": x?.medio_pago ?? "",
+      Monto: x?.monto ?? "",
+      "Fecha de pago": x?.fecha_pago ?? "",
+      "ID Pago": getIdPago(x) ?? "",
+      "ID Sistema": getIdSistema(x) ?? "",
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      ws,
+      activeTab === "pagado" ? "Pagos" : "Deudores"
+    );
+
+    const safeMes = String(selectedMonth || "mes")
+      .toLowerCase()
+      .replace(/\s+/g, "_")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+    const fileName = `pagos_${activeTab}_${selectedYear}_${safeMes}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  }, [
+    filtrosCompletos,
+    datosFiltrados,
+    activeTab,
+    selectedYear,
+    selectedMonth,
+    showToast,
+  ]);
 
   // ✅ confirmar eliminación
   const confirmarEliminarPago = useCallback(async () => {
@@ -1191,19 +1237,16 @@ function Pagos() {
                 <span>Volver</span>
               </button>
 
+              {/* ✅ ANTES: Refrescar | AHORA: Excel */}
               <button
-                className="gpagos-button"
-                onClick={() => {
-                  cacheRef.current.listas = null;
-                  fetchListas(true).catch(() => {});
-                  recargarListado();
-                }}
-                disabled={loading.pagos || loading.listas}
+                className="gpagos-button gpagos-button-excel"
+                onClick={exportarExcel}
+                disabled={loading.pagos || loading.listas || !filtrosCompletos}
                 type="button"
-                title="Refrescar"
+                title="Exportar a Excel"
               >
-                <FontAwesomeIcon icon={faMoneyCheckAlt} />
-                <span>Refrescar</span>
+                <FontAwesomeIcon icon={faFileExcel} />
+                <span>Excel</span>
               </button>
             </div>
           </div>
@@ -1215,7 +1258,11 @@ function Pagos() {
         <div className="gpagos-table-header">
           <h3>
             <FontAwesomeIcon
-              icon={activeTab === "pagado" ? faCheckCircle : faExclamationTriangle}
+              icon={
+                activeTab === "pagado"
+                  ? faCheckCircle
+                  : faExclamationTriangle
+              }
             />
             {activeTab === "pagado" ? "Pagos Registrados" : "Pagos Pendientes"}
           </h3>

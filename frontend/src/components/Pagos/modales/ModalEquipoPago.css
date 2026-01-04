@@ -1,172 +1,80 @@
 /* src/components/Pagos/modales/ModalEquipoPago.css */
-.meq_overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,.55);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 9999;
-  padding: 16px;
+
+/* iconito en el título */
+.mep-inlineicon{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  margin-right:10px;
 }
 
-.meq_modal {
-  width: min(980px, 100%);
-  max-height: 90vh;
-  overflow: auto;
-  background: #0f1115;
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 14px;
-  box-shadow: 0 18px 60px rgba(0,0,0,.55);
+/* alert tipo card */
+.mep-alert{
+  border-radius: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--mi-border, #e2e8f0);
+  background: #fff;
+  margin-bottom: 14px;
+  box-shadow: 0 2px 10px rgba(15,23,42,.03);
+}
+.mep-alert--error{
+  border-color: rgba(211,47,47,.25);
+  background: rgba(211,47,47,.06);
+  color: var(--mi-text, #0f172a);
 }
 
-.meq_header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 14px 16px;
-  border-bottom: 1px solid rgba(255,255,255,.08);
-}
-
-.meq_title {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  color: #fff;
-}
-
-.meq_title h3 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.meq_subtitle {
-  margin: 2px 0 0 0;
-  color: rgba(255,255,255,.7);
-  font-size: 13px;
-}
-
-.meq_close {
-  background: transparent;
-  border: 0;
-  color: rgba(255,255,255,.8);
-  cursor: pointer;
-  font-size: 18px;
-}
-
-.meq_body {
-  padding: 16px;
-  color: rgba(255,255,255,.9);
-}
-
-.meq_error {
-  background: rgba(255, 80, 80, .14);
-  border: 1px solid rgba(255, 80, 80, .35);
-  padding: 10px 12px;
-  border-radius: 10px;
-  margin-bottom: 12px;
-}
-
-.meq_grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-@media (max-width: 760px) {
-  .meq_grid { grid-template-columns: 1fr; }
-}
-
-.meq_field label {
-  display: block;
-  font-size: 13px;
-  margin-bottom: 6px;
-  color: rgba(255,255,255,.85);
-}
-
-.meq_field input {
-  width: 100%;
-  border: 1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.05);
-  color: #fff;
-  border-radius: 10px;
-  padding: 10px 12px;
-  outline: none;
-}
-
-.meq_field small {
-  display: block;
+/* hint consistente */
+.mep-hint{
   margin-top: 6px;
-  color: rgba(255,255,255,.6);
-  font-size: 12px;
+  color: var(--mi-muted, #475569);
+  font-size: .82rem;
 }
 
-.meq_section {
-  margin-top: 16px;
-}
-
-.meq_section h4 {
-  margin: 0 0 10px 0;
-  font-size: 15px;
-}
-
-.meq_loading,
-.meq_empty {
+/* estado vacío / loading */
+.mep-empty{
   padding: 12px;
-  border: 1px dashed rgba(255,255,255,.18);
-  border-radius: 10px;
-  color: rgba(255,255,255,.75);
+  border: 1px dashed var(--mi-border, #e2e8f0);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--mi-muted, #475569);
 }
 
-.meq_tablewrap {
-  overflow: auto;
-  border: 1px solid rgba(255,255,255,.1);
-  border-radius: 10px;
+/* tabla en “card look” */
+.mep-tablewrap{
+  overflow:auto;
+  border: 1px solid var(--mi-border, #e2e8f0);
+  border-radius: 12px;
+  background: #fff;
 }
 
-.meq_table {
+.mep-table{
   width: 100%;
   border-collapse: collapse;
   min-width: 720px;
 }
 
-.meq_table th,
-.meq_table td {
+.mep-table th,
+.mep-table td{
   padding: 10px 12px;
-  border-bottom: 1px solid rgba(255,255,255,.08);
+  border-bottom: 1px solid var(--mi-border, #e2e8f0);
   text-align: left;
-  font-size: 13px;
+  font-size: .92rem;
+  color: var(--mi-text, #0f172a);
 }
 
-.meq_table th {
-  background: rgba(255,255,255,.05);
-  color: rgba(255,255,255,.85);
-  font-weight: 700;
+.mep-table th{
+  background: var(--mi-bg-soft, #f1f5f9);
+  font-weight: 900;
 }
 
-.meq_footer {
-  padding: 12px 16px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  border-top: 1px solid rgba(255,255,255,.08);
+.mep-table tr:last-child td{
+  border-bottom: 0;
 }
 
-.meq_btn {
-  border: 0;
-  border-radius: 10px;
-  padding: 10px 14px;
-  cursor: pointer;
-  font-weight: 700;
+.mep-table tr.is-inactivo{
+  opacity: .55;
 }
-
-.meq_btn_ghost {
-  background: rgba(255,255,255,.06);
-  color: rgba(255,255,255,.9);
-  border: 1px solid rgba(255,255,255,.12);
-}
-
-.meq_btn_primary {
-  background: #2f7df6;
-  color: #fff;
+/* Solo en este modal: que “Resumen” ocupe todo el ancho */
+.mep-card--full{
+  grid-column: 1 / -1; /* 100% del grid */
 }

@@ -1,137 +1,167 @@
-/* src/components/Pagos/modales/ModalEliminarPago.css */
-
-.melim-overlay {
+/* Overlay */
+.mpdel-overlay{
   position: fixed;
   inset: 0;
-  background: rgba(10, 10, 12, 0.55);
+  background: rgba(0,0,0,.45);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 9999;
-  padding: 18px;
-}
-
-.melim-modal {
-  width: min(560px, 100%);
-  background: #0f1115;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
-  overflow: hidden;
-}
-
-.melim-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.melim-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: #fff;
-  font-weight: 700;
-  font-size: 15px;
-}
-
-.melim-close {
-  background: transparent;
-  border: 0;
-  color: rgba(255, 255, 255, 0.75);
-  cursor: pointer;
-  font-size: 18px;
-  padding: 6px;
-  border-radius: 10px;
-}
-
-.melim-close:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
-}
-
-.melim-body {
   padding: 16px;
-  color: rgba(255, 255, 255, 0.88);
+  z-index: 9999;
+  animation: mpdelFade .14s ease-out;
 }
 
-.melim-warning {
-  margin: 0 0 12px 0;
-  line-height: 1.35;
+/* Modal */
+.mpdel-modal{
+  width: min(520px, 100%);
+  background: #ffffff;
+  color: #1f2937;
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(0,0,0,.25);
+  position: relative;
+  padding: 22px 20px 18px;
+  animation: mpdelPop .14s ease-out;
 }
 
-.melim-card {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 12px;
-  padding: 12px;
+@keyframes mpdelFade{
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes mpdelPop{
+  from { transform: translateY(10px) scale(.97); opacity: .7; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
 }
 
-.melim-row {
+/* Botón cerrar */
+.mpdel-close{
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  border: 0;
+  background: #f1f5f9;
+  color: #374151;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.mpdel-close:hover{
+  background: #e5e7eb;
+}
+
+/* Ícono */
+.mpdel-icon{
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  margin: 4px auto 10px;
+  font-size: 22px;
+}
+
+.mpdel-icon--danger{
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+/* Título */
+.mpdel-title{
+  margin: 0;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 800;
+  color: #111827;
+}
+
+.mpdel-title--danger{
+  color: #b91c1c;
+}
+
+/* Texto */
+.mpdel-body{
+  margin: 10px 0 14px;
+  text-align: center;
+  font-size: 14px;
+  color: #4b5563;
+  line-height: 1.4;
+}
+
+/* Card info */
+.mpdel-card{
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.mpdel-row{
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
 }
 
-.melim-row:last-child {
-  border-bottom: 0;
+.mpdel-label{
+  font-size: 12px;
+  color: #6b7280;
 }
 
-.melim-label {
-  color: rgba(255, 255, 255, 0.7);
+.mpdel-value{
   font-size: 13px;
-}
-
-.melim-value {
-  color: #fff;
-  font-weight: 600;
-  font-size: 13px;
+  font-weight: 700;
+  color: #111827;
   text-align: right;
-  max-width: 70%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-word;
 }
 
-.melim-actions {
+/* Acciones */
+.mpdel-actions{
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  padding: 14px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 16px;
 }
 
-.melim-btn {
-  border: 0;
+/* Botones */
+.mpdel-btn{
   border-radius: 12px;
-  padding: 10px 14px;
+  padding: 10px 16px;
   font-weight: 700;
   cursor: pointer;
+  border: 0;
+  transition: transform .12s ease, background .12s ease;
 }
 
-.melim-cancel {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.92);
+.mpdel-btn:active{
+  transform: translateY(1px);
 }
 
-.melim-cancel:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.melim-confirm {
-  background: rgba(255, 77, 79, 0.92);
-  color: #fff;
-}
-
-.melim-confirm:hover {
-  background: rgba(255, 77, 79, 1);
-}
-
-.melim-btn:disabled {
-  opacity: 0.6;
+.mpdel-btn:disabled{
+  opacity: .6;
   cursor: not-allowed;
+}
+
+/* Cancelar */
+.mpdel-btn--ghost{
+  background: #f1f5f9;
+  color: #374151;
+}
+
+.mpdel-btn--ghost:hover{
+  background: #e5e7eb;
+}
+
+/* Eliminar */
+.mpdel-btn--solid-danger{
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.mpdel-btn--solid-danger:hover{
+  background: #b91c1c;
 }

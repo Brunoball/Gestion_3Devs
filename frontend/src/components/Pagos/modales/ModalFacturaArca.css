@@ -1,58 +1,66 @@
-.mfact_overlay{
-  position:fixed; inset:0;
-  background:rgba(0,0,0,.45);
-  display:flex; align-items:center; justify-content:center;
-  padding:16px; z-index:9999;
+/* frontend/src/components/Pagos/modales/ModalFacturaArca.css */
+
+/* alerta estilo claro */
+.arca-alert{
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  font-weight: 700;
+  border: 1px solid var(--mi-border, #e2e8f0);
+  background: #fff;
+  color: var(--mi-text, #0f172a);
+  box-shadow: 0 6px 18px rgba(15,23,42,.06);
 }
-.mfact_card{
-  width:min(720px, 96vw);
-  background:#0f1115;
-  border:1px solid rgba(255,255,255,.08);
-  border-radius:16px;
-  box-shadow:0 18px 80px rgba(0,0,0,.55);
-  overflow:hidden;
+
+.arca-alert--error{
+  border-color: rgba(211, 47, 47, .22);
+  background: rgba(211, 47, 47, .06);
+  color: #7a1111;
 }
-.mfact_header{
-  display:flex; justify-content:space-between; align-items:flex-start;
-  padding:16px 18px;
-  border-bottom:1px solid rgba(255,255,255,.08);
+
+/* key-value dentro de card */
+.arca-kv{
+  display: grid;
+  gap: 10px;
 }
-.mfact_title{ margin:0; font-size:18px; color:#fff; }
-.mfact_sub{ margin-top:4px; font-size:13px; opacity:.75; color:#fff; }
-.mfact_close{
-  background:transparent; border:0; color:#fff; opacity:.8;
-  cursor:pointer; font-size:18px;
+
+.arca-kv__row{
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--mi-border, #e2e8f0);
+  border-radius: 12px;
+  background: #fff;
 }
-.mfact_body{ padding:16px 18px; color:#fff; }
-.mfact_error{
-  background:rgba(255,70,70,.14);
-  border:1px solid rgba(255,70,70,.35);
-  padding:10px 12px; border-radius:10px; margin-bottom:12px;
+
+.arca-kv__k{
+  color: var(--mi-muted, #475569);
+  font-weight: 800;
 }
-.mfact_grid{
-  display:grid; grid-template-columns:1fr 1fr;
-  gap:12px;
+
+.arca-kv__v{
+  color: var(--mi-text, #0f172a);
+  font-weight: 800;
+  text-align: right;
 }
-.mfact_field label{ display:block; font-size:12px; opacity:.8; margin-bottom:6px; }
-.mfact_field input,.mfact_field select{
-  width:100%; padding:10px 12px;
-  border-radius:10px;
-  border:1px solid rgba(255,255,255,.10);
-  background:#121622; color:#fff;
+
+/* textos de ayuda */
+.arca-note{
+  margin-top: 12px;
+  font-size: .86rem;
+  color: var(--mi-muted, #475569);
+  line-height: 1.35;
 }
-.mfact_hint{ margin-top:12px; font-size:12px; opacity:.75; }
-.mfact_footer{
-  display:flex; justify-content:flex-end; gap:10px;
-  padding:14px 18px;
-  border-top:1px solid rgba(255,255,255,.08);
+
+.arca-mini{
+  margin-top: 8px;
+  font-size: .82rem;
+  color: var(--mi-muted, #475569);
 }
-.mfact_btn{
-  padding:10px 14px; border-radius:10px;
-  border:1px solid rgba(255,255,255,.12);
-  cursor:pointer;
-}
-.mfact_btn_sec{ background:transparent; color:#fff; opacity:.9; }
-.mfact_btn_pri{ background:#2a5cff; color:#fff; border-color:transparent; }
-@media (max-width:560px){
-  .mfact_grid{ grid-template-columns:1fr; }
+
+.arca-help{
+  font-size: .95rem;
+  color: var(--mi-text, #0f172a);
+  opacity: .92;
 }

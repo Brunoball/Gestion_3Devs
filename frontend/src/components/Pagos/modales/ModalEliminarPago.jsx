@@ -1,6 +1,6 @@
 // src/components/Pagos/modales/ModalEliminarPago.jsx
 import React, { useEffect, useRef } from "react";
-import { FaTimes, FaTrashAlt } from "react-icons/fa";
+import { FaTrashAlt, FaTimes } from "react-icons/fa";
 import "./ModalEliminarPago.css";
 
 export default function ModalEliminarPago({
@@ -31,69 +31,82 @@ export default function ModalEliminarPago({
   const sistema = data?.labelSistema || "—";
   const idPago = data?.id_pago || "—";
 
+  const cerrar = () => {
+    if (loading) return;
+    onClose?.();
+  };
+
   return (
-    <div className="melim-overlay" onMouseDown={onClose}>
-      <div
-        className="melim-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-      >
-        <div className="melim-header">
-          <div className="melim-title">
-            <FaTrashAlt />
-            <span>Eliminar pago</span>
-          </div>
+    <div
+      className="mpdel-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-eliminar-pago-title"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) cerrar();
+      }}
+    >
+      <div className="mpdel-modal mpdel-modal--danger">
+        <button
+          className="mpdel-close"
+          type="button"
+          onClick={cerrar}
+          aria-label="Cerrar"
+          disabled={loading}
+        >
+          <FaTimes />
+        </button>
 
-          <button
-            className="melim-close"
-            onClick={onClose}
-            type="button"
-            aria-label="Cerrar"
-          >
-            <FaTimes />
-          </button>
+        <div className="mpdel-icon mpdel-icon--danger" aria-hidden="true">
+          <FaTrashAlt />
         </div>
 
-        <div className="melim-body">
-          <p className="melim-warning">
-            ¿Seguro que querés eliminar este pago? Esta acción no se puede deshacer.
-          </p>
+        <h3
+          id="modal-eliminar-pago-title"
+          className="mpdel-title mpdel-title--danger"
+        >
+          Eliminar pago
+        </h3>
 
-          <div className="melim-card">
-            <div className="melim-row">
-              <span className="melim-label">ID Pago:</span>
-              <span className="melim-value">{idPago}</span>
-            </div>
-            <div className="melim-row">
-              <span className="melim-label">Cliente:</span>
-              <span className="melim-value">{cliente}</span>
-            </div>
-            <div className="melim-row">
-              <span className="melim-label">Sistema:</span>
-              <span className="melim-value">{sistema}</span>
-            </div>
+        <p className="mpdel-body">
+          ¿Seguro que querés eliminar este pago definitivamente?
+          <br />
+          Esta acción no se puede deshacer.
+        </p>
+
+        <div className="mpdel-card">
+          <div className="mpdel-row">
+            <span className="mpdel-label">ID Pago</span>
+            <span className="mpdel-value">{idPago}</span>
+          </div>
+          <div className="mpdel-row">
+            <span className="mpdel-label">Cliente</span>
+            <span className="mpdel-value">{cliente}</span>
+          </div>
+          <div className="mpdel-row">
+            <span className="mpdel-label">Sistema</span>
+            <span className="mpdel-value">{sistema}</span>
           </div>
         </div>
 
-        <div className="melim-actions">
+        <div className="mpdel-actions">
           <button
             ref={cancelRef}
-            className="melim-btn melim-cancel"
-            onClick={onClose}
             type="button"
+            className="mpdel-btn mpdel-btn--ghost"
+            onClick={cerrar}
             disabled={loading}
           >
             Cancelar
           </button>
 
           <button
-            className="melim-btn melim-confirm"
-            onClick={onConfirm}
             type="button"
+            className="mpdel-btn mpdel-btn--solid-danger"
+            onClick={onConfirm}
             disabled={loading}
           >
-            {loading ? "Eliminando..." : "Sí, eliminar"}
+            {loading ? "Eliminando..." : "Eliminar"}
           </button>
         </div>
       </div>

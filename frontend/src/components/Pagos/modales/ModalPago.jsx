@@ -705,8 +705,8 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
 
         <div className="modpag_body">
           <div className="modpag_info-summary">
-            <div className="modpag_info-row" style={{ gap: 12, display: "flex", flexWrap: "wrap" }}>
-              <div className="modpag_info-item" style={{ minWidth: 140 }}>
+            <div className="modpag_info-row" >
+              <div className="modpag_info-item">
                 <span className="modpag_info-label">Fecha pago</span>
                 <input
                   type="date"
