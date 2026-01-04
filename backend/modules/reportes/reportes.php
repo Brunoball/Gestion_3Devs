@@ -53,20 +53,18 @@ try {
         'reportes' => [
           ['id' => 'movimientos', 'nombre' => 'Movimientos (Pagos + Egresos)', 'metodo' => 'GET'],
           ['id' => 'anios', 'nombre' => 'Años disponibles', 'metodo' => 'GET'],
+          ['id' => 'crear_egreso', 'nombre' => 'Crear egreso', 'metodo' => 'POST'], // ✅ NUEVO
         ]
       ]);
     }
 
     /* =========================================================
        ✅ AÑOS DISPONIBLES
-       Ideal: unir años de pagos + egresos.
        GET /api.php?action=reportes&op=anios
-       -> { exito:true, anios:[2026,2025,...] }
     ========================================================= */
     case 'anios': {
       if (rep_req_method() !== 'GET') rep_json_fail('Método no permitido. Se esperaba GET');
 
-      // ✅ Une años de pagos y egresos (sin romper si una tabla está vacía)
       $sql = "
         SELECT anio FROM (
           SELECT DISTINCT YEAR(p.fecha_pago) AS anio
@@ -87,7 +85,6 @@ try {
       $st->execute();
       $anios = $st->fetchAll(PDO::FETCH_COLUMN);
 
-      // normaliza a int
       $out = [];
       foreach ($anios as $y) {
         $yi = (int)$y;
@@ -97,7 +94,25 @@ try {
       rep_json_ok(['anios' => $out]);
     }
 
-    // (si después querés) case 'estadisticas': ...
+    /* =========================================================
+       ✅ MOVIMIENTOS (Pagos + Egresos)
+       GET /api.php?action=reportes&op=movimientos&anio=YYYY&mes=MM
+       -> lo resuelve registros.php
+    ========================================================= */
+    case 'movimientos': {
+      require __DIR__ . '/registros.php';
+      exit;
+    }
+
+    /* =========================================================
+       ✅ CREAR EGRESO
+       POST /api.php?action=reportes&op=crear_egreso
+       -> lo resuelve registros.php
+    ========================================================= */
+    case 'crear_egreso': {
+      require __DIR__ . '/registros.php';
+      exit;
+    }
 
     default:
       rep_json_fail('op no válida en reportes: ' . $op);

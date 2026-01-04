@@ -13,8 +13,16 @@ import {
   faMoneyBillTrendUp,
   faMoneyBillTransfer,
   faUsers,
+  faPlus,
+  faPenToSquare,
+  faTrash,
 } from "@fortawesome/free-solid-svg-icons";
 import * as XLSX from "xlsx";
+
+// ✅ Modales
+import ModalNuevoEgreso from "./modales/ModalNuevoEgreso";
+import ModalEditarMovimiento from "./modales/ModalEditarMovimiento";
+import ModalEliminarEgreso from "./modales/ModalEliminarEgreso";
 
 /* Helpers */
 const nfPesos = new Intl.NumberFormat("es-AR");
@@ -37,8 +45,22 @@ function renderSkeletonRows(cols = 5) {
   ));
 }
 
-/* Tabla genérica usando estética gridtable */
-function GridTable({ title, icon, columns, rows, loading }) {
+/* Tabla genérica usando estética gridtable (ahora con acciones opcional) */
+function GridTable({ title, icon, columns, rows, loading, actions }) {
+  const allCols = useMemo(() => {
+    if (!actions) return columns;
+    return [
+      ...columns,
+      {
+        key: "__actions",
+        label: "",
+        fr: "0.55fr", // ✅ angosta
+        center: true,
+        render: (r) => actions(r),
+      },
+    ];
+  }, [columns, actions]);
+
   return (
     <section className="reportes-block">
       <div className="reportes-block-title">
@@ -48,34 +70,35 @@ function GridTable({ title, icon, columns, rows, loading }) {
         <span className="reportes-count">{rows?.length || 0} registros</span>
       </div>
 
-      <div className="contable-tablewrap reportes-tablewrap">
+      <div className="contable-tablewrap reportes-tablewrap minimal">
         <div
-          className="gridtable-header"
-          style={{ gridTemplateColumns: columns.map((c) => c.fr).join(" ") }}
+          className="gridtable-header minimal"
+          style={{ gridTemplateColumns: allCols.map((c) => c.fr).join(" ") }}
         >
-          {columns.map((c) => (
+          {allCols.map((c) => (
             <div key={c.key} className="gridtable-cell">
               {c.label}
             </div>
           ))}
         </div>
 
-        <div className="gridtable-body">
+        <div className="gridtable-body minimal">
           {loading ? (
-            renderSkeletonRows(columns.length)
+            renderSkeletonRows(allCols.length)
           ) : rows?.length ? (
             rows.map((r, idx) => (
               <div
                 key={r.id ?? `${title}-${idx}`}
-                className="gridtable-row row-appear"
+                className="gridtable-row row-appear minimal"
                 style={{
-                  gridTemplateColumns: columns.map((c) => c.fr).join(" "),
+                  gridTemplateColumns: allCols.map((c) => c.fr).join(" "),
                 }}
               >
-                {columns.map((c) => (
+                {allCols.map((c) => (
                   <div
                     key={c.key}
                     className={`gridtable-cell ${c.center ? "centers" : ""}`}
+                    data-label={c.label}
                   >
                     {c.render ? c.render(r) : r[c.key]}
                   </div>
@@ -112,6 +135,9 @@ export default function Reportes() {
   const [loadingMeses, setLoadingMeses] = useState(true);
   const [mesSeleccionado, setMesSeleccionado] = useState("TODOS"); // "TODOS" | id_mes
 
+  // ✅ medios pago para modales
+  const [mediosDisponibles, setMediosDisponibles] = useState([]);
+
   // ✅ evita pisar el default cuando vuelven a cargar selects
   const didInitAnios = useRef(false);
   const didInitMeses = useRef(false);
@@ -127,8 +153,26 @@ export default function Reportes() {
   const [egresos, setEgresos] = useState([]);
   const [trabajadores, setTrabajadores] = useState([]);
 
-  // ✅ opcional: mostrar error en UI
+  // Error visible
   const [errorMsg, setErrorMsg] = useState("");
+
+  // ✅ Modal egreso
+  const [modalEgresoOpen, setModalEgresoOpen] = useState(false);
+  const [savingEgreso, setSavingEgreso] = useState(false);
+
+  // ✅ Modal editar
+  const [modalEditarOpen, setModalEditarOpen] = useState(false);
+  const [savingEditar, setSavingEditar] = useState(false);
+  const [editarTipo, setEditarTipo] = useState("pago"); // "pago" | "egreso" | "trabajador"
+  const [editarItem, setEditarItem] = useState(null);
+
+  // ✅ Modal eliminar egreso
+  const [modalEliminarOpen, setModalEliminarOpen] = useState(false);
+  const [deletingEgreso, setDeletingEgreso] = useState(false);
+  const [egresoAEliminar, setEgresoAEliminar] = useState(null);
+
+  // ✅ para forzar refresh sin tocar filtros
+  const [reloadKey, setReloadKey] = useState(0);
 
   const volver = useCallback(() => navigate(-1), [navigate]);
 
@@ -152,19 +196,147 @@ export default function Reportes() {
 
     if (trimmed.startsWith("<")) {
       throw new Error(
-        `Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(
-          0,
-          300
-        )}`
+        `Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`
       );
     }
 
     try {
       return JSON.parse(trimmed || "{}");
-    } catch (e) {
+    } catch {
       throw new Error(`JSON inválido. Primeros chars: ${trimmed.slice(0, 300)}`);
     }
   }, []);
+
+  // ✅ POST robusto (JSON)
+  const postJSON = useCallback(async (url, bodyObj) => {
+    const sep = url.includes("?") ? "&" : "?";
+    const finalUrl = `${url}${sep}ts=${Date.now()}`;
+
+    const res = await fetch(finalUrl, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify(bodyObj ?? {}),
+    });
+
+    const text = await res.text();
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} :: ${text.slice(0, 300)}`);
+    }
+
+    const trimmed = (text || "").trim();
+
+    if (trimmed.startsWith("<")) {
+      throw new Error(
+        `Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`
+      );
+    }
+
+    try {
+      return JSON.parse(trimmed || "{}");
+    } catch {
+      throw new Error(`JSON inválido. Primeros chars: ${trimmed.slice(0, 300)}`);
+    }
+  }, []);
+
+  // ✅ Abrir modal editar según pestaña
+  const onEditar = useCallback(
+    (row) => {
+      const t =
+        view === "egresos"
+          ? "egreso"
+          : view === "trabajadores"
+          ? "trabajador"
+          : "pago";
+
+      // ✅ garantizar un id válido en item.id (tu modal lo exige)
+      const fixedId =
+        row?.id ??
+        row?.id_mov ??
+        row?.id_pago ??
+        row?.id_egreso ??
+        row?.id_trabajador ??
+        null;
+
+      const fixedRow = { ...row, id: fixedId };
+
+      setEditarTipo(t);
+      setEditarItem(fixedRow);
+      setModalEditarOpen(true);
+    },
+    [view]
+  );
+
+  // ✅ Eliminar: SOLO EGRESOS (abre modal)
+  const onEliminarEgreso = useCallback((row) => {
+    setEgresoAEliminar(row);
+    setModalEliminarOpen(true);
+  }, []);
+
+  // ✅ Confirmar editar (backend)
+  const confirmarEditar = useCallback(
+    async (payload) => {
+      try {
+        setErrorMsg("");
+        setSavingEditar(true);
+
+        const url = `${BASE_URL}/api.php?action=reportes&op=editar_movimiento`;
+        const data = await postJSON(url, payload);
+
+        if (!data?.exito) {
+          throw new Error(data?.mensaje || "No se pudo editar.");
+        }
+
+        setModalEditarOpen(false);
+        setEditarItem(null);
+        setReloadKey((k) => k + 1);
+      } catch (e) {
+        console.error("Error editando:", e);
+        setErrorMsg(String(e?.message || e));
+      } finally {
+        setSavingEditar(false);
+      }
+    },
+    [postJSON]
+  );
+
+  // ✅ Confirmar eliminar egreso (backend)
+  const confirmarEliminarEgreso = useCallback(
+    async (eg) => {
+      try {
+        setErrorMsg("");
+        setDeletingEgreso(true);
+
+        const id =
+          eg?.id ??
+          eg?.id_egreso ??
+          eg?.id_mov ??
+          null;
+
+        if (!id) throw new Error("No se encontró ID del egreso para eliminar.");
+
+        const url = `${BASE_URL}/api.php?action=reportes&op=eliminar_egreso`;
+        const data = await postJSON(url, { id });
+
+        if (!data?.exito) {
+          throw new Error(data?.mensaje || "No se pudo eliminar el egreso.");
+        }
+
+        setModalEliminarOpen(false);
+        setEgresoAEliminar(null);
+        setReloadKey((k) => k + 1);
+      } catch (e) {
+        console.error("Error eliminando egreso:", e);
+        setErrorMsg(String(e?.message || e));
+      } finally {
+        setDeletingEgreso(false);
+      }
+    },
+    [postJSON]
+  );
 
   /* ===== AÑOS (backend) ===== */
   useEffect(() => {
@@ -216,7 +388,7 @@ export default function Reportes() {
     };
   }, [fetchJSON]);
 
-  /* ===== Cargar MESES ===== */
+  /* ===== Cargar MESES + MEDIOS ===== */
   useEffect(() => {
     let alive = true;
 
@@ -229,16 +401,40 @@ export default function Reportes() {
           () => null
         );
 
-        const meses = Array.isArray(data?.listas?.meses) ? data.listas.meses : [];
+        const meses = Array.isArray(data?.listas?.meses)
+          ? data.listas.meses
+          : [];
+
+        // Soporta ambas variantes: id_mes o id
+        const mesesNorm = meses.map((m) => ({
+          ...m,
+          id: m.id ?? m.id_mes,
+          mes: m.mes ?? m.nombre ?? m.label,
+        }));
+
+        const medios = Array.isArray(data?.listas?.medios_pago)
+          ? data.listas.medios_pago
+          : Array.isArray(data?.listas?.medios)
+          ? data.listas.medios
+          : [];
+
+        // Soporta ambas variantes: id_medio_pago o id
+        const mediosNorm = medios.map((m) => ({
+          ...m,
+          id: m.id ?? m.id_medio_pago,
+          nombre: m.nombre ?? m.medio ?? m.label,
+        }));
+
         if (!alive) return;
 
-        setMesesDisponibles(meses);
+        setMesesDisponibles(mesesNorm);
+        setMediosDisponibles(mediosNorm);
 
         if (!didInitMeses.current) {
           const now = new Date();
           const mNow = String(now.getMonth() + 1);
 
-          const exists = meses.some((m) => String(m.id) === mNow);
+          const exists = mesesNorm.some((m) => String(m.id) === mNow);
           setMesSeleccionado(exists ? mNow : "TODOS");
           didInitMeses.current = true;
         }
@@ -248,6 +444,7 @@ export default function Reportes() {
 
         setErrorMsg(String(e?.message || e));
         setMesesDisponibles([]);
+        setMediosDisponibles([]);
         if (!didInitMeses.current) {
           setMesSeleccionado("TODOS");
           didInitMeses.current = true;
@@ -286,11 +483,11 @@ export default function Reportes() {
           const data = await fetchJSON(u.toString());
 
           const arr = Array.isArray(data?.trabajadores) ? data.trabajadores : [];
+
           const normT = (r) => ({
             id: r.id ?? r.id_trabajador ?? null,
             nombre: r.nombre ?? "",
             apellido: r.apellido ?? "",
-            // email: r.email ?? "", // 👈 lo dejamos fuera de uso
             rol: r.rol ?? "",
             alias_pago: r.alias_pago ?? "",
             sistemas_cobrados: Number(r.sistemas_cobrados ?? 0) || 0,
@@ -324,12 +521,16 @@ export default function Reportes() {
             r.fechaPago ??
             r.fecha_pago ??
             "",
-          concepto: r.concepto ?? r.Concepto ?? r.detalle ?? r.descripcion ?? "",
-          cliente_nombre: r.cliente_nombre ?? r.cliente ?? "",
-          sistema_nombre: r.sistema_nombre ?? r.sistema ?? "",
+          concepto: r.concepto ?? r.Concepto ?? r.nombre_concepto ?? "",
+          descripcion: r.descripcion ?? r.detalle ?? r.Descripcion ?? "",
           categoria: r.categoria ?? r.Categoria ?? r.nombre_categoria ?? "",
           medio: r.medio ?? r.Medio ?? r.medio_pago ?? r.Medio_Pago ?? "",
           monto: Number(r.monto ?? r.Monto ?? r.importe ?? r.Precio ?? 0) || 0,
+          cliente_nombre: r.cliente_nombre ?? r.cliente ?? "",
+          sistema_nombre: r.sistema_nombre ?? r.sistema ?? "",
+          // ✅ NECESARIO para que el modal preseleccione medio:
+          id_medio_pago:
+            r.id_medio_pago ?? r.idMedio ?? r.id_medio ?? r.medio_id ?? null,
         });
 
         if (!alive) return;
@@ -352,7 +553,7 @@ export default function Reportes() {
     return () => {
       alive = false;
     };
-  }, [mesSeleccionado, anioSeleccionado, view, fetchJSON]);
+  }, [mesSeleccionado, anioSeleccionado, view, fetchJSON, reloadKey]);
 
   /* ===== Totales ===== */
   const totalPagos = useMemo(
@@ -391,7 +592,7 @@ export default function Reportes() {
     if (!q) return egresos;
     return egresos.filter((r) => {
       const blob =
-        `${r.fecha} ${r.concepto} ${r.cliente_nombre} ${r.sistema_nombre} ${r.categoria} ${r.medio} ${r.monto}`.toLowerCase();
+        `${r.fecha} ${r.concepto} ${r.descripcion} ${r.categoria} ${r.medio} ${r.monto}`.toLowerCase();
       return blob.includes(q);
     });
   }, [egresos, q]);
@@ -442,7 +643,34 @@ export default function Reportes() {
     []
   );
 
-  // ✅ SIN EMAIL
+  const colsEgresos = useMemo(
+    () => [
+      { key: "fecha", label: "Fecha", fr: "0.9fr" },
+      {
+        key: "concepto",
+        label: "Concepto",
+        fr: "1.3fr",
+        render: (r) => r.concepto || "—",
+      },
+      {
+        key: "descripcion",
+        label: "Descripción",
+        fr: "2fr",
+        render: (r) => r.descripcion || "—",
+      },
+      { key: "categoria", label: "Mes", fr: "1.1fr" },
+      { key: "medio", label: "Medio", fr: "1.1fr" },
+      {
+        key: "monto",
+        label: "Monto",
+        fr: "1fr",
+        center: true,
+        render: (r) => `$${nfPesos.format(Number(r.monto || 0))}`,
+      },
+    ],
+    []
+  );
+
   const colsTrab = useMemo(
     () => [
       {
@@ -497,9 +725,7 @@ export default function Reportes() {
           SISTEMAS: r.sistemas_cobrados,
           A_PAGAR: r.monto,
         })),
-        {
-          header: ["TRABAJADOR", "ROL", "ALIAS", "SISTEMAS", "A_PAGAR"],
-        }
+        { header: ["TRABAJADOR", "ROL", "ALIAS", "SISTEMAS", "A_PAGAR"] }
       );
 
       ws["!cols"] = [
@@ -515,19 +741,41 @@ export default function Reportes() {
       return;
     }
 
-    const rows = view === "pagos" ? pagosFiltrados : egresosFiltrados;
+    if (view === "egresos") {
+      const ws = XLSX.utils.json_to_sheet(
+        egresosFiltrados.map((r) => ({
+          FECHA: r.fecha,
+          CONCEPTO: r.concepto,
+          DESCRIPCION: r.descripcion,
+          MES: r.categoria,
+          MEDIO: r.medio,
+          MONTO: r.monto,
+        })),
+        { header: ["FECHA", "CONCEPTO", "DESCRIPCION", "MES", "MEDIO", "MONTO"] }
+      );
 
+      ws["!cols"] = [
+        { wch: 12 },
+        { wch: 26 },
+        { wch: 34 },
+        { wch: 14 },
+        { wch: 16 },
+        { wch: 12 },
+      ];
+
+      XLSX.utils.book_append_sheet(wb, ws, "Egresos");
+      XLSX.writeFile(wb, `reportes_egresos_${anioTxt}_${mesTxt}.xlsx`);
+      return;
+    }
+
+    // pagos
     const ws = XLSX.utils.json_to_sheet(
-      rows.map((r) => ({
+      pagosFiltrados.map((r) => ({
         FECHA: r.fecha,
         CLIENTE:
-          r.cliente_nombre ||
-          String(r.concepto || "").split(" - ")[0] ||
-          "",
+          r.cliente_nombre || String(r.concepto || "").split(" - ")[0] || "",
         SISTEMA:
-          r.sistema_nombre ||
-          String(r.concepto || "").split(" - ")[1] ||
-          "",
+          r.sistema_nombre || String(r.concepto || "").split(" - ")[1] || "",
         MES: r.categoria,
         MEDIO: r.medio,
         MONTO: r.monto,
@@ -544,8 +792,8 @@ export default function Reportes() {
       { wch: 12 },
     ];
 
-    XLSX.utils.book_append_sheet(wb, ws, view === "pagos" ? "Pagos" : "Egresos");
-    XLSX.writeFile(wb, `reportes_${view}_${anioTxt}_${mesTxt}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "Pagos");
+    XLSX.writeFile(wb, `reportes_pagos_${anioTxt}_${mesTxt}.xlsx`);
   }, [
     view,
     pagosFiltrados,
@@ -565,6 +813,32 @@ export default function Reportes() {
   const labelAnio =
     anioSeleccionado === "TODOS" ? "Todos los años" : `Año ${anioSeleccionado}`;
 
+  // ✅ Guardar egreso (POST) y refrescar tabla
+  const crearEgreso = useCallback(
+    async (payload) => {
+      try {
+        setErrorMsg("");
+        setSavingEgreso(true);
+
+        const url = `${BASE_URL}/api.php?action=reportes&op=crear_egreso`;
+        const data = await postJSON(url, payload);
+
+        if (!data?.exito) {
+          throw new Error(data?.mensaje || "No se pudo crear el egreso.");
+        }
+
+        setModalEgresoOpen(false);
+        setReloadKey((k) => k + 1);
+      } catch (e) {
+        console.error("Error creando egreso:", e);
+        setErrorMsg(String(e?.message || e));
+      } finally {
+        setSavingEgreso(false);
+      }
+    },
+    [postJSON]
+  );
+
   return (
     <div className="contable-viewport">
       {/* TOPBAR */}
@@ -573,11 +847,7 @@ export default function Reportes() {
           <FontAwesomeIcon icon={faCoins} /> Reportes
         </h1>
 
-        <button
-          className="contable-back-button"
-          onClick={volver}
-          aria-label="Volver"
-        >
+        <button className="contable-back-button" onClick={volver} aria-label="Volver">
           <FontAwesomeIcon icon={faArrowLeft} />
           &nbsp; Volver
         </button>
@@ -595,9 +865,7 @@ export default function Reportes() {
             <label className="side-field">
               <span>
                 Año{" "}
-                {loadingAnios ? (
-                  <span style={{ opacity: 0.7 }}>(cargando…)</span>
-                ) : null}
+                {loadingAnios ? <span style={{ opacity: 0.7 }}>(cargando…)</span> : null}
               </span>
               <select
                 value={anioSeleccionado}
@@ -697,6 +965,23 @@ export default function Reportes() {
               >
                 <FontAwesomeIcon icon={faUsers} /> Trabajadores
               </button>
+
+              {/* ✅ Botón SOLO en EGRESOS */}
+              {view === "egresos" && (
+                <button
+                  type="button"
+                  className="segmented"
+                  onClick={() => setModalEgresoOpen(true)}
+                  style={{
+                    marginLeft: 8,
+                    borderColor: "rgba(11,94,215,.35)",
+                    color: "#0b5ed7",
+                    fontWeight: 800,
+                  }}
+                >
+                  <FontAwesomeIcon icon={faPlus} /> Nuevo egreso
+                </button>
+              )}
             </div>
 
             <div className="switch-right">
@@ -820,6 +1105,7 @@ export default function Reportes() {
 
           {/* Tabla única según vista */}
           <div style={{ padding: "10px 12px 14px", flex: "1 1 auto", minHeight: 0 }}>
+            {/* ✅ PAGOS: SIN ACCIONES */}
             {view === "pagos" && (
               <GridTable
                 title="Pagos"
@@ -830,16 +1116,41 @@ export default function Reportes() {
               />
             )}
 
+            {/* ✅ EGRESOS: con acciones (editar + eliminar egreso) */}
             {view === "egresos" && (
               <GridTable
                 title="Egresos"
                 icon={faMoneyBillTransfer}
-                columns={colsMov}
+                columns={colsEgresos}
                 rows={egresosFiltrados}
                 loading={loadingData}
+                actions={(r) => (
+                  <div className="actions-cell">
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Editar"
+                      onClick={() => onEditar(r)}
+                      aria-label="Editar"
+                    >
+                      <FontAwesomeIcon icon={faPenToSquare} />
+                    </button>
+
+                    <button
+                      type="button"
+                      className="icon-btn danger"
+                      title="Eliminar"
+                      onClick={() => onEliminarEgreso(r)}
+                      aria-label="Eliminar"
+                    >
+                      <FontAwesomeIcon icon={faTrash} />
+                    </button>
+                  </div>
+                )}
               />
             )}
 
+            {/* ✅ TRABAJADORES: con SOLO editar (por ahora sin eliminar) */}
             {view === "trabajadores" && (
               <GridTable
                 title="Trabajadores"
@@ -847,11 +1158,61 @@ export default function Reportes() {
                 columns={colsTrab}
                 rows={trabajadoresFiltrados}
                 loading={loadingData}
+                actions={(r) => (
+                  <div className="actions-cell">
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Editar"
+                      onClick={() => onEditar(r)}
+                      aria-label="Editar"
+                    >
+                      <FontAwesomeIcon icon={faPenToSquare} />
+                    </button>
+                  </div>
+                )}
               />
             )}
           </div>
         </main>
       </div>
+
+      {/* ✅ Modal crear egreso */}
+      <ModalNuevoEgreso
+        open={modalEgresoOpen}
+        onClose={() => setModalEgresoOpen(false)}
+        onConfirm={crearEgreso}
+        loading={savingEgreso}
+        medios={mediosDisponibles}
+      />
+
+      {/* ✅ Modal editar movimiento */}
+      <ModalEditarMovimiento
+        open={modalEditarOpen}
+        onClose={() => {
+          if (savingEditar) return;
+          setModalEditarOpen(false);
+          setEditarItem(null);
+        }}
+        onConfirm={confirmarEditar}
+        loading={savingEditar}
+        tipo={editarTipo}
+        item={editarItem}
+        medios={mediosDisponibles}
+      />
+
+      {/* ✅ Modal eliminar egreso */}
+      <ModalEliminarEgreso
+        open={modalEliminarOpen}
+        egreso={egresoAEliminar}
+        loading={deletingEgreso}
+        onClose={() => {
+          if (deletingEgreso) return;
+          setModalEliminarOpen(false);
+          setEgresoAEliminar(null);
+        }}
+        onConfirm={confirmarEliminarEgreso}
+      />
     </div>
   );
 }

@@ -14,14 +14,14 @@ function route_reportes(string $action): bool
     return true;
   }
 
-  // 👉 funciones de registros (listados)
-  if (in_array($op, ['movimientos', 'registros'], true)) {
-    // ✅ tu archivo se llama registro.php
+  // 👉 funciones de registros (listados + crear egreso + editar + eliminar egreso)
+  // ✅ tu archivo real es "registro.php"
+  if (in_array($op, ['movimientos', 'registros', 'crear_egreso', 'editar_movimiento', 'eliminar_egreso'], true)) {
     require_once __DIR__ . '/registro.php';
     return true;
   }
 
-  // ✅ NUEVO: cálculo de pagos por trabajador
+  // ✅ pagos por trabajador
   if ($op === 'trabajadores') {
     require_once __DIR__ . '/trabajadores.php';
     return true;

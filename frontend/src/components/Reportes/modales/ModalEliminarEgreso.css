@@ -1,0 +1,114 @@
+.emp-baja-modal-overlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, .45);
+  backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+  z-index: 9999;
+  padding: 18px;
+}
+
+.emp-baja-modal{
+  width: min(520px, 100%);
+  background: #fff;
+  border-radius: 18px;
+  border: 1px solid rgba(0,0,0,.08);
+  box-shadow: 0 20px 60px rgba(0,0,0,.22);
+  padding: 18px 18px 16px;
+  animation: empModalIn .16s ease-out;
+}
+
+@keyframes empModalIn{
+  from{ transform: translateY(10px); opacity: .7; }
+  to{ transform: translateY(0); opacity: 1; }
+}
+
+.emp-baja-modal--danger{
+  border-color: rgba(220,38,38,.22);
+}
+
+.emp-baja-modal__icon{
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  margin-bottom: 10px;
+}
+
+.emp-baja-modal__icon--danger{
+  background: rgba(220,38,38,.10);
+  color: #dc2626;
+  border: 1px solid rgba(220,38,38,.20);
+}
+
+.emp-baja-modal__title{
+  margin: 0;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: .2px;
+}
+
+.emp-baja-modal__title--danger{
+  color: #991b1b;
+}
+
+.emp-baja-modal__body{
+  margin: 10px 0 0;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.emp-baja-modal__body strong{
+  color: #0f172a;
+  font-weight: 900;
+}
+
+.emp-baja-modal__actions{
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.emp-baja-btn{
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-weight: 800;
+  font-size: 13px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform .08s ease, opacity .12s ease, background .12s ease, border-color .12s ease;
+}
+
+.emp-baja-btn:active{
+  transform: translateY(1px);
+}
+
+.emp-baja-btn:disabled{
+  cursor: not-allowed;
+  opacity: .7;
+}
+
+.emp-baja-btn--ghost{
+  background: #fff;
+  border-color: rgba(0,0,0,.14);
+  color: #0f172a;
+}
+
+.emp-baja-btn--ghost:hover{
+  background: rgba(2,6,23,.03);
+}
+
+.emp-baja-btn--solid-danger{
+  background: #dc2626;
+  color: #fff;
+  border-color: rgba(220,38,38,.55);
+}
+
+.emp-baja-btn--solid-danger:hover{
+  background: #b91c1c;
+}
