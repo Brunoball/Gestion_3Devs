@@ -115,13 +115,13 @@ function build_obligaciones_por_anio(DateTime $inicio, DateTime $hoy): array {
 }
 
 /* =========================================================
-   ✅ INCLUIR ENDPOINT NUEVO (equipo_sistema)
+   ✅ INCLUDE ENDPOINTS EXTRA
 ========================================================= */
 require_once __DIR__ . '/equipo_sistema.php';
+require_once __DIR__ . '/arca_factura.php'; // ✅ NUEVO ARCA
 
 /* =========================================================
-   ✅ LISTAR AÑOS (global)
-   GET /api.php?action=anios_pagos
+   ✅ LISTAR AÑOS
 ========================================================= */
 function pagos_listar_anios(): void
 {
@@ -143,7 +143,6 @@ function pagos_listar_anios(): void
 
 /* =========================================================
    ✅ LISTAR PAGADOS POR MES/AÑO
-   GET /api.php?action=pagos&estado=pagado&anio=2026&mes=1
 ========================================================= */
 function pagos_listar_pagados(): void
 {
@@ -214,7 +213,6 @@ function pagos_listar_pagados(): void
 
 /* =========================================================
    ✅ LISTAR DEUDORES POR MES/AÑO
-   GET /api.php?action=pagos&estado=deudor&anio=2026&mes=1
 ========================================================= */
 function pagos_listar_deudores(): void
 {
@@ -278,7 +276,6 @@ function pagos_listar_deudores(): void
 
 /* =========================================================
    ✅ DETALLE SISTEMA
-   GET /api.php?action=pagos&op=detalle_sistema&id_sistema=5
 ========================================================= */
 function pagos_detalle_sistema(): void
 {
@@ -387,7 +384,6 @@ function pagos_detalle_sistema(): void
 
 /* =========================================================
    ✅ REGISTRAR PAGO
-   POST /api.php?action=pagos&op=registrar_pago
 ========================================================= */
 function pagos_registrar_pago(): void
 {
@@ -498,8 +494,6 @@ function pagos_registrar_pago(): void
 
 /* =========================================================
    ✅ ELIMINAR PAGO
-   POST /api.php?action=pagos&op=eliminar_pago
-   JSON: { "id_pago": 123 }
 ========================================================= */
 function pagos_eliminar_pago(): void
 {
@@ -524,46 +518,3 @@ function pagos_eliminar_pago(): void
     json_error("Error DB al eliminar pago", ['error' => $e->getMessage()]);
   }
 }
-
-/* =========================================================
-   ✅ DISPATCH FINAL
-========================================================= */
-$action = $_GET['action'] ?? '';
-$op     = $_GET['op'] ?? '';
-$estado = $_GET['estado'] ?? '';
-
-if ($action === 'anios_pagos') {
-  pagos_listar_anios();
-}
-
-if ($action === 'pagos') {
-
-  // operaciones POST
-  if ($op === 'registrar_pago') {
-    pagos_registrar_pago();
-  }
-  if ($op === 'eliminar_pago') {
-    pagos_eliminar_pago();
-  }
-
-  // operaciones GET
-  if ($op === 'detalle_sistema') {
-    pagos_detalle_sistema();
-  }
-
-  // ✅ NUEVO
-  if ($op === 'equipo_sistema') {
-    pagos_equipo_sistema();
-  }
-
-  if ($estado === 'pagado') {
-    pagos_listar_pagados();
-  }
-  if ($estado === 'deudor') {
-    pagos_listar_deudores();
-  }
-
-  json_error("Parámetros inválidos: falta estado=pagado/deudor u op=...");
-}
-
-json_error("Acción inválida");

@@ -23,6 +23,7 @@ import {
   faExclamationCircle,
   faCreditCard,
   faTimes, // ✅ eliminar
+  faFileInvoiceDollar, // ✅ ARCA
 } from "@fortawesome/free-solid-svg-icons";
 
 import BASE_URL from "../../config/config";
@@ -35,6 +36,8 @@ import ModalPago from "./modales/ModalPago";
 import ModalEliminarPago from "./modales/ModalEliminarPago";
 // ✅ NUEVO MODAL: equipo + monto a pagar
 import ModalEquipoPago from "./modales/ModalEquipoPago";
+// ✅ NUEVO MODAL: Factura ARCA
+import ModalFacturaArca from "./modales/ModalFacturaArca";
 
 const ACTION_PAGOS = "pagos";
 const API = `${BASE_URL}/api.php`;
@@ -113,10 +116,19 @@ const Outer = React.forwardRef((props, ref) => {
     };
 
     update();
-    const resizeObs = new ResizeObserver(update);
-    resizeObs.observe(el);
 
-    return () => resizeObs.disconnect();
+    let resizeObs;
+    try {
+      resizeObs = new ResizeObserver(update);
+      resizeObs.observe(el);
+    } catch {
+      window.addEventListener("resize", update);
+    }
+
+    return () => {
+      if (resizeObs) resizeObs.disconnect();
+      else window.removeEventListener("resize", update);
+    };
   }, []);
 
   return (
@@ -211,6 +223,7 @@ const Row = memo(
     onPayClick,
     onDeleteClick,
     onTeamClick,
+    onArcaClick,
   }) => {
     const item = data[index];
 
@@ -234,7 +247,6 @@ const Row = memo(
 
         <div className="gpagos-virtual-cell gpagos-virtual-actions">
           <div className="gpagos-actions-inline">
-            {/* ✅ DEUDORES: botón $ */}
             {!isPagado && (
               <button
                 className="gpagos-action-button gpagos-pay-button"
@@ -249,7 +261,6 @@ const Row = memo(
               </button>
             )}
 
-            {/* ✅ PAGADO: EQUIPO 👥 */}
             {isPagado && (
               <button
                 className="gpagos-action-button gpagos-team-button"
@@ -264,7 +275,20 @@ const Row = memo(
               </button>
             )}
 
-            {/* ✅ PAGADO: ELIMINAR ❌ */}
+            {isPagado && (
+              <button
+                className="gpagos-action-button gpagos-arca-button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onArcaClick?.(item);
+                }}
+                title="Factura ARCA"
+                type="button"
+              >
+                <FontAwesomeIcon icon={faFileInvoiceDollar} />
+              </button>
+            )}
+
             {isPagado && (
               <button
                 className="gpagos-action-button gpagos-delete-button"
@@ -285,7 +309,6 @@ const Row = memo(
   },
   (prev, next) =>
     prev.index === next.index &&
-    prev.style === next.style &&
     prev.data === next.data &&
     prev.activeTab === next.activeTab
 );
@@ -294,7 +317,7 @@ function Pagos() {
   const navigate = useNavigate();
 
   // ===== Tabs =====
-  const [activeTab, setActiveTab] = useState("pagado"); // "pagado" | "deudores"
+  const [activeTab, setActiveTab] = useState("pagado");
 
   // ===== Filtros =====
   const [years, setYears] = useState([]);
@@ -313,10 +336,7 @@ function Pagos() {
   const [pagosDeudores, setPagosDeudores] = useState([]);
 
   // ===== UI =====
-  const [loading, setLoading] = useState({
-    pagos: false,
-    listas: false,
-  });
+  const [loading, setLoading] = useState({ pagos: false, listas: false });
 
   const [toast, setToast] = useState(null);
   const showToast = useCallback(
@@ -375,6 +395,49 @@ function Pagos() {
         monto: row?.monto ?? null,
         fecha_pago: row?.fecha_pago ?? null,
         id_pago: getIdPago(row),
+      });
+    },
+    [selectedYear, selectedMonth, showToast]
+  );
+
+  // ✅ MODAL ARCA
+  const [modalArca, setModalArca] = useState(null);
+  const closeModalArca = useCallback(() => setModalArca(null), []);
+  const openModalArca = useCallback(
+    (row) => {
+      const id_sistema = getIdSistema(row);
+      const id_pago = getIdPago(row);
+
+      if (!id_sistema) {
+        showToast(
+          "error",
+          "No pude abrir ARCA: el registro no trae id_sistema. Revisá el endpoint de pagados."
+        );
+        return;
+      }
+      if (!id_pago) {
+        showToast(
+          "error",
+          "No pude abrir ARCA: el registro no trae id_pago. Revisá el endpoint de pagados."
+        );
+        return;
+      }
+      if (!selectedYear || !selectedMonth) {
+        showToast("error", "Seleccioná año y mes antes de generar la factura.");
+        return;
+      }
+
+      setModalArca({
+        open: true,
+        id_sistema,
+        id_pago,
+        anio: selectedYear,
+        mes: selectedMonth,
+        labelCliente: buildClienteLabel(row),
+        labelSistema: buildSistemaLabel(row),
+        monto: row?.monto ?? null,
+        fecha_pago: row?.fecha_pago ?? null,
+        medio_pago: row?.medio_pago ?? null,
       });
     },
     [selectedYear, selectedMonth, showToast]
@@ -448,13 +511,11 @@ function Pagos() {
     [fetchJSON]
   );
 
-  // Cargar listas al montar
   useEffect(() => {
     const run = async () => {
       try {
         const listas = await fetchListas(false);
 
-        // meses
         const rawMeses = Array.isArray(listas?.meses) ? listas.meses : [];
         const mesesNorm = rawMeses
           .map((m) => ({
@@ -466,7 +527,6 @@ function Pagos() {
           .map((m) => ({ mes: m.mes }));
         setMeses(mesesNorm);
 
-        // medios_pago
         const rawMP = Array.isArray(listas?.medios_pago)
           ? listas.medios_pago
           : [];
@@ -486,7 +546,6 @@ function Pagos() {
           .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
         setMediosPago(mpNorm);
 
-        // años
         const rawAnios = Array.isArray(listas?.anios) ? listas.anios : [];
         const aniosNorm = rawAnios
           .map((a) => (typeof a === "object" ? a.anio ?? a.year ?? a.value : a))
@@ -497,29 +556,21 @@ function Pagos() {
 
         setYears(aniosNorm);
 
-        // elegir año por defecto
         const current = new Date().getFullYear();
-        if (!selectedYear) {
-          if (aniosNorm.includes(current)) setSelectedYear(String(current));
-          else if (aniosNorm.length) setSelectedYear(String(aniosNorm[0]));
-          else setSelectedYear("");
-        } else {
-          const cur = parseInt(selectedYear, 10);
-          if (!aniosNorm.includes(cur)) {
-            if (aniosNorm.includes(current)) setSelectedYear(String(current));
-            else setSelectedYear(aniosNorm.length ? String(aniosNorm[0]) : "");
+        setSelectedYear((prev) => {
+          if (prev) {
+            const cur = parseInt(prev, 10);
+            if (aniosNorm.includes(cur)) return prev;
           }
-        }
+          if (aniosNorm.includes(current)) return String(current);
+          return aniosNorm.length ? String(aniosNorm[0]) : "";
+        });
       } catch (e) {
-        showToast(
-          "error",
-          e.message || "No se pudieron cargar las listas (Global)"
-        );
+        showToast("error", e.message || "No se pudieron cargar las listas");
       }
     };
     run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchListas]);
+  }, [fetchListas, showToast]);
 
   // ===== Carga pagos por mes/año =====
   const cargarPagosPorMes = useCallback(
@@ -557,6 +608,7 @@ function Pagos() {
           }),
         ]);
 
+        // ✅ FIX: acá estaba el bug "pagos is not defined"
         const arrP = Array.isArray(pagados) ? pagados : pagados?.pagos || [];
         const arrD = Array.isArray(deudores) ? deudores : deudores?.pagos || [];
 
@@ -570,13 +622,13 @@ function Pagos() {
         showToast(
           "error",
           e.message ||
-            `No se pudieron cargar los pagos (${mes}/${anio}). Revisá el endpoint action=${ACTION_PAGOS}`
+            `No se pudieron cargar los pagos (${mes}/${anio}). Revisá action=${ACTION_PAGOS}`
         );
       } finally {
         setLoading((p) => ({ ...p, pagos: false }));
       }
     },
-    [API, cacheKey, fetchJSON, loading.pagos, showToast]
+    [cacheKey, fetchJSON, loading.pagos, showToast]
   );
 
   useEffect(() => {
@@ -591,15 +643,9 @@ function Pagos() {
     }, searchTerm ? 250 : 0);
 
     return () => clearTimeout(deb);
-  }, [
-    filtrosCompletos,
-    selectedYear,
-    selectedMonth,
-    searchTerm,
-    cargarPagosPorMes,
-  ]);
+  }, [filtrosCompletos, selectedYear, selectedMonth, searchTerm, cargarPagosPorMes]);
 
-  // ===== Filtrado (medio + búsqueda) =====
+  // ===== Filtrado =====
   const filterData = useCallback(
     (arr) => {
       const base = Array.isArray(arr) ? arr : [];
@@ -653,7 +699,8 @@ function Pagos() {
 
   const loadMoreItems = useCallback(() => {
     if (!hasMore || loading.pagos) return;
-    if (offset + limit < datosFiltrados.length) setOffset((p) => p + limit);
+    const next = offset + limit;
+    if (next < datosFiltrados.length) setOffset(next);
     else setHasMore(false);
   }, [hasMore, loading.pagos, offset, limit, datosFiltrados.length]);
 
@@ -670,39 +717,32 @@ function Pagos() {
   const handleYearChange = useCallback((e) => {
     setSelectedYear(e.target.value);
     setSelectedMonth("");
+    setSelectedMedioPago("");
+    setSearchTerm("");
   }, []);
 
   const handleMonthChange = useCallback((e) => {
     setSelectedMonth(e.target.value);
+    setSearchTerm("");
   }, []);
 
   const handleMedioPagoChange = useCallback((e) => {
     setSelectedMedioPago(e.target.value);
   }, []);
 
-  const handleSearchChange = useCallback(
-    (e) => {
-      if (!selectedMonth || !selectedYear) return;
-      setSearchTerm(e.target.value);
-    },
-    [selectedMonth, selectedYear]
-  );
+  const handleSearchChange = useCallback((e) => {
+    setSearchTerm(e.target.value);
+  }, []);
 
-  // ✅ ABRE MODAL SOLO EN DEUDORES ($)
   const onPayClick = useCallback((row) => openModalPago(row), [openModalPago]);
-
-  // ✅ ABRE MODAL EQUIPO (solo pagados)
   const onTeamClick = useCallback((row) => openModalEquipo(row), [openModalEquipo]);
+  const onArcaClick = useCallback((row) => openModalArca(row), [openModalArca]);
 
-  // ✅ ABRE MODAL ELIMINAR (pagados)
   const onDeleteClick = useCallback(
     (row) => {
       const id_pago = getIdPago(row);
       if (!id_pago) {
-        showToast(
-          "error",
-          "No pude eliminar: el registro no trae id_pago. Revisá el endpoint de pagados."
-        );
+        showToast("error", "No pude eliminar: el registro no trae id_pago.");
         return;
       }
       setModalEliminar({
@@ -717,10 +757,10 @@ function Pagos() {
     [showToast]
   );
 
-  // mobile detection
+  // mobile
   const isClient = typeof window !== "undefined";
   const isMobileRef = useRef(isClient ? window.innerWidth <= 768 : false);
-  const [isMobile, setIsMobile] = useState(isMobileRef.current);
+  const [, setIsMobile] = useState(isMobileRef.current);
 
   useEffect(() => {
     if (!isClient) return;
@@ -739,7 +779,7 @@ function Pagos() {
     [activeTab, selectedYear, selectedMonth, selectedMedioPago, searchTerm]
   );
 
-  // ✅ refrescar listados
+  // ✅ refrescar
   const recargarListado = useCallback(() => {
     if (!selectedYear || !selectedMonth) return;
     const k = cacheKey(selectedYear, selectedMonth);
@@ -749,7 +789,7 @@ function Pagos() {
     cargarPagosPorMes(selectedYear, selectedMonth, true);
   }, [selectedYear, selectedMonth, cacheKey, cargarPagosPorMes]);
 
-  // ✅ confirmar eliminación (backend)
+  // ✅ confirmar eliminación
   const confirmarEliminarPago = useCallback(async () => {
     if (!modalEliminar?.id_pago) return;
 
@@ -779,13 +819,16 @@ function Pagos() {
     if (loading.pagos) return <LoadingIndicator />;
     if (datosFiltrados.length === 0) return <NoDataFound />;
 
+    // MOBILE
     if (isMobileRef.current) {
       return (
         <div className="gpagos-mobile-list">
           {datosFiltradosPaginated.map((row, index) => {
             const isPagado = activeTab === "pagado";
+            const key = String(getIdPago(row) || getIdSistema(row) || index);
+
             return (
-              <div key={index} className="gpagos-mobile-card">
+              <div key={key} className="gpagos-mobile-card">
                 <div className="gpagos-mobile-row">
                   <span className="gpagos-mobile-label">Cliente:</span>
                   <span>{buildClienteLabel(row)}</span>
@@ -828,6 +871,19 @@ function Pagos() {
                       </button>
 
                       <button
+                        className="gpagos-mobile-arca-button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onArcaClick(row);
+                        }}
+                        type="button"
+                        title="Factura ARCA"
+                      >
+                        <FontAwesomeIcon icon={faFileInvoiceDollar} />
+                        <span>ARCA</span>
+                      </button>
+
+                      <button
                         className="gpagos-mobile-delete-button"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -849,6 +905,7 @@ function Pagos() {
       );
     }
 
+    // DESKTOP
     const headerHeight = 50;
     const tableHeight = Math.max(
       (isClient ? window.innerHeight : 800) * 0.85 - headerHeight,
@@ -894,6 +951,7 @@ function Pagos() {
                 onPayClick={onPayClick}
                 onDeleteClick={onDeleteClick}
                 onTeamClick={onTeamClick}
+                onArcaClick={onArcaClick}
               />
             );
           }}
@@ -910,6 +968,7 @@ function Pagos() {
     onPayClick,
     onDeleteClick,
     onTeamClick,
+    onArcaClick,
     hasMore,
     loadMoreItems,
     listKey,
@@ -938,6 +997,25 @@ function Pagos() {
           apiBase={API}
           action={ACTION_PAGOS}
           data={modalEquipo}
+        />
+      )}
+
+      {/* ✅ MODAL ARCA */}
+      {modalArca?.open && (
+        <ModalFacturaArca
+          open={modalArca.open}
+          onClose={closeModalArca}
+          apiBase={API}
+          action={ACTION_PAGOS}
+          data={modalArca}
+          onDone={() => {
+            closeModalArca();
+            recargarListado();
+          }}
+          onFacturada={() => {
+            closeModalArca();
+            recargarListado();
+          }}
         />
       )}
 
@@ -991,7 +1069,12 @@ function Pagos() {
                 <select
                   id="anio"
                   value={selectedYear}
-                  onChange={handleYearChange}
+                  onChange={(e) => {
+                    setSelectedYear(e.target.value);
+                    setSelectedMonth("");
+                    setSelectedMedioPago("");
+                    setSearchTerm("");
+                  }}
                   className="gpagos-dropdown"
                   disabled={loading.listas || loading.pagos}
                 >
@@ -1014,7 +1097,10 @@ function Pagos() {
                 <select
                   id="meses"
                   value={selectedMonth}
-                  onChange={handleMonthChange}
+                  onChange={(e) => {
+                    setSelectedMonth(e.target.value);
+                    setSearchTerm("");
+                  }}
                   className="gpagos-dropdown"
                   disabled={!selectedYear || loading.listas || loading.pagos}
                 >
@@ -1037,7 +1123,7 @@ function Pagos() {
                 <select
                   id="medioPago"
                   value={selectedMedioPago}
-                  onChange={handleMedioPagoChange}
+                  onChange={(e) => setSelectedMedioPago(e.target.value)}
                   className="gpagos-dropdown"
                   disabled={!selectedYear || !selectedMonth || loading.pagos}
                 >
@@ -1129,11 +1215,7 @@ function Pagos() {
         <div className="gpagos-table-header">
           <h3>
             <FontAwesomeIcon
-              icon={
-                activeTab === "pagado"
-                  ? faCheckCircle
-                  : faExclamationTriangle
-              }
+              icon={activeTab === "pagado" ? faCheckCircle : faExclamationTriangle}
             />
             {activeTab === "pagado" ? "Pagos Registrados" : "Pagos Pendientes"}
           </h3>

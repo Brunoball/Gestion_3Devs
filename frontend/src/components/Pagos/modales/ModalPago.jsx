@@ -1,4 +1,3 @@
-// src/components/Pagos/modales/ModalPago.jsx
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { FaCoins, FaTimes, FaCheck } from "react-icons/fa";
 import BASE_URL from "../../../config/config";
@@ -62,6 +61,115 @@ function YearDropdown({ value, options = [], onChange }) {
   );
 }
 
+/* =========================
+   MultiSelect Planes (checkbox dropdown)
+========================= */
+function MultiSelectPlanes({
+  options = [],
+  selectedIds = [],
+  onChangeIds,
+  disabled,
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const onDocClick = (e) => {
+      if (!ref.current) return;
+      if (!ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  const selected = useMemo(() => {
+    const set = new Set((selectedIds || []).map((x) => Number(x)));
+    return (options || []).filter((p) => set.has(Number(p.id)));
+  }, [options, selectedIds]);
+
+  const label = useMemo(() => {
+    if (!selected.length) return "Seleccionar mantenimientos";
+    if (selected.length === 1) return selected[0].nombre;
+    return `${selected.length} seleccionados`;
+  }, [selected]);
+
+  const toggle = useCallback(
+    (id) => {
+      const nid = Number(id);
+      const set = new Set((selectedIds || []).map((x) => Number(x)));
+      if (set.has(nid)) set.delete(nid);
+      else set.add(nid);
+      onChangeIds?.(Array.from(set));
+    },
+    [selectedIds, onChangeIds]
+  );
+
+  const clearAll = useCallback(() => onChangeIds?.([]), [onChangeIds]);
+
+  return (
+    <div className="modpag_ms" ref={ref}>
+      <button
+        type="button"
+        className={`modpag_ms-trigger ${open ? "is-open" : ""}`}
+        onClick={() => !disabled && setOpen((v) => !v)}
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className="modpag_ms-label">{label}</span>
+        <span className="modpag_ms-caret" aria-hidden="true" />
+      </button>
+
+      {open && (
+        <div className="modpag_ms-menu" role="listbox" tabIndex={-1}>
+          <div className="modpag_ms-top">
+            <span className="modpag_ms-top-title">Mantenimientos</span>
+            <button
+              type="button"
+              className="modpag_ms-clear"
+              onClick={clearAll}
+              disabled={!selectedIds?.length}
+              title="Limpiar"
+            >
+              Limpiar
+            </button>
+          </div>
+
+          <div className="modpag_ms-list">
+            {options.length ? (
+              options.map((p) => {
+                const checked = (selectedIds || []).some(
+                  (x) => Number(x) === Number(p.id)
+                );
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={`modpag_ms-item ${checked ? "is-checked" : ""}`}
+                    onClick={() => toggle(p.id)}
+                  >
+                    <span className={`modpag_ms-box ${checked ? "on" : ""}`}>
+                      {checked ? "✓" : ""}
+                    </span>
+                    <span className="modpag_ms-item-text">
+                      <span className="modpag_ms-item-name">{p.nombre}</span>
+                      <span className="modpag_ms-item-amt">
+                        ${Number(p.monto || 0).toLocaleString("es-AR")}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="modpag_ms-empty">(No hay planes activos)</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -72,7 +180,8 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
   const [mesesSeleccionados, setMesesSeleccionados] = useState([]);
   const [pagoExitoso, setPagoExitoso] = useState(false);
 
-  const [monto, setMonto] = useState("");
+  // ✅ AHORA: monto se calcula por planes seleccionados
+  const [monto, setMonto] = useState(""); // string para mostrar en input
   const [fechaPago, setFechaPago] = useState(() => {
     const d = new Date();
     const yyyy = d.getFullYear();
@@ -85,6 +194,10 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
 
   const [mesesCatalogo, setMesesCatalogo] = useState([]);
   const [mediosPago, setMediosPago] = useState([]);
+
+  // ✅ NUEVO: planes mantenimiento + selección múltiple
+  const [planesMantenimiento, setPlanesMantenimiento] = useState([]);
+  const [planesSeleccionadosIds, setPlanesSeleccionadosIds] = useState([]);
 
   const hoy = useMemo(() => new Date(), []);
   const yearNow = hoy.getFullYear();
@@ -156,6 +269,24 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, []);
 
+  // ✅ NUEVO: normalizar planes mantenimiento
+  const normalizarPlanes = useCallback((data) => {
+    const raw =
+      data?.listas?.planes_mantenimiento ||
+      data?.planes_mantenimiento ||
+      data?.planesMantenimiento ||
+      [];
+    const arr = Array.isArray(raw) ? raw : [];
+    return arr
+      .map((p) => ({
+        id: Number(p?.id ?? p?.id_plan ?? null),
+        nombre: String(p?.nombre ?? p?.plan ?? "").trim(),
+        monto: Number(p?.monto ?? p?.precio ?? 0),
+      }))
+      .filter((p) => Number.isFinite(p.id) && p.id > 0 && p.nombre && Number.isFinite(p.monto))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  }, []);
+
   // ✅ Cargar catálogos
   useEffect(() => {
     let alive = true;
@@ -172,11 +303,16 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
 
         const m = normalizarMeses(data);
         const mp = normalizarMedios(data);
+        const pl = normalizarPlanes(data);
 
         setMesesCatalogo(m.length ? m : []);
         setMediosPago(mp.length ? mp : []);
+        setPlanesMantenimiento(pl.length ? pl : []);
 
         if (!idMedioPago && mp.length) setIdMedioPago(String(mp[0].id_medio_pago));
+
+        // si hay planes y todavía no hay selección, podés dejar vacío (mejor)
+        // o autoseleccionar uno. Yo lo dejo vacío para que elijas.
       } catch {
         if (!alive) return;
 
@@ -188,13 +324,40 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
           }))
         );
         setMediosPago([]);
+        setPlanesMantenimiento([]);
       }
     })();
 
     return () => {
       alive = false;
     };
-  }, [LISTAS_API, LISTAS_DIRECT, fetchJSON, normalizarMeses, normalizarMedios, idMedioPago]);
+  }, [
+    LISTAS_API,
+    LISTAS_DIRECT,
+    fetchJSON,
+    normalizarMeses,
+    normalizarMedios,
+    normalizarPlanes,
+    idMedioPago,
+  ]);
+
+  // ✅ CALCULAR TOTAL SEGÚN PLANES SELECCIONADOS
+  const totalPlanes = useMemo(() => {
+    if (!planesSeleccionadosIds?.length) return 0;
+    const set = new Set(planesSeleccionadosIds.map((x) => Number(x)));
+    const total = (planesMantenimiento || []).reduce((acc, p) => {
+      if (set.has(Number(p.id))) return acc + Number(p.monto || 0);
+      return acc;
+    }, 0);
+    // redondeo a 2 decimales por seguridad
+    return Math.round(total * 100) / 100;
+  }, [planesSeleccionadosIds, planesMantenimiento]);
+
+  // ✅ Volcar total al input monto (readonly)
+  useEffect(() => {
+    // si querés obligar a elegir planes, dejalo así
+    setMonto(totalPlanes ? String(totalPlanes) : "");
+  }, [totalPlanes]);
 
   // ESC para cerrar
   useEffect(() => {
@@ -217,6 +380,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       setError("");
       setPagoExitoso(false);
       setMesesSeleccionados([]);
+      setPlanesSeleccionadosIds([]); // ✅ reset planes al abrir
 
       try {
         if (!id_sistema) throw new Error("Falta id_sistema");
@@ -295,7 +459,6 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     }));
   }, [mesesCatalogo, selectedYear]);
 
-  // ✅ ESTA LINEA ES LA QUE TE ROMPIA: SIN TABS, SIN NADA RARO
   const isMesPagado = useCallback(
     (mesId) => {
       const arr = pagosPorAnio?.[selectedYear] || [];
@@ -353,9 +516,15 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       return;
     }
 
+    // ✅ ahora el monto sale de planes
+    if (!planesSeleccionadosIds.length) {
+      setError("Seleccioná al menos un mantenimiento.");
+      return;
+    }
+
     const montoNum = Number(monto);
     if (!Number.isFinite(montoNum) || montoNum <= 0) {
-      setError("Ingresá un monto válido.");
+      setError("El monto calculado es inválido. Revisá los planes seleccionados.");
       return;
     }
 
@@ -381,6 +550,9 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         monto: montoNum,
         fecha_pago: String(fechaPago),
         id_medio_pago: Number(idMedioPago),
+
+        // ✅ EXTRA (no rompe tu backend si lo ignorás)
+        planes_seleccionados: planesSeleccionadosIds.map((x) => Number(x)),
       };
 
       const result = await fetchJSON(url, {
@@ -407,11 +579,23 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
 
       setPagoExitoso(true);
       setMesesSeleccionados([]);
+      setPlanesSeleccionadosIds([]);
       onPagoRealizado?.();
     } catch (e) {
       setError(e?.message || "Ocurrió un error al realizar el pago.");
     }
-  }, [id_sistema, mesesSeleccionados, monto, fechaPago, idMedioPago, selectedYear, fetchJSON, onPagoRealizado, API]);
+  }, [
+    id_sistema,
+    mesesSeleccionados,
+    monto,
+    fechaPago,
+    idMedioPago,
+    selectedYear,
+    fetchJSON,
+    onPagoRealizado,
+    API,
+    planesSeleccionadosIds,
+  ]);
 
   const tituloCliente = useMemo(() => {
     const c = detalle?.cliente || detalle?.nombre_cliente || detalle?.cliente_nombre;
@@ -419,6 +603,11 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     if (c && s) return `${c} • ${s}`;
     return s || c || "Registro de Pagos";
   }, [detalle]);
+
+  const planesSeleccionados = useMemo(() => {
+    const set = new Set(planesSeleccionadosIds.map((x) => Number(x)));
+    return (planesMantenimiento || []).filter((p) => set.has(Number(p.id)));
+  }, [planesSeleccionadosIds, planesMantenimiento]);
 
   if (loading) {
     return (
@@ -527,15 +716,30 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
                 />
               </div>
 
+              {/* ✅ NUEVO: MULTISELECT PLANES */}
+              <div className="modpag_info-item" style={{ minWidth: 260 }}>
+                <span className="modpag_info-label">Mantenimientos</span>
+                <MultiSelectPlanes
+                  options={planesMantenimiento}
+                  selectedIds={planesSeleccionadosIds}
+                  onChangeIds={setPlanesSeleccionadosIds}
+                  disabled={!planesMantenimiento.length}
+                />
+              </div>
+
+              {/* ✅ Monto calculado */}
               <div className="modpag_info-item" style={{ minWidth: 140 }}>
-                <span className="modpag_info-label">Monto</span>
+                <span className="modpag_info-label">Total</span>
                 <input
-                  type="number"
-                  inputMode="decimal"
-                  value={monto}
-                  onChange={(e) => setMonto(e.target.value)}
-                  className="modpag_input"
-                  placeholder="0.00"
+                  type="text"
+                  value={
+                    totalPlanes
+                      ? `$${Number(totalPlanes).toLocaleString("es-AR")}`
+                      : ""
+                  }
+                  readOnly
+                  className="modpag_input modpag_input_readonly"
+                  placeholder="$0"
                 />
               </div>
 
@@ -558,6 +762,17 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
                 </select>
               </div>
             </div>
+
+            {/* ✅ Chips de planes seleccionados (opcional pero útil) */}
+            {planesSeleccionados.length > 0 && (
+              <div className="modpag_planes_chips">
+                {planesSeleccionados.map((p) => (
+                  <span key={p.id} className="modpag_chip">
+                    {p.nombre} · ${Number(p.monto).toLocaleString("es-AR")}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="modpag_periodos-section">

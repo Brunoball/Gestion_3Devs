@@ -16,6 +16,9 @@ declare(strict_types=1);
  * - GET  /api.php?action=pagos&op=equipo_sistema&id_sistema=5&anio=2026&mes=1
  * - POST /api.php?action=pagos&op=registrar_pago
  * - POST /api.php?action=pagos&op=eliminar_pago
+ *
+ * ✅ ARCA (REAL):
+ * - POST /api.php?action=pagos&op=factura_arca
  */
 
 function route_pagos(string $action): bool
@@ -36,7 +39,6 @@ function route_pagos(string $action): bool
     return true;
   }
 
-  // ✅ NUEVO: equipo del sistema + monto cobrado
   if ($op === 'equipo_sistema') {
     pagos_equipo_sistema();
     return true;
@@ -49,6 +51,12 @@ function route_pagos(string $action): bool
 
   if ($op === 'eliminar_pago') {
     pagos_eliminar_pago();
+    return true;
+  }
+
+  // ✅ NUEVO: emitir factura ARCA (CAE real)
+  if ($op === 'factura_arca') {
+    pagos_factura_arca();
     return true;
   }
 
@@ -67,7 +75,7 @@ function route_pagos(string $action): bool
   http_response_code(200);
   echo json_encode([
     'exito' => false,
-    'mensaje' => 'Parámetros inválidos. Usá: ?estado=pagado|deudor o ?op=detalle_sistema|equipo_sistema|registrar_pago|eliminar_pago'
+    'mensaje' => 'Parámetros inválidos. Usá: ?estado=pagado|deudor o ?op=detalle_sistema|equipo_sistema|registrar_pago|eliminar_pago|factura_arca'
   ], JSON_UNESCAPED_UNICODE);
   return true;
 }
