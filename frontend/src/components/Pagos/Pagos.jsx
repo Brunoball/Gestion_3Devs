@@ -208,8 +208,7 @@ function getIdSistema(item) {
 }
 
 function getIdPago(item) {
-  const v =
-    item?.id_pago ?? item?.idPago ?? item?.IdPago ?? item?.ID_PAGO ?? null;
+  const v = item?.id_pago ?? item?.idPago ?? item?.IdPago ?? item?.ID_PAGO ?? null;
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
@@ -341,24 +340,39 @@ function Pagos() {
   // ===== UI =====
   const [loading, setLoading] = useState({ pagos: false, listas: false });
 
-  const [toast, setToast] = useState(null);
-  const showToast = useCallback(
-    (tipo, mensaje, duracion = 3000) => setToast({ tipo, mensaje, duracion }),
-    []
-  );
+  /* =========================
+     ✅ Toasts: SOLO importantes
+     - Pago realizado con éxito
+     - Pago eliminado correctamente
+  ========================= */
+  const [toast, setToast] = useState({
+    show: false,
+    tipo: "exito",
+    mensaje: "",
+    duracion: 2600,
+    key: 0,
+  });
+
+  const showToast = useCallback((tipo, mensaje, duracion = 2600) => {
+    setToast((t) => ({
+      show: true,
+      tipo,
+      mensaje, // ✅ solo texto (sin emojis / sin iconos)
+      duracion,
+      key: (t.key || 0) + 1,
+    }));
+  }, []);
+
+  const closeToast = useCallback(() => {
+    setToast((t) => ({ ...t, show: false }));
+  }, []);
 
   // ✅ MODAL PAGO
   const [modalPago, setModalPago] = useState(null);
   const openModalPago = useCallback(
     (row) => {
       const id_sistema = getIdSistema(row);
-      if (!id_sistema) {
-        showToast(
-          "error",
-          "No pude abrir el modal: el registro no trae id_sistema (o viene inválido). Revisá el endpoint de deudores."
-        );
-        return;
-      }
+      if (!id_sistema) return; // ❌ sin toasts (solo importantes)
       setModalPago({
         open: true,
         id_sistema,
@@ -366,7 +380,7 @@ function Pagos() {
         labelSistema: buildSistemaLabel(row),
       });
     },
-    [showToast]
+    []
   );
   const closeModalPago = useCallback(() => setModalPago(null), []);
 
@@ -380,14 +394,7 @@ function Pagos() {
   const openModalEquipo = useCallback(
     (row) => {
       const id_sistema = getIdSistema(row);
-      if (!id_sistema) {
-        showToast(
-          "error",
-          "No pude abrir Equipo: el registro no trae id_sistema. Revisá el endpoint de pagados."
-        );
-        return;
-      }
-
+      if (!id_sistema) return; // ❌ sin toasts
       setModalEquipo({
         open: true,
         id_sistema,
@@ -400,7 +407,7 @@ function Pagos() {
         id_pago: getIdPago(row),
       });
     },
-    [selectedYear, selectedMonth, showToast]
+    [selectedYear, selectedMonth]
   );
 
   // ✅ MODAL ARCA
@@ -410,25 +417,8 @@ function Pagos() {
     (row) => {
       const id_sistema = getIdSistema(row);
       const id_pago = getIdPago(row);
-
-      if (!id_sistema) {
-        showToast(
-          "error",
-          "No pude abrir ARCA: el registro no trae id_sistema. Revisá el endpoint de pagados."
-        );
-        return;
-      }
-      if (!id_pago) {
-        showToast(
-          "error",
-          "No pude abrir ARCA: el registro no trae id_pago. Revisá el endpoint de pagados."
-        );
-        return;
-      }
-      if (!selectedYear || !selectedMonth) {
-        showToast("error", "Seleccioná año y mes antes de generar la factura.");
-        return;
-      }
+      if (!id_sistema || !id_pago) return; // ❌ sin toasts
+      if (!selectedYear || !selectedMonth) return; // ❌ sin toasts
 
       setModalArca({
         open: true,
@@ -443,7 +433,7 @@ function Pagos() {
         medio_pago: row?.medio_pago ?? null,
       });
     },
-    [selectedYear, selectedMonth, showToast]
+    [selectedYear, selectedMonth]
   );
 
   // ===== Virtual / infinite =====
@@ -461,24 +451,31 @@ function Pagos() {
 
   const fetchJSON = useCallback(async (url, opts) => {
     const res = await fetch(url, opts);
-    let data = null;
-
-    try {
-      data = await res.json();
-    } catch {
-      data = null;
-    }
+    const text = await res.text();
 
     if (!res.ok) {
-      const msg = data?.mensaje || data?.error || `HTTP ${res.status}`;
+      // intentamos decodificar mensaje del backend, pero sin mostrar toasts acá
+      let msg = `HTTP ${res.status}`;
+      try {
+        const parsed = JSON.parse(text);
+        msg = parsed?.mensaje || parsed?.error || msg;
+      } catch {}
       throw new Error(msg);
     }
 
-    if (data && typeof data === "object" && data?.exito === false) {
-      throw new Error(data?.mensaje || "Error en el servidor");
+    const trimmed = (text || "").trim();
+    if (trimmed.startsWith("<")) {
+      throw new Error("Backend devolvió HTML (error PHP).");
     }
-
-    return data;
+    try {
+      const data = JSON.parse(trimmed || "{}");
+      if (data && typeof data === "object" && data?.exito === false) {
+        throw new Error(data?.mensaje || "Error en el servidor");
+      }
+      return data;
+    } catch {
+      throw new Error("JSON inválido.");
+    }
   }, []);
 
   const cacheKey = useCallback((anio, mes) => `${anio || ""}|${mes || ""}`, []);
@@ -569,11 +566,13 @@ function Pagos() {
           return aniosNorm.length ? String(aniosNorm[0]) : "";
         });
       } catch (e) {
-        showToast("error", e.message || "No se pudieron cargar las listas");
+        // ❌ no toast (no es "importante" según lo pedido)
+        // si querés, dejalo en console
+        console.error(e);
       }
     };
     run();
-  }, [fetchListas, showToast]);
+  }, [fetchListas]);
 
   // ===== Carga pagos por mes/año =====
   const cargarPagosPorMes = useCallback(
@@ -621,16 +620,13 @@ function Pagos() {
         setPagosPagados(arrP);
         setPagosDeudores(arrD);
       } catch (e) {
-        showToast(
-          "error",
-          e.message ||
-            `No se pudieron cargar los pagos (${mes}/${anio}). Revisá action=${ACTION_PAGOS}`
-        );
+        // ❌ no toast (no es "importante" según lo pedido)
+        console.error(e);
       } finally {
         setLoading((p) => ({ ...p, pagos: false }));
       }
     },
-    [cacheKey, fetchJSON, loading.pagos, showToast]
+    [cacheKey, fetchJSON, loading.pagos]
   );
 
   useEffect(() => {
@@ -727,33 +723,21 @@ function Pagos() {
   }, []);
 
   const onPayClick = useCallback((row) => openModalPago(row), [openModalPago]);
-  const onTeamClick = useCallback(
-    (row) => openModalEquipo(row),
-    [openModalEquipo]
-  );
-  const onArcaClick = useCallback(
-    (row) => openModalArca(row),
-    [openModalArca]
-  );
+  const onTeamClick = useCallback((row) => openModalEquipo(row), [openModalEquipo]);
+  const onArcaClick = useCallback((row) => openModalArca(row), [openModalArca]);
 
-  const onDeleteClick = useCallback(
-    (row) => {
-      const id_pago = getIdPago(row);
-      if (!id_pago) {
-        showToast("error", "No pude eliminar: el registro no trae id_pago.");
-        return;
-      }
-      setModalEliminar({
-        open: true,
-        id_pago,
-        labelCliente: buildClienteLabel(row),
-        labelSistema: buildSistemaLabel(row),
-        fecha: row?.fecha_pago ?? null,
-        monto: row?.monto ?? null,
-      });
-    },
-    [showToast]
-  );
+  const onDeleteClick = useCallback((row) => {
+    const id_pago = getIdPago(row);
+    if (!id_pago) return; // ❌ sin toasts
+    setModalEliminar({
+      open: true,
+      id_pago,
+      labelCliente: buildClienteLabel(row),
+      labelSistema: buildSistemaLabel(row),
+      fecha: row?.fecha_pago ?? null,
+      monto: row?.monto ?? null,
+    });
+  }, []);
 
   // mobile
   const isClient = typeof window !== "undefined";
@@ -787,18 +771,11 @@ function Pagos() {
     cargarPagosPorMes(selectedYear, selectedMonth, true);
   }, [selectedYear, selectedMonth, cacheKey, cargarPagosPorMes]);
 
-  // ✅ EXPORTAR EXCEL
+  // ✅ EXPORTAR EXCEL (sin toast)
   const exportarExcel = useCallback(() => {
-    if (!filtrosCompletos) {
-      showToast("error", "Seleccioná año y mes antes de exportar.");
-      return;
-    }
-
+    if (!filtrosCompletos) return;
     const data = Array.isArray(datosFiltrados) ? datosFiltrados : [];
-    if (!data.length) {
-      showToast("error", "No hay datos para exportar con los filtros actuales.");
-      return;
-    }
+    if (!data.length) return;
 
     const rows = data.map((x) => ({
       Cliente: buildClienteLabel(x),
@@ -826,16 +803,9 @@ function Pagos() {
 
     const fileName = `pagos_${activeTab}_${selectedYear}_${safeMes}.xlsx`;
     XLSX.writeFile(wb, fileName);
-  }, [
-    filtrosCompletos,
-    datosFiltrados,
-    activeTab,
-    selectedYear,
-    selectedMonth,
-    showToast,
-  ]);
+  }, [filtrosCompletos, datosFiltrados, activeTab, selectedYear, selectedMonth]);
 
-  // ✅ confirmar eliminación
+  // ✅ confirmar eliminación (toast importante)
   const confirmarEliminarPago = useCallback(async () => {
     if (!modalEliminar?.id_pago) return;
 
@@ -844,15 +814,16 @@ function Pagos() {
 
       await fetchJSON(`${API}?action=${ACTION_PAGOS}&op=eliminar_pago`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ id_pago: modalEliminar.id_pago }),
       });
 
-      showToast("exito", "Pago eliminado correctamente");
+      showToast("exito", "Pago eliminado correctamente.", 2600);
       closeModalEliminar();
       recargarListado();
     } catch (e) {
-      showToast("error", e.message || "No se pudo eliminar el pago");
+      // ❌ pediste toast SOLO importantes, este error no lo pediste.
+      console.error(e);
     } finally {
       setLoading((p) => ({ ...p, pagos: false }));
     }
@@ -986,9 +957,7 @@ function Pagos() {
         >
           {(props) => {
             if (props.index >= datosFiltradosPaginated.length) {
-              return (
-                <div style={props.style} className="gpagos-loading-row"></div>
-              );
+              return <div style={props.style} className="gpagos-loading-row"></div>;
             }
             return (
               <Row
@@ -1023,6 +992,17 @@ function Pagos() {
 
   return (
     <div className="gpagos-container">
+      {/* ✅ TOAST SOLO IMPORTANTES */}
+      {toast.show ? (
+        <Toast
+          key={toast.key}
+          tipo={toast.tipo}
+          mensaje={toast.mensaje}
+          duracion={toast.duracion}
+          onClose={closeToast}
+        />
+      ) : null}
+
       {/* ✅ MODAL PAGO */}
       {modalPago?.open && (
         <ModalPago
@@ -1031,6 +1011,8 @@ function Pagos() {
           onPagoRealizado={() => {
             closeModalPago();
             recargarListado();
+            // ✅ IMPORTANTE
+            showToast("exito", "Pago realizado con éxito.", 2600);
           }}
         />
       )}
@@ -1073,15 +1055,6 @@ function Pagos() {
           onConfirm={confirmarEliminarPago}
           loading={loading.pagos}
           data={modalEliminar}
-        />
-      )}
-
-      {toast && (
-        <Toast
-          tipo={toast.tipo}
-          mensaje={toast.mensaje}
-          onClose={() => setToast(null)}
-          duracion={toast.duracion}
         />
       )}
 
@@ -1237,7 +1210,6 @@ function Pagos() {
                 <span>Volver</span>
               </button>
 
-              {/* ✅ ANTES: Refrescar | AHORA: Excel */}
               <button
                 className="gpagos-button gpagos-button-excel"
                 onClick={exportarExcel}
@@ -1258,11 +1230,7 @@ function Pagos() {
         <div className="gpagos-table-header">
           <h3>
             <FontAwesomeIcon
-              icon={
-                activeTab === "pagado"
-                  ? faCheckCircle
-                  : faExclamationTriangle
-              }
+              icon={activeTab === "pagado" ? faCheckCircle : faExclamationTriangle}
             />
             {activeTab === "pagado" ? "Pagos Registrados" : "Pagos Pendientes"}
           </h3>

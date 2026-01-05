@@ -4,6 +4,9 @@ import { useNavigate } from "react-router-dom";
 import BASE_URL from "../../config/config";
 import "./Mantenimiento.css";
 
+// ✅ Toast
+import Toast from "../Global/Toast";
+
 // Font Awesome
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -38,15 +41,58 @@ export default function Mantenimiento() {
 
   const API_BASE = `${BASE_URL}/api.php`;
 
+  /* ===========================
+     ✅ TOAST SOLO PARA: crear/editar/eliminar
+  =========================== */
+  const [toast, setToast] = useState({
+    show: false,
+    tipo: "exito", // o "error"
+    mensaje: "",
+    duracion: 2500,
+    key: 0,
+  });
+
+  const showToast = useCallback((tipo, mensaje, duracion = 2500) => {
+    setToast((t) => ({
+      show: true,
+      tipo,
+      mensaje, // ✅ solo texto (sin emojis, sin iconos)
+      duracion,
+      key: (t.key || 0) + 1,
+    }));
+  }, []);
+
+  const closeToast = useCallback(() => {
+    setToast((t) => ({ ...t, show: false }));
+  }, []);
+
+  // ✅ fetch robusto: evita crashear si el backend devuelve HTML
+  const fetchJSON = useCallback(async (url, options) => {
+    const res = await fetch(url, options);
+    const text = await res.text();
+
+    if (!res.ok) throw new Error(`HTTP ${res.status} :: ${text.slice(0, 300)}`);
+
+    const trimmed = (text || "").trim();
+    if (trimmed.startsWith("<")) {
+      throw new Error(`Backend devolvió HTML (error PHP). ${trimmed.slice(0, 200)}`);
+    }
+
+    try {
+      return JSON.parse(trimmed || "{}");
+    } catch {
+      throw new Error(`JSON inválido. ${trimmed.slice(0, 200)}`);
+    }
+  }, []);
+
   const cargarPlanes = useCallback(async () => {
     try {
       setLoading(true);
       setMsg("");
 
-      const res = await fetch(
-        `${API_BASE}?action=mantenimiento&op=planes&ver_inactivos=0`
+      const data = await fetchJSON(
+        `${API_BASE}?action=mantenimiento&op=planes&ver_inactivos=0&ts=${Date.now()}`
       );
-      const data = await res.json().catch(() => null);
 
       if (data?.exito && Array.isArray(data?.planes)) {
         setPlanes(data.planes);
@@ -57,11 +103,11 @@ export default function Mantenimiento() {
     } catch (e) {
       console.error(e);
       setPlanes([]);
-      setMsg("Error cargando planes");
+      setMsg(String(e?.message || "Error cargando planes"));
     } finally {
       setLoading(false);
     }
-  }, [API_BASE]);
+  }, [API_BASE, fetchJSON]);
 
   useEffect(() => {
     cargarPlanes();
@@ -72,26 +118,30 @@ export default function Mantenimiento() {
       setLoading(true);
       setMsg("");
 
-      const res = await fetch(
-        `${API_BASE}?action=mantenimiento&op=crear_plan`,
+      const data = await fetchJSON(
+        `${API_BASE}?action=mantenimiento&op=crear_plan&ts=${Date.now()}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify(payload),
         }
       );
 
-      const data = await res.json().catch(() => null);
       if (!data?.exito) {
-        setMsg(data?.mensaje || "No se pudo crear el plan");
+        const m = data?.mensaje || "No se pudo crear el plan";
+        setMsg(m);
+        showToast("error", m, 3200);
         return;
       }
 
       setOpenCrear(false);
+      showToast("exito", "Plan creado correctamente.", 2500);
       await cargarPlanes();
     } catch (e) {
       console.error(e);
-      setMsg("Error de red creando plan");
+      const m = String(e?.message || "Error de red creando plan");
+      setMsg(m);
+      showToast("error", m, 3200);
     } finally {
       setLoading(false);
     }
@@ -107,27 +157,31 @@ export default function Mantenimiento() {
       setLoading(true);
       setMsg("");
 
-      const res = await fetch(
-        `${API_BASE}?action=mantenimiento&op=editar_plan`,
+      const data = await fetchJSON(
+        `${API_BASE}?action=mantenimiento&op=editar_plan&ts=${Date.now()}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify(payload),
         }
       );
 
-      const data = await res.json().catch(() => null);
       if (!data?.exito) {
-        setMsg(data?.mensaje || "No se pudo editar el plan");
+        const m = data?.mensaje || "No se pudo editar el plan";
+        setMsg(m);
+        showToast("error", m, 3200);
         return;
       }
 
       setOpenEditar(false);
       setPlanSel(null);
+      showToast("exito", "Plan editado correctamente.", 2500);
       await cargarPlanes();
     } catch (e) {
       console.error(e);
-      setMsg("Error de red editando plan");
+      const m = String(e?.message || "Error de red editando plan");
+      setMsg(m);
+      showToast("error", m, 3200);
     } finally {
       setLoading(false);
     }
@@ -146,30 +200,35 @@ export default function Mantenimiento() {
 
     try {
       setLoading(true);
+      setMsg("");
 
-      const res = await fetch(
-        `${API_BASE}?action=mantenimiento&op=eliminar_plan`,
+      const data = await fetchJSON(
+        `${API_BASE}?action=mantenimiento&op=eliminar_plan&ts=${Date.now()}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify({ id: p.id, hard: 1 }),
         }
       );
 
-      const data = await res.json().catch(() => null);
       if (!data?.exito) {
         setPlanes(prev);
-        setMsg(data?.mensaje || "No se pudo eliminar el plan");
+        const m = data?.mensaje || "No se pudo eliminar el plan";
+        setMsg(m);
+        showToast("error", m, 3200);
         return;
       }
 
       setOpenEliminar(false);
       setPlanSel(null);
+      showToast("exito", "Plan eliminado correctamente.", 2500);
       await cargarPlanes();
     } catch (e) {
       console.error(e);
       setPlanes(prev);
-      setMsg("Error de red eliminando plan");
+      const m = String(e?.message || "Error de red eliminando plan");
+      setMsg(m);
+      showToast("error", m, 3200);
     } finally {
       setLoading(false);
     }
@@ -184,6 +243,17 @@ export default function Mantenimiento() {
 
   return (
     <div className="ini_contenedor-principal">
+      {/* ✅ TOAST (solo crear/editar/eliminar) */}
+      {toast.show ? (
+        <Toast
+          key={toast.key}
+          tipo={toast.tipo}
+          mensaje={toast.mensaje}
+          duracion={toast.duracion}
+          onClose={closeToast}
+        />
+      ) : null}
+
       <div className="Gelemts-Wrap">
         <div className="Gelemts-Card">
           <header className="Gelemts-Header">
@@ -246,6 +316,7 @@ export default function Mantenimiento() {
                             onClick={() => abrirEditar(p)}
                             title="Editar"
                             aria-label={`Editar ${p.nombre}`}
+                            disabled={loading}
                           >
                             <FontAwesomeIcon icon={faPenToSquare} />
                           </button>
@@ -256,6 +327,7 @@ export default function Mantenimiento() {
                             onClick={() => abrirEliminar(p)}
                             title="Eliminar"
                             aria-label={`Eliminar ${p.nombre}`}
+                            disabled={loading}
                           >
                             <FontAwesomeIcon icon={faTrashCan} />
                           </button>

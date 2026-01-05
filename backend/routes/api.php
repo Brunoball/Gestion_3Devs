@@ -41,7 +41,7 @@ require_once __DIR__ . '/../modules/reportes/route.php';
  * Entonces el router debe estar en:
  *   backend/modules/Global/route.php
  */
-require_once __DIR__ . '/../modules/Global/route.php';
+require_once __DIR__ . '/../modules/global/route.php';
 
 /**
  * ✅ Fallback de REPORTES:

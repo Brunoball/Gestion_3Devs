@@ -1,5 +1,5 @@
 // src/components/Clientes/Clientes.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import BASE_URL from "../../config/config";
 import Toast from "../Global/Toast";
@@ -23,12 +23,37 @@ import { FaPen, FaTrashAlt, FaCubes, FaSave, FaTimes } from "react-icons/fa";
 
 const API = `${BASE_URL}/api.php?action=clientes`;
 
+/**
+ * ✅ Toast robusto, estilo Pagos/Reportes:
+ * - show boolean
+ * - key incremental para "re-disparar" el mismo mensaje
+ * - SOLO toasts de ÉXITO para acciones: agregar / editar / eliminar / asignar / quitar
+ * - errores: podés dejarlos (yo los dejo) para no quedarte ciego al fallar backend
+ */
 export default function Clientes() {
   const navigate = useNavigate();
 
-  const [toast, setToast] = useState(null);
-  const mostrarToast = (tipo, mensaje, duracion = 3000) =>
-    setToast({ tipo, mensaje, duracion });
+  const [toast, setToast] = useState({
+    show: false,
+    tipo: "exito",
+    mensaje: "",
+    duracion: 2600,
+    key: 0,
+  });
+
+  const showToast = useCallback((tipo, mensaje, duracion = 2600) => {
+    setToast((t) => ({
+      show: true,
+      tipo,
+      mensaje,
+      duracion,
+      key: (t.key || 0) + 1,
+    }));
+  }, []);
+
+  const closeToast = useCallback(() => {
+    setToast((t) => ({ ...t, show: false }));
+  }, []);
 
   const [cargando, setCargando] = useState(false);
   const [clientes, setClientes] = useState([]);
@@ -90,166 +115,199 @@ export default function Clientes() {
     return modalClienteId ? sistemas?.[modalClienteId] || [] : [];
   }, [modalClienteId, sistemas]);
 
-  const fetchJSON = async (url, opts) => {
+  // =========================
+  // Fetch robusto (evita reventar si viene HTML/errores)
+  // =========================
+  const fetchJSON = useCallback(async (url, opts) => {
     const res = await fetch(url, opts);
+    const text = await res.text();
+
+    // si vino html (warning php)
+    const trimmed = (text || "").trim();
+    if (trimmed.startsWith("<")) {
+      throw new Error("Backend devolvió HTML (error PHP). Revisá logs.");
+    }
+
     let data = null;
     try {
-      data = await res.json();
+      data = JSON.parse(trimmed || "{}");
     } catch {
       data = null;
     }
-    if (!data || data.exito === false) {
-      const msg = data?.mensaje || "Error en el servidor";
+
+    if (!res.ok || !data || data.exito === false) {
+      const msg = data?.mensaje || data?.error || `HTTP ${res.status}`;
       throw new Error(msg);
     }
-    return data;
-  };
 
-  const cargarClientes = async () => {
+    return data;
+  }, []);
+
+  const cargarClientes = useCallback(async () => {
     setCargando(true);
     try {
       const data = await fetchJSON(`${API}&op=list`, { method: "GET" });
       setClientes(Array.isArray(data?.clientes) ? data.clientes : []);
     } catch (e) {
-      mostrarToast("error", e.message || "No se pudieron cargar los clientes");
+      // (si querés SOLO éxito, podés comentar esto)
+      showToast("error", e.message || "No se pudieron cargar los clientes");
     } finally {
       setCargando(false);
     }
-  };
+  }, [fetchJSON, showToast]);
 
-  const cargarSistemasCliente = async (id_cliente) => {
-    setCargandoSistemas(true);
-    try {
-      const data = await fetchJSON(
-        `${API}&op=sistemas_list&id_cliente=${id_cliente}`,
-        { method: "GET" }
-      );
-      const lista = Array.isArray(data?.sistemas) ? data.sistemas : [];
-      setSistemas((prev) => ({ ...prev, [id_cliente]: lista }));
-      return lista;
-    } catch (e) {
-      mostrarToast("error", e.message || "No se pudieron cargar los sistemas");
-      return [];
-    } finally {
-      setCargandoSistemas(false);
-    }
-  };
+  const cargarSistemasCliente = useCallback(
+    async (id_cliente) => {
+      setCargandoSistemas(true);
+      try {
+        const data = await fetchJSON(
+          `${API}&op=sistemas_list&id_cliente=${id_cliente}`,
+          { method: "GET" }
+        );
+        const lista = Array.isArray(data?.sistemas) ? data.sistemas : [];
+        setSistemas((prev) => ({ ...prev, [id_cliente]: lista }));
+        return lista;
+      } catch (e) {
+        showToast("error", e.message || "No se pudieron cargar los sistemas");
+        return [];
+      } finally {
+        setCargandoSistemas(false);
+      }
+    },
+    [fetchJSON, showToast]
+  );
 
-  const cargarTrabajadores = async () => {
+  const cargarTrabajadores = useCallback(async () => {
     try {
       const data = await fetchJSON(`${API}&op=trabajadores_list`, {
         method: "GET",
       });
       setTrabajadores(Array.isArray(data?.trabajadores) ? data.trabajadores : []);
     } catch (e) {
-      mostrarToast("error", e.message || "No se pudieron cargar los trabajadores");
+      showToast("error", e.message || "No se pudieron cargar los trabajadores");
     }
-  };
+  }, [fetchJSON, showToast]);
 
-  const cargarAsignadosSistema = async (id_sistema) => {
-    try {
-      const data = await fetchJSON(
-        `${API}&op=sistema_trabajadores_list&id_sistema=${id_sistema}`,
-        { method: "GET" }
-      );
-      setAsignadosPorSistema((prev) => ({
-        ...prev,
-        [id_sistema]: Array.isArray(data?.asignados) ? data.asignados : [],
-      }));
-    } catch (e) {
-      mostrarToast("error", e.message || "No se pudieron cargar los asignados");
-    }
-  };
+  const cargarAsignadosSistema = useCallback(
+    async (id_sistema) => {
+      try {
+        const data = await fetchJSON(
+          `${API}&op=sistema_trabajadores_list&id_sistema=${id_sistema}`,
+          { method: "GET" }
+        );
+        setAsignadosPorSistema((prev) => ({
+          ...prev,
+          [id_sistema]: Array.isArray(data?.asignados) ? data.asignados : [],
+        }));
+      } catch (e) {
+        showToast("error", e.message || "No se pudieron cargar los asignados");
+      }
+    },
+    [fetchJSON, showToast]
+  );
 
-  const asignarTrabajador = async (id_sistema) => {
-    const id_trabajador = Number(selectTrabajador?.[id_sistema] || 0);
-    if (!id_trabajador) return mostrarToast("advertencia", "Elegí un trabajador");
+  const asignarTrabajador = useCallback(
+    async (id_sistema) => {
+      const id_trabajador = Number(selectTrabajador?.[id_sistema] || 0);
+      if (!id_trabajador)
+        return showToast("advertencia", "Elegí un trabajador");
 
-    try {
-      const data = await fetchJSON(`${API}&op=sistema_trabajadores_add`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id_sistema, id_trabajador }),
-      });
+      try {
+        const data = await fetchJSON(`${API}&op=sistema_trabajadores_add`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id_sistema, id_trabajador }),
+        });
 
-      mostrarToast("exito", data?.mensaje || "Trabajador asignado");
-      setSelectTrabajador((p) => ({ ...p, [id_sistema]: "" }));
-      await cargarAsignadosSistema(id_sistema);
-    } catch (e) {
-      mostrarToast("error", e.message || "No se pudo asignar el trabajador");
-    }
-  };
+        // ✅ ÉXITO
+        showToast("exito", data?.mensaje || "Trabajador asignado");
+        setSelectTrabajador((p) => ({ ...p, [id_sistema]: "" }));
+        await cargarAsignadosSistema(id_sistema);
+      } catch (e) {
+        showToast("error", e.message || "No se pudo asignar el trabajador");
+      }
+    },
+    [API, fetchJSON, selectTrabajador, showToast, cargarAsignadosSistema]
+  );
 
   /* =========================
      MODALES: QUITAR / ELIMINAR SISTEMA
   ========================= */
 
-  const abrirQuitarTrabajador = (sistema, trabajador) => {
+  const abrirQuitarTrabajador = useCallback((sistema, trabajador) => {
     setQtSistema(sistema);
     setQtTrabajador(trabajador);
     setQtOpen(true);
-  };
+  }, []);
 
-  const confirmarQuitarTrabajador = async (sistema, trabajador) => {
-    const id_sistema = sistema?.id_sistema;
-    const id_trabajador = trabajador?.id;
+  const confirmarQuitarTrabajador = useCallback(
+    async (sistema, trabajador) => {
+      const id_sistema = sistema?.id_sistema;
+      const id_trabajador = trabajador?.id;
 
-    if (!id_sistema || !id_trabajador) return false;
+      if (!id_sistema || !id_trabajador) return false;
 
-    setQtLoading(true);
-    try {
-      const data = await fetchJSON(`${API}&op=sistema_trabajadores_remove`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id_sistema, id_trabajador }),
-      });
+      setQtLoading(true);
+      try {
+        const data = await fetchJSON(`${API}&op=sistema_trabajadores_remove`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id_sistema, id_trabajador }),
+        });
 
-      mostrarToast("exito", data?.mensaje || "Trabajador quitado");
-      await cargarAsignadosSistema(id_sistema);
+        // ✅ ÉXITO
+        showToast("exito", data?.mensaje || "Trabajador quitado");
+        await cargarAsignadosSistema(id_sistema);
 
-      setQtOpen(false);
-      setQtSistema(null);
-      setQtTrabajador(null);
-      return true;
-    } catch (e) {
-      mostrarToast("error", e.message || "No se pudo quitar el trabajador");
-      return false;
-    } finally {
-      setQtLoading(false);
-    }
-  };
+        setQtOpen(false);
+        setQtSistema(null);
+        setQtTrabajador(null);
+        return true;
+      } catch (e) {
+        showToast("error", e.message || "No se pudo quitar el trabajador");
+        return false;
+      } finally {
+        setQtLoading(false);
+      }
+    },
+    [fetchJSON, showToast, cargarAsignadosSistema]
+  );
 
-  const abrirEliminarSistema = (sistema) => {
+  const abrirEliminarSistema = useCallback((sistema) => {
     setSysDelSistema(sistema);
     setSysDelOpen(true);
-  };
+  }, []);
 
-  const confirmarEliminarSistema = async (sistema) => {
-    const id_sistema = sistema?.id_sistema;
-    if (!id_sistema) return false;
+  const confirmarEliminarSistema = useCallback(
+    async (sistema) => {
+      const id_sistema = sistema?.id_sistema;
+      if (!id_sistema) return false;
 
-    setSysDelLoading(true);
-    try {
-      const data = await fetchJSON(`${API}&op=sistemas_delete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id_sistema }),
-      });
+      setSysDelLoading(true);
+      try {
+        const data = await fetchJSON(`${API}&op=sistemas_delete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id_sistema }),
+        });
 
-      mostrarToast("exito", data?.mensaje || "Sistema eliminado");
+        // ✅ ÉXITO
+        showToast("exito", data?.mensaje || "Sistema eliminado");
 
-      if (modalClienteId) await cargarSistemasCliente(modalClienteId);
+        if (modalClienteId) await cargarSistemasCliente(modalClienteId);
 
-      setSysDelOpen(false);
-      setSysDelSistema(null);
-      return true;
-    } catch (e) {
-      mostrarToast("error", e.message || "No se pudo eliminar el sistema");
-      return false;
-    } finally {
-      setSysDelLoading(false);
-    }
-  };
+        setSysDelOpen(false);
+        setSysDelSistema(null);
+        return true;
+      } catch (e) {
+        showToast("error", e.message || "No se pudo eliminar el sistema");
+        return false;
+      } finally {
+        setSysDelLoading(false);
+      }
+    },
+    [fetchJSON, showToast, modalClienteId, cargarSistemasCliente]
+  );
 
   useEffect(() => {
     cargarClientes();
@@ -261,9 +319,9 @@ export default function Clientes() {
      CLIENTES CRUD
   ========================= */
 
-  const crearCliente = async () => {
+  const crearCliente = useCallback(async () => {
     const nombre = (nuevoCliente.nombre || "").trim();
-    if (!nombre) return mostrarToast("advertencia", "Ingresá el nombre del cliente");
+    if (!nombre) return showToast("advertencia", "Ingresá el nombre del cliente");
 
     try {
       const data = await fetchJSON(`${API}&op=create`, {
@@ -272,25 +330,26 @@ export default function Clientes() {
         body: JSON.stringify({ nombre, notas: (nuevoCliente.notas || "").trim() }),
       });
 
-      mostrarToast("exito", data?.mensaje || "Cliente creado");
+      // ✅ ÉXITO
+      showToast("exito", data?.mensaje || "Cliente creado");
       setNuevoCliente({ nombre: "", notas: "" });
       await cargarClientes();
     } catch (e) {
-      mostrarToast("error", e.message || "No se pudo crear el cliente");
+      showToast("error", e.message || "No se pudo crear el cliente");
     }
-  };
+  }, [nuevoCliente, fetchJSON, showToast, cargarClientes]);
 
-  const iniciarEditarCliente = (c) => {
+  const iniciarEditarCliente = useCallback((c) => {
     setEditClienteId(c.id_cliente);
     setEditCliente({ nombre: c.nombre || "", notas: c.notas || "" });
-  };
+  }, []);
 
-  const guardarEditarCliente = async () => {
+  const guardarEditarCliente = useCallback(async () => {
     const id_cliente = editClienteId;
     if (!id_cliente) return;
 
     const nombre = (editCliente.nombre || "").trim();
-    if (!nombre) return mostrarToast("advertencia", "El nombre no puede estar vacío");
+    if (!nombre) return showToast("advertencia", "El nombre no puede estar vacío");
 
     try {
       const data = await fetchJSON(`${API}&op=update`, {
@@ -303,138 +362,159 @@ export default function Clientes() {
         }),
       });
 
-      mostrarToast("exito", data?.mensaje || "Cliente actualizado");
+      // ✅ ÉXITO
+      showToast("exito", data?.mensaje || "Cliente actualizado");
       setEditClienteId(null);
       await cargarClientes();
     } catch (e) {
-      mostrarToast("error", e.message || "No se pudo actualizar el cliente");
+      showToast("error", e.message || "No se pudo actualizar el cliente");
     }
-  };
+  }, [editClienteId, editCliente, fetchJSON, showToast, cargarClientes]);
 
   // ✅ ahora sin window.confirm, lo maneja el modal
-  const abrirEliminarCliente = (c) => {
+  const abrirEliminarCliente = useCallback((c) => {
     setDelCliente(c);
     setDelOpen(true);
-  };
+  }, []);
 
-  const confirmarEliminarCliente = async (cliente) => {
-    const id_cliente = cliente?.id_cliente;
-    if (!id_cliente) return false;
+  const confirmarEliminarCliente = useCallback(
+    async (cliente) => {
+      const id_cliente = cliente?.id_cliente;
+      if (!id_cliente) return false;
 
-    setDelLoading(true);
-    try {
-      const data = await fetchJSON(`${API}&op=delete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id_cliente }),
-      });
+      setDelLoading(true);
+      try {
+        const data = await fetchJSON(`${API}&op=delete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id_cliente }),
+        });
 
-      mostrarToast("exito", data?.mensaje || "Cliente eliminado");
+        // ✅ ÉXITO
+        showToast("exito", data?.mensaje || "Cliente eliminado");
 
-      if (modalClienteId === id_cliente) cerrarModal();
-      await cargarClientes();
+        if (modalClienteId === id_cliente) cerrarModal();
+        await cargarClientes();
 
-      setDelOpen(false);
-      setDelCliente(null);
-      return true;
-    } catch (e) {
-      mostrarToast("error", e.message || "No se pudo eliminar el cliente");
-      return false;
-    } finally {
-      setDelLoading(false);
-    }
-  };
+        setDelOpen(false);
+        setDelCliente(null);
+        return true;
+      } catch (e) {
+        showToast("error", e.message || "No se pudo eliminar el cliente");
+        return false;
+      } finally {
+        setDelLoading(false);
+      }
+    },
+    [fetchJSON, showToast, modalClienteId, cargarClientes]
+  );
 
   /* =========================
      SISTEMAS CRUD
   ========================= */
 
-  const ensureNuevoSistema = (id_cliente) => {
-    const cur = nuevoSistema?.[id_cliente];
-    if (cur) return cur;
+  const ensureNuevoSistema = useCallback(
+    (id_cliente) => {
+      const cur = nuevoSistema?.[id_cliente];
+      if (cur) return cur;
 
-    const base = {
-      nombre: "",
-      descripcion: "",
-      plan: "mensual",
-      monto_desarrollo: "",
-      monto_mensual: "",
-      estado: "activo",
-      fecha_inicio: "",
-    };
+      const base = {
+        nombre: "",
+        descripcion: "",
+        plan: "mensual",
+        monto_desarrollo: "",
+        monto_mensual: "",
+        estado: "activo",
+        fecha_inicio: "",
+      };
 
-    setNuevoSistema((p) => ({ ...p, [id_cliente]: base }));
-    return base;
-  };
+      setNuevoSistema((p) => ({ ...p, [id_cliente]: base }));
+      return base;
+    },
+    [nuevoSistema]
+  );
 
-  const onChangeNuevoSistema = (id_cliente, key, value) => {
-    const base = ensureNuevoSistema(id_cliente);
-    setNuevoSistema((prev) => ({
-      ...prev,
-      [id_cliente]: {
-        ...base,
-        ...prev?.[id_cliente],
-        [key]: value,
-      },
-    }));
-  };
-
-  const crearSistema = async (id_cliente) => {
-    const form = nuevoSistema[id_cliente] || ensureNuevoSistema(id_cliente);
-
-    const nombre = (form.nombre || "").trim();
-    if (!nombre) return mostrarToast("advertencia", "Ingresá el nombre del sistema");
-
-    const payload = {
-      id_cliente,
-      nombre,
-      descripcion: (form.descripcion || "").trim(),
-      plan: (form.plan || "mensual").trim(),
-      estado: (form.estado || "activo").trim(),
-      fecha_inicio: (form.fecha_inicio || "").trim(),
-      monto_desarrollo:
-        String(form.monto_desarrollo || "").trim() === ""
-          ? 0
-          : Number(String(form.monto_desarrollo).replace(",", ".")),
-      monto_mensual:
-        String(form.monto_mensual || "").trim() === ""
-          ? 0
-          : Number(String(form.monto_mensual).replace(",", ".")),
-    };
-
-    setAddSubmitting(true);
-    try {
-      const data = await fetchJSON(`${API}&op=sistemas_create`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      mostrarToast("exito", data?.mensaje || "Sistema agregado");
-
+  const onChangeNuevoSistema = useCallback(
+    (id_cliente, key, value) => {
+      const base = ensureNuevoSistema(id_cliente);
       setNuevoSistema((prev) => ({
         ...prev,
         [id_cliente]: {
-          nombre: "",
-          descripcion: "",
-          plan: "mensual",
-          monto_desarrollo: "",
-          monto_mensual: "",
-          estado: "activo",
-          fecha_inicio: "",
+          ...base,
+          ...prev?.[id_cliente],
+          [key]: value,
         },
       }));
+    },
+    [ensureNuevoSistema]
+  );
 
-      await cargarSistemasCliente(id_cliente);
-      setModalAddOpen(false);
-    } catch (e) {
-      mostrarToast("error", e.message || "No se pudo agregar el sistema");
-    } finally {
-      setAddSubmitting(false);
-    }
-  };
+  const crearSistema = useCallback(
+    async (id_cliente) => {
+      const form = nuevoSistema[id_cliente] || ensureNuevoSistema(id_cliente);
 
-  const iniciarEditarSistema = (s) => {
+      const nombre = (form.nombre || "").trim();
+      if (!nombre) return showToast("advertencia", "Ingresá el nombre del sistema");
+
+      const payload = {
+        id_cliente,
+        nombre,
+        descripcion: (form.descripcion || "").trim(),
+        plan: (form.plan || "mensual").trim(),
+        estado: (form.estado || "activo").trim(),
+        fecha_inicio: (form.fecha_inicio || "").trim(),
+        monto_desarrollo:
+          String(form.monto_desarrollo || "").trim() === ""
+            ? 0
+            : Number(String(form.monto_desarrollo).replace(",", ".")),
+        monto_mensual:
+          String(form.monto_mensual || "").trim() === ""
+            ? 0
+            : Number(String(form.monto_mensual).replace(",", ".")),
+      };
+
+      setAddSubmitting(true);
+      try {
+        const data = await fetchJSON(`${API}&op=sistemas_create`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        // ✅ ÉXITO
+        showToast("exito", data?.mensaje || "Sistema agregado");
+
+        setNuevoSistema((prev) => ({
+          ...prev,
+          [id_cliente]: {
+            nombre: "",
+            descripcion: "",
+            plan: "mensual",
+            monto_desarrollo: "",
+            monto_mensual: "",
+            estado: "activo",
+            fecha_inicio: "",
+          },
+        }));
+
+        await cargarSistemasCliente(id_cliente);
+        setModalAddOpen(false);
+      } catch (e) {
+        showToast("error", e.message || "No se pudo agregar el sistema");
+      } finally {
+        setAddSubmitting(false);
+      }
+    },
+    [
+      nuevoSistema,
+      ensureNuevoSistema,
+      fetchJSON,
+      showToast,
+      cargarSistemasCliente,
+    ]
+  );
+
+  const iniciarEditarSistema = useCallback((s) => {
     setEditSistemaId(s.id_sistema);
     setEditSistema({
       [s.id_sistema]: {
@@ -447,72 +527,79 @@ export default function Clientes() {
         monto_mensual: s.monto_mensual ?? 0,
       },
     });
-  };
+  }, []);
 
-  const guardarEditarSistema = async (id_cliente) => {
-    const id_sistema = editSistemaId;
-    if (!id_sistema) return;
+  const guardarEditarSistema = useCallback(
+    async (id_cliente) => {
+      const id_sistema = editSistemaId;
+      if (!id_sistema) return;
 
-    const form = editSistema[id_sistema] || {};
-    const nombre = (form.nombre || "").trim();
-    if (!nombre) return mostrarToast("advertencia", "El nombre no puede estar vacío");
+      const form = editSistema[id_sistema] || {};
+      const nombre = (form.nombre || "").trim();
+      if (!nombre) return showToast("advertencia", "El nombre no puede estar vacío");
 
-    const payload = {
-      id_sistema,
-      nombre,
-      descripcion: (form.descripcion || "").trim(),
-      plan: (form.plan || "mensual").trim(),
-      estado: (form.estado || "activo").trim(),
-      fecha_inicio: (form.fecha_inicio || "").trim(),
-      monto_desarrollo: Number(String(form.monto_desarrollo || 0).replace(",", ".")),
-      monto_mensual: Number(String(form.monto_mensual || 0).replace(",", ".")),
-    };
+      const payload = {
+        id_sistema,
+        nombre,
+        descripcion: (form.descripcion || "").trim(),
+        plan: (form.plan || "mensual").trim(),
+        estado: (form.estado || "activo").trim(),
+        fecha_inicio: (form.fecha_inicio || "").trim(),
+        monto_desarrollo: Number(String(form.monto_desarrollo || 0).replace(",", ".")),
+        monto_mensual: Number(String(form.monto_mensual || 0).replace(",", ".")),
+      };
 
-    try {
-      const data = await fetchJSON(`${API}&op=sistemas_update`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      try {
+        const data = await fetchJSON(`${API}&op=sistemas_update`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
 
-      mostrarToast("exito", data?.mensaje || "Sistema actualizado");
-      setEditSistemaId(null);
-      await cargarSistemasCliente(id_cliente);
-    } catch (e) {
-      mostrarToast("error", e.message || "No se pudo actualizar el sistema");
-    }
-  };
+        // ✅ ÉXITO
+        showToast("exito", data?.mensaje || "Sistema actualizado");
+        setEditSistemaId(null);
+        await cargarSistemasCliente(id_cliente);
+      } catch (e) {
+        showToast("error", e.message || "No se pudo actualizar el sistema");
+      }
+    },
+    [editSistemaId, editSistema, fetchJSON, showToast, cargarSistemasCliente]
+  );
 
   /* =========================
      MODALES OPEN/CLOSE
   ========================= */
 
-  const abrirSistemasModal = async (id_cliente) => {
-    setModalClienteId(id_cliente);
-    const lista = await cargarSistemasCliente(id_cliente);
+  const abrirSistemasModal = useCallback(
+    async (id_cliente) => {
+      setModalClienteId(id_cliente);
+      const lista = await cargarSistemasCliente(id_cliente);
 
-    if (Array.isArray(lista) && lista.length > 0) {
-      lista.forEach((s) => {
-        if (asignadosPorSistema[s.id_sistema] === undefined) {
-          cargarAsignadosSistema(s.id_sistema);
-        }
-      });
-    }
-  };
+      if (Array.isArray(lista) && lista.length > 0) {
+        lista.forEach((s) => {
+          if (asignadosPorSistema[s.id_sistema] === undefined) {
+            cargarAsignadosSistema(s.id_sistema);
+          }
+        });
+      }
+    },
+    [cargarSistemasCliente, asignadosPorSistema, cargarAsignadosSistema]
+  );
 
-  const cerrarModal = () => {
+  const cerrarModal = useCallback(() => {
     setEditSistemaId(null);
     setModalClienteId(null);
     setModalAddOpen(false);
-  };
+  }, []);
 
-  const openAddModal = () => {
+  const openAddModal = useCallback(() => {
     if (!modalClienteId) return;
     ensureNuevoSistema(modalClienteId);
     setModalAddOpen(true);
-  };
+  }, [modalClienteId, ensureNuevoSistema]);
 
-  const closeAddModal = () => setModalAddOpen(false);
+  const closeAddModal = useCallback(() => setModalAddOpen(false), []);
 
   useEffect(() => {
     const idc = modalClienteId;
@@ -532,14 +619,16 @@ export default function Clientes() {
   return (
     <div className="glob-profesor-container clientes-wrap">
       <div className="glob-profesor-box clientes-box">
-        {toast && (
+        {/* ✅ TOAST */}
+        {toast.show ? (
           <Toast
+            key={toast.key}
             tipo={toast.tipo}
             mensaje={toast.mensaje}
             duracion={toast.duracion}
-            onClose={() => setToast(null)}
+            onClose={closeToast}
           />
-        )}
+        ) : null}
 
         <div className="clientes-shell">
           <div className="clientes-header">
@@ -930,17 +1019,11 @@ export default function Clientes() {
                           </div>
                           <div className="pill">
                             Desarrollo:{" "}
-                            <b>
-                              $
-                              {Number(s.monto_desarrollo || 0).toLocaleString("es-AR")}
-                            </b>
+                            <b>${Number(s.monto_desarrollo || 0).toLocaleString("es-AR")}</b>
                           </div>
                           <div className="pill">
                             Base mes:{" "}
-                            <b>
-                              $
-                              {Number(s.monto_mensual || 0).toLocaleString("es-AR")}
-                            </b>
+                            <b>${Number(s.monto_mensual || 0).toLocaleString("es-AR")}</b>
                           </div>
                           <div className="pill">
                             Inicio: <b>{s.fecha_inicio || "-"}</b>
@@ -1034,7 +1117,8 @@ export default function Clientes() {
         <GenerarPresupuestoModal
           open={presOpen}
           onClose={() => setPresOpen(false)}
-          onToast={(tipo, msg) => mostrarToast(tipo, msg)}
+          // ✅ si el modal quiere disparar toasts, lo conectamos al showToast
+          onToast={(tipo, msg) => showToast(tipo, msg)}
         />
       </div>
     </div>

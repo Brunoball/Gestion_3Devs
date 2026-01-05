@@ -1,13 +1,15 @@
+// src/components/Contable/modales/ModalNuevoEgreso.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faMoneyBillTransfer,
   faSave,
   faTimes,
+  faPaperclip,
+  faFilePdf,
+  faImage,
 } from "@fortawesome/free-solid-svg-icons";
 
-// ✅ Reutiliza la misma estética del modal de Trabajadores
-// Ajustá la ruta según tu estructura real:
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
 
 export default function ModalNuevoEgreso({
@@ -30,9 +32,12 @@ export default function ModalNuevoEgreso({
   const [descripcion, setDescripcion] = useState("");
   const [monto, setMonto] = useState("");
   const [idMedio, setIdMedio] = useState("");
+  const [comprobanteFile, setComprobanteFile] = useState(null);
   const [error, setError] = useState("");
 
-  // ✅ ESTE useMemo tiene que estar ANTES de cualquier return temprano
+  // ✅ helper: convierte a MAYÚSCULAS “en vivo”
+  const toUpperLive = (v) => String(v ?? "").toUpperCase();
+
   const subtitle = useMemo(() => {
     const c = (concepto || "").trim();
     const m = (monto || "").toString().trim();
@@ -40,7 +45,6 @@ export default function ModalNuevoEgreso({
     return `${c || "Egreso"}${m ? ` • $${m}` : ""}`;
   }, [concepto, monto]);
 
-  // Reset al abrir
   useEffect(() => {
     if (!open) return;
     setFecha(hoyISO);
@@ -48,11 +52,11 @@ export default function ModalNuevoEgreso({
     setDescripcion("");
     setMonto("");
     setIdMedio("");
+    setComprobanteFile(null);
     setError("");
     setTimeout(() => firstRef.current?.focus(), 0);
   }, [open, hoyISO]);
 
-  // ESC cierra
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => {
@@ -68,6 +72,32 @@ export default function ModalNuevoEgreso({
     onClose?.();
   };
 
+  const onPickFile = (e) => {
+    setError("");
+    const f = e.target.files?.[0] || null;
+    if (!f) {
+      setComprobanteFile(null);
+      return;
+    }
+
+    const allowed = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+
+    if (!allowed.includes(f.type)) {
+      setComprobanteFile(null);
+      setError("Solo se permite PDF o imágenes (JPG/PNG/WEBP).");
+      return;
+    }
+
+    const maxBytes = 8 * 1024 * 1024; // 8MB
+    if (f.size > maxBytes) {
+      setComprobanteFile(null);
+      setError("El archivo no puede pesar más de 8MB.");
+      return;
+    }
+
+    setComprobanteFile(f);
+  };
+
   const submit = (e) => {
     e?.preventDefault?.();
     setError("");
@@ -81,17 +111,26 @@ export default function ModalNuevoEgreso({
       return setError("El monto debe ser un número mayor a 0.");
     }
 
-    onConfirm?.({
-      fecha,
-      concepto: concepto.trim(),
-      descripcion: descripcion.trim() || null,
-      monto: montoNum,
-      id_medio_pago: idMedio ? Number(idMedio) : null,
-    });
+    // ✅ Mandamos FormData (sirve con o sin archivo)
+    const fd = new FormData();
+    fd.append("fecha", fecha);
+    fd.append("concepto", concepto.trim()); // ya viene en mayúsculas
+    fd.append("descripcion", (descripcion || "").trim()); // ya viene en mayúsculas
+    fd.append("monto", String(montoNum));
+    fd.append("id_medio_pago", idMedio ? String(Number(idMedio)) : "");
+
+    // ✅ el backend espera el nombre: "comprobante"
+    if (comprobanteFile) {
+      fd.append("comprobante", comprobanteFile);
+    }
+
+    onConfirm?.(fd);
   };
 
-  // ✅ AHORA SÍ: return temprano DESPUÉS de hooks
   if (!open) return null;
+
+  const isPdf = comprobanteFile?.type === "application/pdf";
+  const isImg = comprobanteFile?.type?.startsWith("image/");
 
   return (
     <div
@@ -104,7 +143,6 @@ export default function ModalNuevoEgreso({
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header azul */}
         <div className="mi-modal__header">
           <div className="mi-modal__head-left">
             <h2 className="mi-modal__title">
@@ -136,7 +174,6 @@ export default function ModalNuevoEgreso({
           </button>
         </div>
 
-        {/* Body */}
         <form className="mit-modal__body" onSubmit={submit}>
           <div className="mi-tabpanel is-active">
             <div className="mi-grid">
@@ -176,7 +213,7 @@ export default function ModalNuevoEgreso({
                       type="text"
                       placeholder=" "
                       value={concepto}
-                      onChange={(e) => setConcepto(e.target.value)}
+                      onChange={(e) => setConcepto(toUpperLive(e.target.value))}
                       disabled={loading}
                     />
                     <label className="fl-label">Concepto *</label>
@@ -194,7 +231,7 @@ export default function ModalNuevoEgreso({
                       style={{ minHeight: 110, resize: "vertical" }}
                       placeholder=" "
                       value={descripcion}
-                      onChange={(e) => setDescripcion(e.target.value)}
+                      onChange={(e) => setDescripcion(toUpperLive(e.target.value))}
                       disabled={loading}
                     />
                     <label className="fl-label">Descripción (opcional)</label>
@@ -219,6 +256,35 @@ export default function ModalNuevoEgreso({
                     </select>
                     <label className="fl-label">Medio de pago (opcional)</label>
                   </div>
+
+                  {/* ✅ Comprobante */}
+                  <div className="fl-field fl-col-full">
+                    <input
+                      className="fl-input"
+                      type="file"
+                      accept="application/pdf,image/*"
+                      onChange={onPickFile}
+                      disabled={loading}
+                      style={{ paddingTop: 14 }}
+                    />
+                    <label className="fl-label">
+                      <FontAwesomeIcon icon={faPaperclip} /> Comprobante (opcional)
+                    </label>
+
+                    {comprobanteFile ? (
+                      <div style={{ marginTop: 8, fontSize: 12, color: "#334155" }}>
+                        <FontAwesomeIcon
+                          icon={isPdf ? faFilePdf : isImg ? faImage : faPaperclip}
+                        />
+                        {"  "}
+                        <b>{comprobanteFile.name}</b>
+                        {"  "}
+                        <span style={{ opacity: 0.8 }}>
+                          ({Math.round(comprobanteFile.size / 1024)} KB)
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </article>
 
@@ -232,7 +298,6 @@ export default function ModalNuevoEgreso({
             </div>
           </div>
 
-          {/* Footer */}
           <div className="mit-actions">
             <button
               type="button"
@@ -243,11 +308,7 @@ export default function ModalNuevoEgreso({
               <FontAwesomeIcon icon={faTimes} /> Cancelar
             </button>
 
-            <button
-              type="submit"
-              className="mit-btn mit-btn--solid"
-              disabled={loading}
-            >
+            <button type="submit" className="mit-btn mit-btn--solid" disabled={loading}>
               <FontAwesomeIcon icon={faSave} /> {loading ? "Guardando…" : "Guardar"}
             </button>
           </div>

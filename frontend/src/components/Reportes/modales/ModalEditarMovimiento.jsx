@@ -2,33 +2,26 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faPenToSquare,
   faSave,
   faTimes,
   faMoneyBillTrendUp,
   faMoneyBillTransfer,
   faUser,
+  faEye,
+  faTrash,
+  faUpload,
 } from "@fortawesome/free-solid-svg-icons";
 
-// ✅ Reutiliza EXACTAMENTE la estética del modal que ya usás
-// Ajustá la ruta si tu estructura es distinta:
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
 
-/**
- * ModalEditarMovimiento
- * - Sirve para editar filas de Pagos / Egresos / Trabajadores (según "tipo")
- * - Por ahora SOLO UI + validaciones básicas
- * - onConfirm(payload) devuelve el objeto editado (después conectamos backend)
- *
- * Props:
- *  open: boolean
- *  onClose: fn
- *  onConfirm: fn(payload)
- *  loading: boolean
- *  tipo: "pago" | "egreso" | "trabajador"
- *  item: objeto (la fila a editar)
- *  medios: array de medios (opcional)
- */
+function isPdfPath(pathOrUrl) {
+  const p = String(pathOrUrl || "").toLowerCase();
+  return p.includes(".pdf") || p.startsWith("data:application/pdf");
+}
+
+// ✅ helper: convierte a MAYÚSCULAS “en vivo”
+const toUpperLive = (v) => String(v ?? "").toUpperCase();
+
 export default function ModalEditarMovimiento({
   open,
   onClose,
@@ -37,10 +30,12 @@ export default function ModalEditarMovimiento({
   tipo = "pago",
   item = null,
   medios = [],
+  buildFileUrl,
+  onVerComprobante,
 }) {
   const firstRef = useRef(null);
+  const fileRef = useRef(null);
 
-  // ✅ Iniciales (evita undefined)
   const itemFecha = useMemo(() => String(item?.fecha || ""), [item]);
   const itemMonto = useMemo(() => {
     const v = item?.monto;
@@ -50,7 +45,6 @@ export default function ModalEditarMovimiento({
   const itemConcepto = useMemo(() => String(item?.concepto || ""), [item]);
   const itemDescripcion = useMemo(() => String(item?.descripcion || ""), [item]);
 
-  // medios: puede venir como texto "medio" o id_medio_pago
   const itemMedioId = useMemo(() => {
     const v =
       item?.id_medio_pago ??
@@ -70,7 +64,8 @@ export default function ModalEditarMovimiento({
     return v === 0 || v ? String(v) : "";
   }, [item]);
 
-  // ✅ States
+  const itemComprobante = useMemo(() => String(item?.comprobante || ""), [item]);
+
   const [fecha, setFecha] = useState("");
   const [monto, setMonto] = useState("");
   const [concepto, setConcepto] = useState("");
@@ -83,29 +78,17 @@ export default function ModalEditarMovimiento({
   const [aliasPago, setAliasPago] = useState("");
   const [sistemasCobrados, setSistemasCobrados] = useState("");
 
+  const [deleteComp, setDeleteComp] = useState(false);
+  const [newFile, setNewFile] = useState(null);
+
   const [error, setError] = useState("");
 
-  // ✅ icono y titulo según tipo
   const meta = useMemo(() => {
-    if (tipo === "egreso") {
-      return {
-        icon: faMoneyBillTransfer,
-        title: "Editar egreso",
-      };
-    }
-    if (tipo === "trabajador") {
-      return {
-        icon: faUser,
-        title: "Editar trabajador",
-      };
-    }
-    return {
-      icon: faMoneyBillTrendUp,
-      title: "Editar pago",
-    };
+    if (tipo === "egreso") return { icon: faMoneyBillTransfer, title: "Editar egreso" };
+    if (tipo === "trabajador") return { icon: faUser, title: "Editar trabajador" };
+    return { icon: faMoneyBillTrendUp, title: "Editar pago" };
   }, [tipo]);
 
-  // ✅ subtitle ANTES del return temprano (hooks first)
   const subtitle = useMemo(() => {
     if (tipo === "trabajador") {
       const n = `${(apellido || "").trim()} ${(nombre || "").trim()}`.trim();
@@ -120,25 +103,34 @@ export default function ModalEditarMovimiento({
     return `${c || "Registro"}${m ? ` • $${m}` : ""}`;
   }, [tipo, concepto, monto, nombre, apellido]);
 
-  // Reset al abrir: carga valores del item
+  const currentCompPath = useMemo(() => String(itemComprobante || "").trim(), [itemComprobante]);
+  const currentCompUrl = useMemo(() => {
+    if (!currentCompPath) return "";
+    if (typeof buildFileUrl === "function") return buildFileUrl(currentCompPath);
+    return currentCompPath;
+  }, [currentCompPath, buildFileUrl]);
+
   useEffect(() => {
     if (!open) return;
 
     setError("");
 
-    // pagos / egresos
+    // ✅ Carga en MAYÚSCULAS para que al abrir también quede uniforme
     setFecha(itemFecha);
     setMonto(itemMonto);
-    setConcepto(itemConcepto);
-    setDescripcion(itemDescripcion);
+    setConcepto(toUpperLive(itemConcepto));
+    setDescripcion(toUpperLive(itemDescripcion));
     setIdMedio(itemMedioId);
 
-    // trabajador
-    setNombre(itemNombre);
-    setApellido(itemApellido);
-    setRol(itemRol);
-    setAliasPago(itemAlias);
+    setNombre(toUpperLive(itemNombre));
+    setApellido(toUpperLive(itemApellido));
+    setRol(toUpperLive(itemRol));
+    setAliasPago(toUpperLive(itemAlias));
     setSistemasCobrados(itemSistemas);
+
+    setDeleteComp(false);
+    setNewFile(null);
+    if (fileRef.current) fileRef.current.value = "";
 
     setTimeout(() => firstRef.current?.focus(), 0);
   }, [
@@ -155,7 +147,6 @@ export default function ModalEditarMovimiento({
     itemSistemas,
   ]);
 
-  // ESC cierra
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => {
@@ -175,6 +166,29 @@ export default function ModalEditarMovimiento({
     const montoNum = Number(String(value).replace(",", "."));
     if (!Number.isFinite(montoNum) || montoNum <= 0) return null;
     return montoNum;
+  };
+
+  const onPickFile = (f) => {
+    if (!f) {
+      setNewFile(null);
+      return;
+    }
+    const okExt = /\.(pdf|jpg|jpeg|png|webp)$/i.test(f.name || "");
+    if (!okExt) {
+      setError("Comprobante: formato inválido. Solo PDF/JPG/PNG/WEBP.");
+      setNewFile(null);
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
+    if (f.size > 8 * 1024 * 1024) {
+      setError("Comprobante: el archivo supera 8MB.");
+      setNewFile(null);
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
+    setError("");
+    setNewFile(f);
+    setDeleteComp(false);
   };
 
   const submit = (e) => {
@@ -200,17 +214,16 @@ export default function ModalEditarMovimiento({
       onConfirm?.({
         id: item.id,
         tipo,
-        nombre: String(nombre).trim(),
-        apellido: String(apellido).trim(),
-        rol: String(rol || "").trim() || null,
-        alias_pago: String(aliasPago || "").trim() || null,
+        nombre: String(nombre).trim(), // ya en mayúsculas
+        apellido: String(apellido).trim(), // ya en mayúsculas
+        rol: String(rol || "").trim() || null, // ya en mayúsculas
+        alias_pago: String(aliasPago || "").trim() || null, // ya en mayúsculas
         sistemas_cobrados: sisOk,
         monto: montoNum,
       });
       return;
     }
 
-    // pagos / egresos
     if (!fecha) return setError("La fecha es obligatoria.");
     if (!String(concepto || "").trim()) return setError("El concepto es obligatorio.");
     if (monto === "" || monto === null) return setError("El monto es obligatorio.");
@@ -218,19 +231,38 @@ export default function ModalEditarMovimiento({
     const montoNum = validarMonto(monto);
     if (!montoNum) return setError("El monto debe ser un número mayor a 0.");
 
+    if (tipo === "egreso") {
+      const fd = new FormData();
+      fd.append("id", String(item.id));
+      fd.append("tipo", "egreso");
+      fd.append("fecha", String(fecha));
+      fd.append("concepto", String(concepto).trim()); // mayúsculas
+      fd.append("descripcion", String(descripcion || "").trim()); // mayúsculas
+      fd.append("monto", String(montoNum));
+      fd.append("id_medio_pago", idMedio ? String(Number(idMedio)) : "");
+      fd.append("delete_comprobante", deleteComp ? "1" : "0");
+
+      if (newFile) fd.append("comprobante", newFile);
+
+      onConfirm?.(fd);
+      return;
+    }
+
     onConfirm?.({
       id: item.id,
       tipo,
       fecha,
-      concepto: String(concepto).trim(),
-      descripcion: String(descripcion || "").trim() || null,
+      concepto: String(concepto).trim(), // mayúsculas
+      descripcion: String(descripcion || "").trim() || null, // mayúsculas
       monto: montoNum,
       id_medio_pago: idMedio ? Number(idMedio) : null,
     });
   };
 
-  // ✅ return temprano DESPUÉS de hooks
   if (!open) return null;
+
+  const hasCurrent = !!currentCompPath;
+  const canPreviewInline = hasCurrent && !!currentCompUrl;
 
   return (
     <div
@@ -243,7 +275,6 @@ export default function ModalEditarMovimiento({
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header azul */}
         <div className="mi-modal__header">
           <div className="mi-modal__head-left">
             <h2 className="mi-modal__title">
@@ -275,11 +306,9 @@ export default function ModalEditarMovimiento({
           </button>
         </div>
 
-        {/* Body */}
         <form className="mit-modal__body" onSubmit={submit}>
           <div className="mi-tabpanel is-active">
             <div className="mi-grid">
-              {/* ======= TRABAJADOR ======= */}
               {tipo === "trabajador" ? (
                 <>
                   <article className="mi-card">
@@ -293,7 +322,7 @@ export default function ModalEditarMovimiento({
                           type="text"
                           placeholder=" "
                           value={apellido}
-                          onChange={(e) => setApellido(e.target.value)}
+                          onChange={(e) => setApellido(toUpperLive(e.target.value))}
                           disabled={loading}
                         />
                         <label className="fl-label">Apellido *</label>
@@ -305,7 +334,7 @@ export default function ModalEditarMovimiento({
                           type="text"
                           placeholder=" "
                           value={nombre}
-                          onChange={(e) => setNombre(e.target.value)}
+                          onChange={(e) => setNombre(toUpperLive(e.target.value))}
                           disabled={loading}
                         />
                         <label className="fl-label">Nombre *</label>
@@ -317,7 +346,7 @@ export default function ModalEditarMovimiento({
                           type="text"
                           placeholder=" "
                           value={rol}
-                          onChange={(e) => setRol(e.target.value)}
+                          onChange={(e) => setRol(toUpperLive(e.target.value))}
                           disabled={loading}
                         />
                         <label className="fl-label">Rol (opcional)</label>
@@ -360,7 +389,7 @@ export default function ModalEditarMovimiento({
                           type="text"
                           placeholder=" "
                           value={aliasPago}
-                          onChange={(e) => setAliasPago(e.target.value)}
+                          onChange={(e) => setAliasPago(toUpperLive(e.target.value))}
                           disabled={loading}
                         />
                         <label className="fl-label">Alias (opcional)</label>
@@ -370,7 +399,6 @@ export default function ModalEditarMovimiento({
                 </>
               ) : (
                 <>
-                  {/* ======= PAGO / EGRESO ======= */}
                   <article className="mi-card">
                     <h3 className="mi-card__title">Datos del registro</h3>
 
@@ -407,7 +435,7 @@ export default function ModalEditarMovimiento({
                           type="text"
                           placeholder=" "
                           value={concepto}
-                          onChange={(e) => setConcepto(e.target.value)}
+                          onChange={(e) => setConcepto(toUpperLive(e.target.value))}
                           disabled={loading}
                         />
                         <label className="fl-label">Concepto *</label>
@@ -425,7 +453,7 @@ export default function ModalEditarMovimiento({
                           style={{ minHeight: 110, resize: "vertical" }}
                           placeholder=" "
                           value={descripcion}
-                          onChange={(e) => setDescripcion(e.target.value)}
+                          onChange={(e) => setDescripcion(toUpperLive(e.target.value))}
                           disabled={loading}
                         />
                         <label className="fl-label">Descripción (opcional)</label>
@@ -440,10 +468,7 @@ export default function ModalEditarMovimiento({
                         >
                           <option value="">(Sin medio)</option>
                           {medios.map((m) => (
-                            <option
-                              key={m.id ?? m.id_medio_pago}
-                              value={m.id ?? m.id_medio_pago}
-                            >
+                            <option key={m.id ?? m.id_medio_pago} value={m.id ?? m.id_medio_pago}>
                               {m.nombre ?? m.medio ?? ""}
                             </option>
                           ))}
@@ -452,6 +477,111 @@ export default function ModalEditarMovimiento({
                       </div>
                     </div>
                   </article>
+
+                  {tipo === "egreso" && (
+                    <article className="mi-card">
+                      <h3 className="mi-card__title">Comprobante</h3>
+
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                        <button
+                          type="button"
+                          className="mit-btn mit-btn--ghost"
+                          disabled={!hasCurrent || loading}
+                          onClick={() => (onVerComprobante ? onVerComprobante(currentCompPath) : null)}
+                          title={!hasCurrent ? "No hay comprobante" : "Ver comprobante"}
+                        >
+                          <FontAwesomeIcon icon={faEye} /> Ver
+                        </button>
+
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                          <input
+                            type="checkbox"
+                            checked={deleteComp}
+                            onChange={(e) => setDeleteComp(e.target.checked)}
+                            disabled={loading || (!hasCurrent && !newFile)}
+                          />
+                          <span>
+                            <FontAwesomeIcon icon={faTrash} /> Eliminar comprobante
+                          </span>
+                        </label>
+                      </div>
+
+                      <div style={{ marginTop: 10 }}>
+                        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>
+                          {hasCurrent ? "Actual" : "No hay comprobante cargado"}
+                        </div>
+
+                        {canPreviewInline ? (
+                          <div
+                            style={{
+                              border: "1px solid rgba(0,0,0,.10)",
+                              borderRadius: 12,
+                              overflow: "hidden",
+                              background: "#fff",
+                            }}
+                          >
+                            {isPdfPath(currentCompUrl) ? (
+                              <iframe
+                                title="Comprobante PDF"
+                                src={currentCompUrl}
+                                style={{ width: "100%", height: 340, border: 0 }}
+                              />
+                            ) : (
+                              <img
+                                src={currentCompUrl}
+                                alt="Comprobante"
+                                style={{
+                                  width: "100%",
+                                  maxHeight: 340,
+                                  objectFit: "contain",
+                                  display: "block",
+                                }}
+                              />
+                            )}
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              padding: "10px 12px",
+                              borderRadius: 12,
+                              border: "1px dashed rgba(0,0,0,.18)",
+                              background: "rgba(2, 132, 199, .05)",
+                              color: "#0f172a",
+                              fontSize: 13,
+                            }}
+                          >
+                            {hasCurrent
+                              ? "No se pudo previsualizar el archivo."
+                              : "Subí un PDF o imagen para asociar al egreso."}
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>
+                          {hasCurrent ? "Reemplazar comprobante (opcional)" : "Agregar comprobante (opcional)"}
+                        </div>
+
+                        <input
+                          ref={fileRef}
+                          type="file"
+                          accept=".pdf,image/jpeg,image/jpg,image/png,image/webp,application/pdf"
+                          disabled={loading}
+                          onChange={(e) => onPickFile(e.target.files?.[0] || null)}
+                        />
+
+                        {newFile ? (
+                          <div style={{ marginTop: 6, fontSize: 12, color: "#0f172a" }}>
+                            <FontAwesomeIcon icon={faUpload} /> Nuevo archivo: <b>{newFile.name}</b>
+                          </div>
+                        ) : null}
+
+                        <div style={{ marginTop: 6, fontSize: 11, color: "#64748b" }}>
+                          * Si subís un archivo nuevo, reemplaza al anterior automáticamente. (Máx 8MB)
+                        </div>
+                      </div>
+                    </article>
+                  )}
                 </>
               )}
 
@@ -465,7 +595,6 @@ export default function ModalEditarMovimiento({
             </div>
           </div>
 
-          {/* Footer */}
           <div className="mit-actions">
             <button
               type="button"
