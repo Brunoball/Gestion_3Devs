@@ -1,314 +1,191 @@
-/* src/components/Clientes/modales/GenerarPresupuestoModal.css
-   ✅ Estilo unificado (claro) para que coincida con secciones típicas (cards/blancos)
-   ✅ Sin “todo oscuro”: fondo claro, bordes suaves, sombras, botones consistentes
-*/
+/* =========================================================
+   GenerarPresupuestoModal.css
+   Estética: misma familia que ModalEditarTrabajador (mi-/mit-)
+   + estilos propios para tabla de presupuesto
+   ========================================================= */
 
-:root {
-  --pres-bg: #f6f8fb;
-  --pres-card: #ffffff;
-  --pres-text: #0f172a;
-  --pres-muted: #64748b;
+/* Alias por si en esta pantalla no está cargado el CSS base */
+:root{
+  --mi-primary: var(--blue-inst-primary, #1D428A);
+  --mi-primary-600: var(--blue-inst-primary-light, #2E5CBF);
+  --mi-primary-700: var(--blue-inst-primary-dark, #102E6A);
 
-  --pres-border: rgba(15, 23, 42, 0.12);
-  --pres-border-2: rgba(15, 23, 42, 0.08);
+  --mi-bg: #ffffff;
+  --mi-bg-soft: var(--blue-inst-gray-100, #F1F5F9);
+  --mi-border: var(--blue-inst-gray-200, #E2E8F0);
 
-  --pres-soft: rgba(15, 23, 42, 0.04);
-  --pres-soft-2: rgba(15, 23, 42, 0.06);
+  --mi-text: var(--blue-inst-dark, #0F172A);
+  --mi-muted: var(--blue-inst-gray-600, #475569);
 
-  --pres-primary: #2563eb;
-  --pres-primary-2: #1d4ed8;
-  --pres-danger: #ef4444;
-
-  --pres-radius: 14px;
-  --pres-radius-sm: 10px;
-
-  --pres-shadow: 0 18px 60px rgba(2, 6, 23, 0.18);
-  --pres-shadow-sm: 0 8px 22px rgba(2, 6, 23, 0.10);
-
-  --pres-focus: 0 0 0 3px rgba(37, 99, 235, 0.18);
+  --mi-shadow: var(--blue-inst-shadow-xl, 0 28px 64px -24px rgba(0,0,0,.28));
+  --mi-radius-md: var(--blue-inst-radius, 12px);
+  --mi-radius-lg: var(--blue-inst-radius-lg, 18px);
 }
 
-/* Backdrop */
-.pres_modal_backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(2, 6, 23, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 18px;
+/* Ajustes específicos (sin romper otros modales) */
+.pres_modal_overlay.mi-modal__overlay{
   z-index: 9999;
 }
 
-/* Card */
-.pres_modal_card {
-  width: min(1100px, 96vw);
-  max-height: 92vh;
-  overflow: hidden;
-  background: var(--pres-card);
-  color: var(--pres-text);
-  border: 1px solid var(--pres-border-2);
-  border-radius: var(--pres-radius);
-  box-shadow: var(--pres-shadow);
-  display: flex;
-  flex-direction: column;
+.pres_modal_container.mi-modal__container{
+  width: min(1100px, 92vw);
 }
 
-/* Header */
-.pres_modal_head {
+/* Header igual al otro, pero con tu azul */
+.pres_modal_header.mi-modal__header{
+  background: var(--mi-primary);
+}
+
+/* -----------------------------
+   Card “Detalle del presupuesto”
+----------------------------- */
+.pres_table_title2{
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--pres-border-2);
-  background: linear-gradient(180deg, #ffffff, var(--pres-bg));
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
 }
 
-.pres_modal_title {
-  font-weight: 900;
-  letter-spacing: 0.2px;
-  font-size: 16px;
-  color: var(--pres-text);
-}
-
-.pres_close {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  border: 1px solid var(--pres-border-2);
-  background: #fff;
-  color: var(--pres-text);
-  cursor: pointer;
-  font-size: 18px;
-  display: grid;
-  place-items: center;
-  box-shadow: var(--pres-shadow-sm);
-  transition: transform 0.12s ease, opacity 0.12s ease, border-color 0.12s ease;
-}
-
-.pres_close:hover {
-  transform: translateY(-1px);
-  opacity: 0.95;
-  border-color: var(--pres-border);
-}
-
-/* Body */
-.pres_modal_body {
-  padding: 16px;
-  overflow: auto;
-  background: var(--pres-bg);
-}
-
-/* Grid */
-.pres_grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-@media (max-width: 860px) {
-  .pres_grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Labels + Inputs */
-.pres_lbl {
+.pres_tools{
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--pres-text);
-  font-weight: 700;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.pres_in {
-  background: #fff;
-  border: 1px solid var(--pres-border);
-  color: var(--pres-text);
-  border-radius: var(--pres-radius-sm);
-  padding: 10px 12px;
-  outline: none;
-  box-shadow: 0 1px 0 rgba(2, 6, 23, 0.03);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+.pres_tool_group{
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.pres_in::placeholder {
-  color: rgba(100, 116, 139, 0.85);
+.pres_tool_lbl{
+  font-size: .9rem;
+  font-weight: 900;
+  color: var(--mi-text);
 }
 
-.pres_in:focus {
-  border-color: rgba(37, 99, 235, 0.55);
-  box-shadow: var(--pres-focus);
+.pres_tool_in{
+  width: 190px;
+  padding-top: 14px; /* mantiene look fl-input */
 }
 
-/* Table wrapper */
-.pres_table_wrap {
-  margin-top: 14px;
-  border: 1px solid var(--pres-border-2);
-  border-radius: 12px;
+/* -----------------------------
+   Tabla presupuesto (misma estética)
+----------------------------- */
+.pres_table_wrap2{
+  border: 1px solid var(--mi-border);
+  border-radius: var(--mi-radius-md);
   overflow: hidden;
   background: #fff;
-  box-shadow: var(--pres-shadow-sm);
+  box-shadow: 0 2px 10px rgba(15,23,42,.03);
 }
 
-.pres_table_title {
-  padding: 10px 12px;
-  font-weight: 900;
-  border-bottom: 1px solid var(--pres-border-2);
-  background: linear-gradient(180deg, #ffffff, rgba(37, 99, 235, 0.06));
-  color: var(--pres-text);
+/* si es chica la pantalla, scroll */
+@media (max-width: 980px){
+  .pres_table_wrap2{ overflow-x: auto; }
+  .pres_table2{ min-width: 980px; }
 }
 
-/* Table */
-.pres_table {
+.pres_table2{
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
   background: #fff;
 }
 
-.pres_table th,
-.pres_table td {
-  border-bottom: 1px solid var(--pres-border-2);
+.pres_table2 th,
+.pres_table2 td{
+  border-bottom: 1px solid var(--mi-border);
   padding: 10px 10px;
   vertical-align: middle;
-  color: var(--pres-text);
+  color: var(--mi-text);
 }
 
-.pres_table thead th {
-  background: rgba(2, 6, 23, 0.03);
+.pres_table2 thead th{
+  background: rgba(13, 42, 122, 0.06);
   text-align: left;
   font-weight: 900;
-  color: var(--pres-text);
 }
 
-.pres_table tbody tr:hover td {
-  background: rgba(37, 99, 235, 0.03);
+.pres_table2 tbody tr:hover td{
+  background: rgba(11, 94, 215, 0.05);
 }
 
-.pres_td_item {
-  font-weight: 900;
-  width: 220px;
-}
-
-.pres_td_desc {
-  color: var(--pres-muted);
-}
-
-/* Cell inputs */
-.pres_cell_in {
+/* Inputs dentro de celdas */
+.pres_cell_in2{
   width: 100%;
+  border: 1px solid var(--mi-border);
   background: #fff;
-  border: 1px solid var(--pres-border);
-  color: var(--pres-text);
-  border-radius: var(--pres-radius-sm);
-  padding: 8px 10px;
+  border-radius: 12px;
+  padding: 10px 10px;
+  font-size: .93rem;
+  color: var(--mi-text);
   outline: none;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: border-color .18s ease, box-shadow .18s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
 }
 
-.pres_cell_in::placeholder {
-  color: rgba(100, 116, 139, 0.85);
+.pres_cell_in2:focus{
+  border-color: var(--mi-primary-600);
+  box-shadow: 0 0 0 3px rgba(11, 94, 215, 0.14);
 }
 
-.pres_cell_in:focus {
-  border-color: rgba(37, 99, 235, 0.55);
-  box-shadow: var(--pres-focus);
+.pres_cell_in2::placeholder{
+  color: rgba(71, 85, 105, .75);
+}
+
+/* Num alineado */
+.pres_cell_num{
+  text-align: right;
 }
 
 /* Money */
-.pres_td_money {
+.pres_td_money2{
   text-align: right;
   font-weight: 900;
   white-space: nowrap;
 }
 
-/* Footer row */
-.pres_table tfoot td {
-  background: rgba(2, 6, 23, 0.02);
-  border-bottom: 0;
-}
-
-/* Modal actions footer */
-.pres_modal_actions {
-  padding: 12px 16px;
-  border-top: 1px solid var(--pres-border-2);
-  background: linear-gradient(180deg, #ffffff, var(--pres-bg));
+/* Acciones */
+.pres_actions2{
   display: flex;
-  justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
+  justify-content: center;
 }
 
-/* Buttons */
-.pres_btn {
-  background: var(--pres-primary);
-  color: #fff;
-  border: 0;
+.pres_iconbtn{
+  padding: 8px 10px;
   border-radius: 12px;
-  padding: 10px 14px;
-  cursor: pointer;
-  font-weight: 900;
-  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.22);
-  transition: transform 0.12s ease, opacity 0.12s ease, background 0.12s ease;
+  line-height: 1;
 }
 
-.pres_btn:hover {
-  background: var(--pres-primary-2);
-  transform: translateY(-1px);
-  opacity: 0.98;
+/* Moneda */
+.pres_currency2{
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-weight: 800;
+  color: var(--mi-text);
 }
-
-.pres_btn:active {
-  transform: translateY(0px);
-  opacity: 0.96;
-}
-
-/* Ghost button */
-.pres_btn.ghost {
-  background: #fff;
-  color: var(--pres-text);
-  border: 1px solid var(--pres-border);
-  box-shadow: 0 6px 18px rgba(2, 6, 23, 0.10);
-}
-
-.pres_btn.ghost:hover {
-  background: rgba(2, 6, 23, 0.03);
-  border-color: rgba(15, 23, 42, 0.18);
-}
-
-/* Disabled */
-.pres_btn:disabled,
-.pres_close:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  transform: none;
-}
-
-/* Radios (moneda) más prolijos */
-.pres_table input[type="radio"] {
-  accent-color: var(--pres-primary);
+.pres_currency2 input[type="radio"]{
+  accent-color: var(--mi-primary-600);
   transform: translateY(1px);
 }
 
-/* Scrollbar suave (Chrome/Edge) */
-.pres_modal_body::-webkit-scrollbar {
-  width: 10px;
+/* Footer row */
+.pres_table2 tfoot td{
+  background: rgba(15,23,42,.02);
+  border-bottom: 0;
 }
-.pres_modal_body::-webkit-scrollbar-thumb {
-  background: rgba(15, 23, 42, 0.18);
-  border-radius: 999px;
+.pres_actions_bar{
+  justify-content: space-between;
 }
-.pres_modal_body::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.06);
-}
-
-/* Responsive table: si se rompe en pantallas chicas, que permita scroll horizontal */
-@media (max-width: 980px) {
-  .pres_table_wrap {
-    overflow-x: auto;
-  }
-  .pres_table {
-    min-width: 980px;
-  }
+.vpres_help_in_actions{
+  display: flex;
+  align-items: flex-end;
+  padding: 0;
 }

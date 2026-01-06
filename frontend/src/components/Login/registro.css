@@ -53,6 +53,11 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
+    background:linear-gradient(
+    135deg,
+    #ffebee 30%,
+    var(--td-primary) 70%
+  );
 }
 
 /* ====== Tarjeta ====== */

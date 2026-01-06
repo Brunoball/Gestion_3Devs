@@ -75,6 +75,7 @@ export default function ModalNuevoEgreso({
   const onPickFile = (e) => {
     setError("");
     const f = e.target.files?.[0] || null;
+
     if (!f) {
       setComprobanteFile(null);
       return;
@@ -177,6 +178,7 @@ export default function ModalNuevoEgreso({
         <form className="mit-modal__body" onSubmit={submit}>
           <div className="mi-tabpanel is-active">
             <div className="mi-grid">
+              {/* ✅ CARD 1: Datos del egreso */}
               <article className="mi-card">
                 <h3 className="mi-card__title">Datos del egreso</h3>
 
@@ -221,6 +223,7 @@ export default function ModalNuevoEgreso({
                 </div>
               </article>
 
+              {/* ✅ CARD 2: Detalles (ahora va ANTES) */}
               <article className="mi-card">
                 <h3 className="mi-card__title">Detalles</h3>
 
@@ -256,34 +259,84 @@ export default function ModalNuevoEgreso({
                     </select>
                     <label className="fl-label">Medio de pago (opcional)</label>
                   </div>
+                </div>
+              </article>
 
-                  {/* ✅ Comprobante */}
+              {/* ✅ CARD 3: Comprobante (ahora va DESPUÉS de Detalles) */}
+              <article className="mi-card">
+                <h3 className="mi-card__title">Comprobante</h3>
+
+                <div className="fl-grid">
                   <div className="fl-field fl-col-full">
-                    <input
-                      className="fl-input"
-                      type="file"
-                      accept="application/pdf,image/*"
-                      onChange={onPickFile}
-                      disabled={loading}
-                      style={{ paddingTop: 14 }}
-                    />
-                    <label className="fl-label">
-                      <FontAwesomeIcon icon={faPaperclip} /> Comprobante (opcional)
-                    </label>
-
-                    {comprobanteFile ? (
-                      <div style={{ marginTop: 8, fontSize: 12, color: "#334155" }}>
-                        <FontAwesomeIcon
-                          icon={isPdf ? faFilePdf : isImg ? faImage : faPaperclip}
-                        />
-                        {"  "}
-                        <b>{comprobanteFile.name}</b>
-                        {"  "}
-                        <span style={{ opacity: 0.8 }}>
-                          ({Math.round(comprobanteFile.size / 1024)} KB)
-                        </span>
+                    <div className={`cmp-box ${error ? "is-error" : ""}`}>
+                      <div className="cmp-head">
+                        <label className="cmp-title">
+                          <FontAwesomeIcon icon={faPaperclip} /> Archivo (opcional)
+                        </label>
+                        <span className="cmp-hint">PDF o imagen • máx 8MB</span>
                       </div>
-                    ) : null}
+
+                      <label className="cmp-drop">
+                        <input
+                          className="cmp-inputfile"
+                          type="file"
+                          accept="application/pdf,image/*"
+                          onChange={onPickFile}
+                          disabled={loading}
+                        />
+
+                        <div className="cmp-drop__icon">
+                          <FontAwesomeIcon icon={faPaperclip} />
+                        </div>
+
+                        <div className="cmp-drop__text">
+                          <b>Seleccioná un archivo</b>
+                          <span>o arrastralo acá</span>
+                        </div>
+
+                        <div className="cmp-drop__btn">Elegir archivo</div>
+                      </label>
+
+                      {comprobanteFile ? (
+                        <div className="cmp-file">
+                          <div className="cmp-file__left">
+                            <div
+                              className={`cmp-badge ${
+                                isPdf ? "is-pdf" : isImg ? "is-img" : ""
+                              }`}
+                            >
+                              <FontAwesomeIcon
+                                icon={isPdf ? faFilePdf : isImg ? faImage : faPaperclip}
+                              />
+                            </div>
+
+                            <div className="cmp-file__meta">
+                              <div
+                                className="cmp-file__name"
+                                title={comprobanteFile.name}
+                              >
+                                {comprobanteFile.name}
+                              </div>
+                              <div className="cmp-file__size">
+                                {Math.round(comprobanteFile.size / 1024)} KB
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            className="cmp-remove"
+                            onClick={() => setComprobanteFile(null)}
+                            disabled={loading}
+                            title="Quitar archivo"
+                          >
+                            <FontAwesomeIcon icon={faTimes} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="cmp-empty">Sin archivo adjunto</div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </article>

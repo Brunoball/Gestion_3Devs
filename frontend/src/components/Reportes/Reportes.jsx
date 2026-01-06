@@ -72,12 +72,7 @@ const SKELETON_ROWS = 8;
 
 function renderSkeletonRows(cols = 5) {
   return Array.from({ length: SKELETON_ROWS }).map((_, idx) => (
-    <div
-      className="gridtable-row skeleton-row"
-      role="row"
-      key={`sk-${idx}`}
-      aria-hidden="true"
-    >
+    <div className="gridtable-row skeleton-row" role="row" key={`sk-${idx}`} aria-hidden="true">
       {Array.from({ length: cols }).map((__, j) => (
         <div className="gridtable-cell" key={`sk-${idx}-${j}`}>
           <span className={`skeleton-bar ${j === 0 ? "w-80" : "w-60"}`} />
@@ -87,10 +82,7 @@ function renderSkeletonRows(cols = 5) {
   ));
 }
 
-/* Tabla genérica
-   ✅ CAMBIO: se eliminó el “título + X registros” (Pagos 9 registros / Egresos 1 registros)
-   para que NO aparezca esa línea entre las cards y la tabla.
-*/
+/* Tabla genérica */
 function GridTable({ title, icon, columns = [], rows = [], loading = false, actions }) {
   const safeRows = Array.isArray(rows) ? rows : [];
 
@@ -100,8 +92,8 @@ function GridTable({ title, icon, columns = [], rows = [], loading = false, acti
       ...columns,
       {
         key: "__actions",
-        label: "",
-        fr: "0.55fr",
+        label: "Acciones", // ✅ header visible
+        fr: "1fr",
         center: true,
         render: (r) => actions(r),
       },
@@ -110,17 +102,13 @@ function GridTable({ title, icon, columns = [], rows = [], loading = false, acti
 
   return (
     <section className="reportes-block">
-      {/* ❌ Eliminado:
-          <div className="reportes-block-title"> ... {title} ... {safeRows.length} registros ... </div>
-      */}
-
       <div className="contable-tablewrap reportes-tablewrap minimal">
         <div
           className="gridtable-header minimal"
           style={{ gridTemplateColumns: allCols.map((c) => c.fr).join(" ") }}
         >
           {allCols.map((c) => (
-            <div key={c.key} className="gridtable-cell">
+            <div key={c.key} className={`gridtable-cell ${c.center ? "centers" : ""}`}>
               {c.label}
             </div>
           ))}
@@ -365,7 +353,7 @@ export default function Reportes() {
     [view]
   );
 
-  // ✅ Ver comprobante (SOLO EGRESOS) — no rompe si no hay comprobante
+  // ✅ Ver comprobante (SOLO EGRESOS)
   const onVerComprobante = useCallback(
     (row) => {
       const r = row || {};
@@ -392,7 +380,7 @@ export default function Reportes() {
     setModalEliminarOpen(true);
   }, []);
 
-  // ✅ Confirmar editar (JSON para pago/trabajador, FormData para egreso)
+  // ✅ Confirmar editar
   const confirmarEditar = useCallback(
     async (payload) => {
       try {
@@ -673,7 +661,10 @@ export default function Reportes() {
   /* ===== Totales ===== */
   const totalPagos = useMemo(
     () =>
-      (Array.isArray(pagos) ? pagos : []).reduce((acc, r) => acc + (Number(r?.monto || 0) || 0), 0),
+      (Array.isArray(pagos) ? pagos : []).reduce(
+        (acc, r) => acc + (Number(r?.monto || 0) || 0),
+        0
+      ),
     [pagos]
   );
 
@@ -733,11 +724,11 @@ export default function Reportes() {
   /* ===== Columnas ===== */
   const colsMov = useMemo(
     () => [
-      { key: "fecha", label: "Fecha", fr: "0.9fr" },
+      { key: "fecha", label: "Fecha", fr: "1fr" },
       {
         key: "cliente_nombre",
         label: "Cliente",
-        fr: "1.3fr",
+        fr: "1fr",
         render: (r) => {
           if (r?.cliente_nombre) return r.cliente_nombre;
           const parts = String(r?.concepto || "").split(" - ");
@@ -754,8 +745,8 @@ export default function Reportes() {
           return parts[1] || "";
         },
       },
-      { key: "categoria", label: "Mes", fr: "1.1fr" },
-      { key: "medio", label: "Medio", fr: "1.1fr" },
+      { key: "categoria", label: "Mes", fr: "1.1fr", center: true },
+      { key: "medio", label: "Medio", fr: "1.1fr", center: true },
       {
         key: "monto",
         label: "Monto",
@@ -769,16 +760,21 @@ export default function Reportes() {
 
   const colsEgresos = useMemo(
     () => [
-      { key: "fecha", label: "Fecha", fr: "0.9fr" },
-      { key: "concepto", label: "Concepto", fr: "1.3fr", render: (r) => r?.concepto || "—" },
+      { key: "fecha", label: "Fecha", fr: "1fr" },
+      { key: "concepto", label: "Concepto", fr: "1fr", render: (r) => r?.concepto || "—" },
       {
         key: "descripcion",
         label: "Descripción",
-        fr: "2fr",
-        render: (r) => r?.descripcion || "—",
+        fr: "1fr",
+        // ✅✅ LIMITE VISUAL + "..." + tooltip con texto completo
+        render: (r) => (
+          <span className="truncate" title={r?.descripcion || ""}>
+            {r?.descripcion || "—"}
+          </span>
+        ),
       },
-      { key: "categoria", label: "Mes", fr: "1.1fr" },
-      { key: "medio", label: "Medio", fr: "1.1fr" },
+      { key: "categoria", label: "Mes", fr: "1.1fr", center: true },
+      { key: "medio", label: "Medio", fr: "1.1fr", center: true },
       {
         key: "monto",
         label: "Monto",
@@ -1174,14 +1170,20 @@ export default function Reportes() {
                 borderRadius: 12,
                 padding: "10px 16px",
                 background: "#fff",
-                borderColor: view === "trabajadores" ? "#0ea5e9" : balance < 0 ? "#dc2626" : "#16a34a",
+                borderColor:
+                  view === "trabajadores" ? "#0ea5e9" : balance < 0 ? "#dc2626" : "#16a34a",
               }}
             >
               <div
                 style={{
                   fontSize: 13,
                   fontWeight: 600,
-                  color: view === "trabajadores" ? "#0ea5e9" : balance < 0 ? "#dc2626" : "#16a34a",
+                  color:
+                    view === "trabajadores"
+                      ? "#0ea5e9"
+                      : balance < 0
+                      ? "#dc2626"
+                      : "#16a34a",
                 }}
               >
                 {view === "trabajadores"
@@ -1194,7 +1196,12 @@ export default function Reportes() {
                   fontSize: 22,
                   fontWeight: 800,
                   marginTop: 4,
-                  color: view === "trabajadores" ? "#0ea5e9" : balance < 0 ? "#dc2626" : "#16a34a",
+                  color:
+                    view === "trabajadores"
+                      ? "#0ea5e9"
+                      : balance < 0
+                      ? "#dc2626"
+                      : "#16a34a",
                 }}
               >
                 ${nfPesos.format(view === "trabajadores" ? totalTrabajadores : Math.abs(balance))}
@@ -1211,7 +1218,14 @@ export default function Reportes() {
           </div>
 
           {/* Tabla */}
-          <div style={{ padding: "10px 12px 14px", flex: "1 1 auto", minHeight: 0 }}>
+<div
+  style={{
+    padding: "10px 12px 14px",
+    flex: "1 1 auto",
+    minHeight: 0,
+    overflow: "hidden",
+  }}
+>
             {view === "pagos" && (
               <GridTable
                 title="Pagos"
@@ -1273,19 +1287,6 @@ export default function Reportes() {
                 columns={colsTrab}
                 rows={trabajadoresFiltrados}
                 loading={loadingData}
-                actions={(r) => (
-                  <div className="actions-cell">
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      title="Editar"
-                      onClick={() => onEditar(r)}
-                      aria-label="Editar"
-                    >
-                      <FontAwesomeIcon icon={faPenToSquare} />
-                    </button>
-                  </div>
-                )}
               />
             )}
           </div>

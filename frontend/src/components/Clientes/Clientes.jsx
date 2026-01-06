@@ -656,7 +656,7 @@ export default function Clientes() {
                 title="Generar presupuesto en PDF"
                 aria-label="Generar presupuesto"
               >
-                💼 Generar presupuesto
+                 Generar presupuesto
               </button>
             </div>
           </div>

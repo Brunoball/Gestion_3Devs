@@ -182,7 +182,8 @@ function isAllowedDecimalKey(e) {
     k === "ArrowRight" ||
     k === "Home" ||
     k === "End"
-  ) return true;
+  )
+    return true;
 
   if (e.ctrlKey || e.metaKey) return true;
   if (/^[0-9]$/.test(k)) return true;
@@ -202,7 +203,8 @@ function isAllowedIntKey(e) {
     k === "ArrowRight" ||
     k === "Home" ||
     k === "End"
-  ) return true;
+  )
+    return true;
 
   if (e.ctrlKey || e.metaKey) return true;
   return /^[0-9]$/.test(k);
@@ -267,7 +269,18 @@ function drawDarkInfoBar(doc, x, y, w, text) {
 }
 
 // ✅ Ahora el precio se formatea por moneda (ARS/USD) igual que el total
-function drawPlanBox(doc, x, y, w, title, desc, price, currency, rgbTitle, rgbDesc) {
+function drawPlanBox(
+  doc,
+  x,
+  y,
+  w,
+  title,
+  desc,
+  price,
+  currency,
+  rgbTitle,
+  rgbDesc
+) {
   doc.setFillColor(...rgbTitle);
   doc.rect(x, y, w, 10, "F");
 
@@ -351,7 +364,10 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
 
         if (!data?.exito) {
           setPlanes([]);
-          onToast?.("advertencia", data?.mensaje || "No se pudieron cargar los planes.");
+          onToast?.(
+            "advertencia",
+            data?.mensaje || "No se pudieron cargar los planes."
+          );
           return;
         }
 
@@ -359,10 +375,14 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
         setPlanes(arr);
       } catch (e) {
         setPlanes([]);
-        onToast?.("advertencia", "Error de red al cargar planes de mantenimiento.");
+        onToast?.(
+          "advertencia",
+          "Error de red al cargar planes de mantenimiento."
+        );
       }
     })();
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const onChangeRow = (id, key, value) => {
     setRows((prev) =>
@@ -466,10 +486,12 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
     const marginX = 14;
     const contentW = 210 - marginX * 2;
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
+    // ✅ TÍTULO: tipografía distinta + centrado real
+    const pageW = doc.internal.pageSize.getWidth();
+    doc.setFont("times", "bold"); // ✅ cambia tipografía del título
+    doc.setFontSize(22);
     doc.setTextColor(0, 0, 0);
-    doc.text("PRESUPUESTO", 105, 58, { align: "center" });
+    doc.text("PRESUPUESTO", pageW / 2, 58, { align: "center" });
 
     let y = 62;
 
@@ -509,15 +531,27 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
         ["Ítem", "Descripción", "Cantidad (horas)", "Precio Unitario", "Subtotal"],
       ],
       body,
-      styles: { font: "helvetica", fontSize: 9, cellPadding: 2, valign: "middle" },
-      headStyles: { fillColor: [109, 158, 235], textColor: 0, fontStyle: "bold" },
-      columnStyles: {
-        0: { cellWidth: 30 },
-        1: { cellWidth: 78 },
-        2: { cellWidth: 28, halign: "center" },
-        3: { cellWidth: 28, halign: "right" },
-        4: { cellWidth: 28, halign: "right" },
+      styles: {
+        font: "helvetica",
+        fontSize: 9,
+        cellPadding: 2,
+        valign: "middle",
       },
+      headStyles: { fillColor: [109, 158, 235], textColor: 0, fontStyle: "bold" },
+
+      // ✅ fuerza ancho útil real (evita corrimiento a la derecha)
+      tableWidth: contentW,
+
+      // ✅ estos anchos SUMAN EXACTO contentW (=182)
+      // y además centramos Precio Unitario + Subtotal (cols 3 y 4)
+      columnStyles: {
+        0: { cellWidth: 32 },
+        1: { cellWidth: 74 },
+        2: { cellWidth: 26, halign: "center" },
+        3: { cellWidth: 25, halign: "center" }, // ✅ CENTRADO
+        4: { cellWidth: 25, halign: "center" }, // ✅ CENTRADO
+      },
+
       margin: { left: marginX, right: marginX },
       theme: "grid",
       didDrawPage: () => drawHeader(),
@@ -525,12 +559,21 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
 
     y = (doc.lastAutoTable?.finalY || y + 40) + 8;
 
-    // ✅ Total final en PDF con ARS o USD explícito
+    // ✅ Total final alineado al borde derecho REAL de la tabla
     y = ensureSpace(doc, y, 15, drawHeader);
+
+    const tbl = doc.lastAutoTable;
+    const tableRight =
+      tbl?.finalX && tbl?.table?.width
+        ? tbl.finalX + tbl.table.width
+        : marginX + contentW;
+
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
-    doc.text("Total final", 140, y);
-    doc.text(formatMoneyByCurrency(total, currency), 195, y, { align: "right" });
+    doc.text("Total final", tableRight - 45, y, { align: "right" });
+    doc.text(formatMoneyByCurrency(total, currency), tableRight, y, {
+      align: "right",
+    });
 
     // 3. Costo mensual
     y += 10;
@@ -550,7 +593,6 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
     const planesToUse = Array.isArray(planes) ? planes : [];
 
     if (!planesToUse.length) {
-      // no rompe el PDF, pero avisa
       onToast?.("advertencia", "No hay planes de mantenimiento activos en la DB.");
     }
 
@@ -574,7 +616,7 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
           title,
           desc,
           price,
-          currency, // ✅ misma moneda elegida
+          currency,
           colors.rgbTitle,
           colors.rgbDesc
         ) + 6;
@@ -650,259 +692,347 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
   if (!open) return null;
 
   return (
-    <div className="pres_modal_backdrop" role="dialog" aria-modal="true">
-      <div className="pres_modal_card">
-        <div className="pres_modal_head">
-          <div className="pres_modal_title">Generar presupuesto</div>
-          <button className="pres_close" onClick={onClose} type="button">
-            ✕
+    <div
+      className="mi-modal__overlay pres_modal_overlay"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) =>
+        e.target.classList.contains("mi-modal__overlay") && onClose?.()
+      }
+    >
+      <div
+        className="mi-modal__container pres_modal_container"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header estilo ModalEditarTrabajador */}
+        <div className="mi-modal__header pres_modal_header">
+          <div className="mi-modal__head-left">
+            <h2 className="mi-modal__title">Generar presupuesto</h2>
+            <p className="mi-modal__subtitle">
+              Completá los datos y generá el PDF
+            </p>
+          </div>
+
+          <button
+            className="mi-modal__close"
+            onClick={onClose}
+            aria-label="Cerrar"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
 
-        <div className="pres_modal_body">
-          <div className="pres_grid">
-            <label className="pres_lbl">
-              Razón social
-              <input
-                className="pres_in"
-                value={razonSocial}
-                onChange={(e) => setRazonSocial(e.target.value)}
-                placeholder='Ej: IPET N° 50 “Ing. Emilio F. Olmos”'
-              />
-            </label>
+        {/* Body con cards */}
+        <div className="mit-modal__body">
+          <div className="mi-tabpanel is-active">
+            <div className="mi-grid">
+              {/* Card 1 */}
+              <article className="mi-card mi-card--full">
+                <h3 className="mi-card__title">1. Datos del cliente</h3>
 
-            <label className="pres_lbl">
-              Proyecto
-              <input
-                className="pres_in"
-                value={proyecto}
-                onChange={(e) => setProyecto(e.target.value)}
-                placeholder='Ej: “Desarrollo de Página Web Educativa”'
-              />
-            </label>
-          </div>
+                <div className="fl-grid">
+                  <div className="fl-field">
+                    <input
+                      className="fl-input"
+                      placeholder=" "
+                      value={razonSocial}
+                      onChange={(e) => setRazonSocial(e.target.value)}
+                    />
+                    <label className="fl-label">Razón social *</label>
+                  </div>
 
-          <div className="pres_table_wrap">
-            <div
-              className="pres_table_title"
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 12,
-                flexWrap: "wrap",
-              }}
-            >
-              <span>Detalle del presupuesto</span>
+                  <div className="fl-field">
+                    <input
+                      className="fl-input"
+                      placeholder=" "
+                      value={proyecto}
+                      onChange={(e) => setProyecto(e.target.value)}
+                    />
+                    <label className="fl-label">Proyecto *</label>
+                  </div>
+                </div>
+              </article>
 
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                {/* ✅ Monto total objetivo */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 12, fontWeight: 800 }}>Monto total:</span>
+              {/* Card 2 */}
+              <article className="mi-card mi-card--full">
+                <h3 className="mi-card__title">2. Detalle del presupuesto</h3>
 
-                  <input
-                    className="pres_in"
-                    style={{ width: 180, padding: "8px 10px", fontSize: 12 }}
-                    inputMode="numeric"
-                    value={targetTotal}
-                    placeholder="Ej: 1000000"
-                    onKeyDown={(e) => {
-                      if (!isAllowedIntKey(e)) e.preventDefault();
-                    }}
-                    onChange={(e) => setTargetTotal(normalizeIntInput(e.target.value))}
-                    onPaste={(e) => {
-                      e.preventDefault();
-                      const txt = e.clipboardData.getData("text");
-                      setTargetTotal(normalizeIntInput(txt));
-                    }}
-                    onBlur={applyTargetTotal}
-                    title="Ingresá el monto total y salí del campo para distribuirlo ajustando precios por hora"
-                  />
+                <div className="pres_table_title2">
+                  <div style={{ fontWeight: 900, color: "var(--mi-text)" }}>
+                    Detalle del presupuesto
+                  </div>
 
-                  <button
-                    type="button"
-                    className="pres_btn ghost"
-                    onClick={applyTargetTotal}
-                    style={{ padding: "8px 10px", fontSize: 12 }}
-                  >
-                    Aplicar
-                  </button>
+                  <div className="pres_tools">
+                    <div className="pres_tool_group">
+                      <span className="pres_tool_lbl">Monto total:</span>
+
+                      <input
+                        className="fl-input pres_tool_in"
+                        inputMode="numeric"
+                        value={targetTotal}
+                        placeholder=" "
+                        onKeyDown={(e) => {
+                          if (!isAllowedIntKey(e)) e.preventDefault();
+                        }}
+                        onChange={(e) =>
+                          setTargetTotal(normalizeIntInput(e.target.value))
+                        }
+                        onPaste={(e) => {
+                          e.preventDefault();
+                          const txt = e.clipboardData.getData("text");
+                          setTargetTotal(normalizeIntInput(txt));
+                        }}
+                        onBlur={applyTargetTotal}
+                        title="Ingresá el monto total y salí del campo para distribuirlo ajustando precios por hora"
+                      />
+
+                      <button
+                        type="button"
+                        className="mit-btn mit-btn--ghost"
+                        onClick={applyTargetTotal}
+                      >
+                        Aplicar
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="mit-btn mit-btn--solid"
+                      onClick={addRow}
+                    >
+                      + Agregar fila
+                    </button>
+                  </div>
                 </div>
 
-                <button
-                  type="button"
-                  className="pres_btn"
-                  onClick={addRow}
-                  style={{ padding: "8px 12px", fontSize: 12 }}
-                >
-                  + Agregar fila
-                </button>
-              </div>
+                <div className="pres_table_wrap2">
+                  <table className="pres_table2">
+                    <thead>
+                      <tr>
+                        <th style={{ width: 210 }}>Ítem</th>
+                        <th>Descripción</th>
+                        <th style={{ width: 120 }}>Horas</th>
+                        <th style={{ width: 160 }}>Monto (por hora)</th>
+                        <th style={{ width: 140 }}>Subtotal</th>
+                        <th style={{ width: 120 }}>Acciones</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {rows.map((r, idx) => {
+                        const horasInt = toInt(r.horas);
+                        const unitNum = toNumber(r.unit);
+                        const sub = horasInt * unitNum;
+
+                        return (
+                          <tr key={r.id}>
+                            <td>
+                              <input
+                                className="pres_cell_in2"
+                                value={r.item}
+                                onChange={(e) =>
+                                  onChangeRow(r.id, "item", e.target.value)
+                                }
+                                placeholder="Ej: Desarrollo de módulo X"
+                              />
+                            </td>
+
+                            <td>
+                              <input
+                                className="pres_cell_in2"
+                                value={r.desc}
+                                onChange={(e) =>
+                                  onChangeRow(r.id, "desc", e.target.value)
+                                }
+                                placeholder="Ej: Implementación + pruebas + deploy"
+                              />
+                            </td>
+
+                            <td>
+                              <input
+                                className="pres_cell_in2 pres_cell_num"
+                                inputMode="numeric"
+                                value={r.horas}
+                                placeholder="0"
+                                onKeyDown={(e) => {
+                                  if (!isAllowedIntKey(e)) e.preventDefault();
+                                }}
+                                onChange={(e) =>
+                                  onChangeRow(
+                                    r.id,
+                                    "horas",
+                                    normalizeIntInput(e.target.value)
+                                  )
+                                }
+                                onPaste={(e) => {
+                                  e.preventDefault();
+                                  const txt =
+                                    e.clipboardData.getData("text");
+                                  onChangeRow(
+                                    r.id,
+                                    "horas",
+                                    normalizeIntInput(txt)
+                                  );
+                                }}
+                              />
+                            </td>
+
+                            <td>
+                              <input
+                                className="pres_cell_in2 pres_cell_num"
+                                inputMode="decimal"
+                                value={r.unit}
+                                placeholder="0"
+                                onKeyDown={(e) => {
+                                  if (!isAllowedDecimalKey(e))
+                                    e.preventDefault();
+                                }}
+                                onChange={(e) =>
+                                  onChangeRow(
+                                    r.id,
+                                    "unit",
+                                    normalizeDecimalInput(e.target.value)
+                                  )
+                                }
+                                onPaste={(e) => {
+                                  e.preventDefault();
+                                  const txt =
+                                    e.clipboardData.getData("text");
+                                  onChangeRow(
+                                    r.id,
+                                    "unit",
+                                    normalizeDecimalInput(txt)
+                                  );
+                                }}
+                              />
+                            </td>
+
+                            <td className="pres_td_money2">{moneyARS(sub)}</td>
+
+                            <td className="pres_actions2">
+                              <button
+                                type="button"
+                                className="mit-btn mit-btn--ghost pres_iconbtn"
+                                onClick={() => moveRow(r.id, -1)}
+                                disabled={idx === 0}
+                                title="Subir"
+                              >
+                                ↑
+                              </button>
+                              <button
+                                type="button"
+                                className="mit-btn mit-btn--ghost pres_iconbtn"
+                                onClick={() => moveRow(r.id, 1)}
+                                disabled={idx === rows.length - 1}
+                                title="Bajar"
+                              >
+                                ↓
+                              </button>
+                              <button
+                                type="button"
+                                className="mit-btn mit-btn--ghost pres_iconbtn"
+                                onClick={() => removeRow(r.id)}
+                                disabled={rows.length === 1}
+                                title="Eliminar"
+                              >
+                                ✕
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+
+                    <tfoot>
+                      <tr>
+                        <td colSpan={3} />
+                        <td style={{ textAlign: "left" }}>
+                          <div className="pres_currency2">
+                            <label
+                              style={{
+                                display: "inline-flex",
+                                gap: 8,
+                                alignItems: "center",
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="currency_total"
+                                checked={currency === "ARS"}
+                                onChange={() => setCurrency("ARS")}
+                              />
+                              ARS
+                            </label>
+
+                            <label
+                              style={{
+                                display: "inline-flex",
+                                gap: 8,
+                                alignItems: "center",
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="currency_total"
+                                checked={currency === "USD"}
+                                onChange={() => setCurrency("USD")}
+                              />
+                              USD
+                            </label>
+                          </div>
+                        </td>
+
+                        <td style={{ textAlign: "right", fontWeight: 900 }}>
+                          Total final
+                        </td>
+                        <td
+                          className="pres_td_money2"
+                          style={{ fontWeight: 900 }}
+                        >
+                          {formatMoneyByCurrency(total, currency)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </article>
+            </div>
+          </div>
+
+          {/* Footer acciones igual que mit-actions */}
+          <div className="mit-actions pres_actions_bar">
+            <div className="mit-help pres_help_in_actions">
+              * Campos obligatorios
             </div>
 
-            <table className="pres_table">
-              <thead>
-                <tr>
-                  <th style={{ width: 210 }}>Ítem</th>
-                  <th>Descripción</th>
-                  <th style={{ width: 120 }}>Horas</th>
-                  <th style={{ width: 160 }}>Monto (por hora)</th>
-                  <th style={{ width: 140 }}>Subtotal</th>
-                  <th style={{ width: 120 }}>Acciones</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {rows.map((r, idx) => {
-                  const horasInt = toInt(r.horas);
-                  const unitNum = toNumber(r.unit);
-                  const sub = horasInt * unitNum;
-
-                  return (
-                    <tr key={r.id}>
-                      <td>
-                        <input
-                          className="pres_cell_in"
-                          value={r.item}
-                          onChange={(e) => onChangeRow(r.id, "item", e.target.value)}
-                          placeholder="Ej: Desarrollo de módulo X"
-                        />
-                      </td>
-
-                      <td>
-                        <input
-                          className="pres_cell_in"
-                          value={r.desc}
-                          onChange={(e) => onChangeRow(r.id, "desc", e.target.value)}
-                          placeholder="Ej: Implementación + pruebas + deploy"
-                        />
-                      </td>
-
-                      {/* ✅ HORAS ENTERAS */}
-                      <td>
-                        <input
-                          className="pres_cell_in"
-                          inputMode="numeric"
-                          value={r.horas}
-                          placeholder="0"
-                          onKeyDown={(e) => {
-                            if (!isAllowedIntKey(e)) e.preventDefault();
-                          }}
-                          onChange={(e) =>
-                            onChangeRow(r.id, "horas", normalizeIntInput(e.target.value))
-                          }
-                          onPaste={(e) => {
-                            e.preventDefault();
-                            const txt = e.clipboardData.getData("text");
-                            onChangeRow(r.id, "horas", normalizeIntInput(txt));
-                          }}
-                        />
-                      </td>
-
-                      {/* ✅ UNIT DECIMAL */}
-                      <td>
-                        <input
-                          className="pres_cell_in"
-                          inputMode="decimal"
-                          value={r.unit}
-                          placeholder="0"
-                          onKeyDown={(e) => {
-                            if (!isAllowedDecimalKey(e)) e.preventDefault();
-                          }}
-                          onChange={(e) =>
-                            onChangeRow(r.id, "unit", normalizeDecimalInput(e.target.value))
-                          }
-                          onPaste={(e) => {
-                            e.preventDefault();
-                            const txt = e.clipboardData.getData("text");
-                            onChangeRow(r.id, "unit", normalizeDecimalInput(txt));
-                          }}
-                        />
-                      </td>
-
-                      <td className="pres_td_money">{moneyARS(sub)}</td>
-
-                      <td style={{ display: "flex", gap: 6, justifyContent: "center" }}>
-                        <button
-                          type="button"
-                          className="pres_btn ghost"
-                          onClick={() => moveRow(r.id, -1)}
-                          disabled={idx === 0}
-                          title="Subir"
-                          style={{ padding: "6px 10px", fontSize: 12 }}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          className="pres_btn ghost"
-                          onClick={() => moveRow(r.id, 1)}
-                          disabled={idx === rows.length - 1}
-                          title="Bajar"
-                          style={{ padding: "6px 10px", fontSize: 12 }}
-                        >
-                          ↓
-                        </button>
-                        <button
-                          type="button"
-                          className="pres_btn ghost"
-                          onClick={() => removeRow(r.id)}
-                          disabled={rows.length === 1}
-                          title="Eliminar"
-                          style={{ padding: "6px 10px", fontSize: 12 }}
-                        >
-                          ✕
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-
-              <tfoot>
-                <tr>
-                  <td colSpan={3} />
-                  <td colSpan={1} style={{ textAlign: "left" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 14, fontWeight: 700 }}>
-                      <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <input
-                          type="radio"
-                          name="currency_total"
-                          checked={currency === "ARS"}
-                          onChange={() => setCurrency("ARS")}
-                        />
-                        ARS
-                      </label>
-
-                      <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <input
-                          type="radio"
-                          name="currency_total"
-                          checked={currency === "USD"}
-                          onChange={() => setCurrency("USD")}
-                        />
-                        USD
-                      </label>
-                    </div>
-                  </td>
-
-                  <td style={{ textAlign: "right", fontWeight: 800 }}>Total final</td>
-                  <td className="pres_td_money" style={{ fontWeight: 900 }}>
-                    {formatMoneyByCurrency(total, currency)}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+            <div className="pres_actions_right">
+              <button
+                className="mit-btn mit-btn--ghost"
+                onClick={onClose}
+                type="button"
+              >
+                Cancelar
+              </button>
+              <button
+                className="mit-btn mit-btn--solid"
+                onClick={generarPDF}
+                type="button"
+              >
+                Generar PDF
+              </button>
+            </div>
           </div>
-        </div>
-
-        <div className="pres_modal_actions">
-          <button className="pres_btn ghost" onClick={onClose} type="button">
-            Cancelar
-          </button>
-          <button className="pres_btn" onClick={generarPDF} type="button">
-            Generar PDF
-          </button>
         </div>
       </div>
     </div>
