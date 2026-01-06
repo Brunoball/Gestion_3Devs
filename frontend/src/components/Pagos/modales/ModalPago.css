@@ -951,3 +951,82 @@
   grid-template-rows: 1fr 1fr ;
   gap: 20px;
 }
+
+/* =========================
+   ✅ TOTAL en el footer (izquierda)
+   Agregá esto al final de ModalPago.css
+========================= */
+
+/* contenedor (ya lo usás en JSX) */
+.modpag_footer-total {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 0.45rem 0.7rem;
+  border-radius: 9999px;
+
+  background: linear-gradient(
+    135deg,
+    var(--modpag_primary) 0%,
+    var(--modpag_primary-hover) 100%
+  );
+  box-shadow: var(--modpag_shadow-sm);
+
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--modpag_white);
+
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* “Total:” */
+.modpag_footer-total-label {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+/* $123.456 */
+.modpag_footer-total-value {
+  font-size: 0.92rem;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+/* Hover sutil */
+.modpag_footer-total:hover {
+  box-shadow: var(--modpag_shadow);
+  transform: translateY(-1px);
+  transition: box-shadow 0.2s ease, transform 0.12s ease;
+}
+
+/* Mobile: más compacto */
+@media (max-width: 600px) {
+  .modpag_footer-total {
+    gap: 8px;
+    padding: 0.4rem 0.6rem;
+  }
+  .modpag_footer-total-label {
+    font-size: 0.68rem;
+  }
+  .modpag_footer-total-value {
+    font-size: 0.88rem;
+    padding: 0.18rem 0.48rem;
+  }
+}
+
+/* Extra: si en pantallas muy chicas querés ocultar “Total:” */
+@media (max-width: 360px) {
+  .modpag_footer-total-label {
+    display: none;
+  }
+}

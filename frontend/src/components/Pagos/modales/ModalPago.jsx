@@ -170,6 +170,27 @@ function MultiSelectPlanes({
   );
 }
 
+/* =========================
+   Helpers números (monto manual)
+========================= */
+function parseMoneyInput(raw) {
+  if (raw == null) return 0;
+  const s = String(raw).trim();
+  if (!s) return 0;
+
+  const cleaned = s.replace(/\$/g, "").replace(/\s/g, "");
+  const normalized = cleaned.includes(",")
+    ? cleaned.replace(/\./g, "").replace(",", ".")
+    : cleaned;
+
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function sanitizeMoneyTyping(raw) {
+  return String(raw ?? "").replace(/[^\d.,]/g, "");
+}
+
 export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -180,8 +201,9 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
   const [mesesSeleccionados, setMesesSeleccionados] = useState([]);
   const [pagoExitoso, setPagoExitoso] = useState(false);
 
-  // ✅ AHORA: monto se calcula por planes seleccionados
-  const [monto, setMonto] = useState(""); // string para mostrar en input
+  // ✅ montos base (por mes)
+  const [montoDesarrollo, setMontoDesarrollo] = useState(""); // editable
+
   const [fechaPago, setFechaPago] = useState(() => {
     const d = new Date();
     const yyyy = d.getFullYear();
@@ -195,7 +217,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
   const [mesesCatalogo, setMesesCatalogo] = useState([]);
   const [mediosPago, setMediosPago] = useState([]);
 
-  // ✅ NUEVO: planes mantenimiento + selección múltiple
+  // ✅ planes mantenimiento + selección múltiple
   const [planesMantenimiento, setPlanesMantenimiento] = useState([]);
   const [planesSeleccionadosIds, setPlanesSeleccionadosIds] = useState([]);
 
@@ -203,17 +225,13 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
   const yearNow = hoy.getFullYear();
   const [selectedYear, setSelectedYear] = useState(yearNow);
 
-  // ✅ API base (misma que Pagos.jsx)
   const API = useMemo(() => `${BASE_URL}/api.php`, []);
 
   /* =========================================================
      ✅ LISTAS
-     - Router: /api.php?action=listas
-     - Fallback: /modules/global/obtener_listas.php
   ========================================================= */
   const LISTAS_API = useMemo(() => `${API}?action=listas`, [API]);
 
-  // Si BASE_URL termina en /routes, lo recorto para apuntar a /modules
   const BACKEND_BASE = useMemo(() => {
     if (typeof BASE_URL !== "string") return "";
     return BASE_URL.endsWith("/routes") ? BASE_URL.replace(/\/routes$/, "") : BASE_URL;
@@ -253,12 +271,19 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         id_mes: Number(m?.id_mes ?? m?.id ?? null),
         mes: String(m?.mes ?? m?.nombre ?? "").trim(),
       }))
-      .filter((m) => Number.isFinite(m.id_mes) && m.id_mes >= 1 && m.id_mes <= 12 && m.mes)
+      .filter(
+        (m) =>
+          Number.isFinite(m.id_mes) &&
+          m.id_mes >= 1 &&
+          m.id_mes <= 12 &&
+          m.mes
+      )
       .sort((a, b) => a.id_mes - b.id_mes);
   }, []);
 
   const normalizarMedios = useCallback((data) => {
-    const raw = data?.listas?.medios_pago || data?.medios_pago || data?.mediosPago || [];
+    const raw =
+      data?.listas?.medios_pago || data?.medios_pago || data?.mediosPago || [];
     const arr = Array.isArray(raw) ? raw : [];
     return arr
       .map((x) => ({
@@ -269,7 +294,6 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, []);
 
-  // ✅ NUEVO: normalizar planes mantenimiento
   const normalizarPlanes = useCallback((data) => {
     const raw =
       data?.listas?.planes_mantenimiento ||
@@ -283,7 +307,13 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         nombre: String(p?.nombre ?? p?.plan ?? "").trim(),
         monto: Number(p?.monto ?? p?.precio ?? 0),
       }))
-      .filter((p) => Number.isFinite(p.id) && p.id > 0 && p.nombre && Number.isFinite(p.monto))
+      .filter(
+        (p) =>
+          Number.isFinite(p.id) &&
+          p.id > 0 &&
+          p.nombre &&
+          Number.isFinite(p.monto)
+      )
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, []);
 
@@ -310,17 +340,15 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         setPlanesMantenimiento(pl.length ? pl : []);
 
         if (!idMedioPago && mp.length) setIdMedioPago(String(mp[0].id_medio_pago));
-
-        // si hay planes y todavía no hay selección, podés dejar vacío (mejor)
-        // o autoseleccionar uno. Yo lo dejo vacío para que elijas.
       } catch {
         if (!alive) return;
 
-        // fallback duro
         setMesesCatalogo(
           Array.from({ length: 12 }, (_, i) => ({
             id_mes: i + 1,
-            mes: new Date(0, i).toLocaleString("es", { month: "long" }).toUpperCase(),
+            mes: new Date(0, i)
+              .toLocaleString("es", { month: "long" })
+              .toUpperCase(),
           }))
         );
         setMediosPago([]);
@@ -341,7 +369,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     idMedioPago,
   ]);
 
-  // ✅ CALCULAR TOTAL SEGÚN PLANES SELECCIONADOS
+  // ✅ total planes (por mes)
   const totalPlanes = useMemo(() => {
     if (!planesSeleccionadosIds?.length) return 0;
     const set = new Set(planesSeleccionadosIds.map((x) => Number(x)));
@@ -349,15 +377,29 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       if (set.has(Number(p.id))) return acc + Number(p.monto || 0);
       return acc;
     }, 0);
-    // redondeo a 2 decimales por seguridad
     return Math.round(total * 100) / 100;
   }, [planesSeleccionadosIds, planesMantenimiento]);
 
-  // ✅ Volcar total al input monto (readonly)
-  useEffect(() => {
-    // si querés obligar a elegir planes, dejalo así
-    setMonto(totalPlanes ? String(totalPlanes) : "");
-  }, [totalPlanes]);
+  // ✅ monto manual (por mes)
+  const montoDesarrolloNum = useMemo(
+    () => Math.round(parseMoneyInput(montoDesarrollo) * 100) / 100,
+    [montoDesarrollo]
+  );
+
+  // ✅ BASE por mes (planes + desarrollo)
+  const basePorMes = useMemo(() => {
+    const t = Number(totalPlanes) + Number(montoDesarrolloNum);
+    return Math.round(t * 100) / 100;
+  }, [totalPlanes, montoDesarrolloNum]);
+
+  // ✅ TOTAL FINAL = basePorMes * cantidadMesesSeleccionados
+  //    Si no hay meses seleccionados => 0 (aunque haya mantenimientos / desarrollo cargado)
+  const totalFinal = useMemo(() => {
+    const cant = Number(mesesSeleccionados?.length || 0);
+    if (!cant) return 0;
+    const t = Number(basePorMes) * cant;
+    return Math.round(t * 100) / 100;
+  }, [basePorMes, mesesSeleccionados]);
 
   // ESC para cerrar
   useEffect(() => {
@@ -380,7 +422,8 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       setError("");
       setPagoExitoso(false);
       setMesesSeleccionados([]);
-      setPlanesSeleccionadosIds([]); // ✅ reset planes al abrir
+      setPlanesSeleccionadosIds([]);
+      setMontoDesarrollo("");
 
       try {
         if (!id_sistema) throw new Error("Falta id_sistema");
@@ -394,15 +437,21 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         setDetalle(data?.detalle || data?.sistema || data || null);
 
         const pagos =
-          data?.pagosPorAnio && typeof data.pagosPorAnio === "object" ? data.pagosPorAnio : {};
+          data?.pagosPorAnio && typeof data.pagosPorAnio === "object"
+            ? data.pagosPorAnio
+            : {};
         setPagosPorAnio(pagos);
 
         const years = Object.keys(pagos).map(Number).filter(Boolean);
         if (years.length) {
           const maxYear = Math.max(...years, yearNow);
-          setSelectedYear((prev) => (Number.isFinite(Number(prev)) ? Number(prev) : maxYear));
+          setSelectedYear((prev) =>
+            Number.isFinite(Number(prev)) ? Number(prev) : maxYear
+          );
         } else {
-          setSelectedYear((prev) => (Number.isFinite(Number(prev)) ? Number(prev) : yearNow));
+          setSelectedYear((prev) =>
+            Number.isFinite(Number(prev)) ? Number(prev) : yearNow
+          );
         }
       } catch (e) {
         if (!alive) return;
@@ -425,7 +474,6 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     return Array.from(years).filter(Boolean).sort((a, b) => b - a);
   }, [pagosPorAnio, yearNow]);
 
-  // ✅ evita loop de setSelectedYear
   const lastFixedYearRef = useRef(null);
   useEffect(() => {
     if (!yearOptions.length) return;
@@ -450,7 +498,9 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         ? mesesCatalogo
         : Array.from({ length: 12 }, (_, i) => ({
             id_mes: i + 1,
-            mes: new Date(0, i).toLocaleString("es", { month: "long" }).toUpperCase(),
+            mes: new Date(0, i)
+              .toLocaleString("es", { month: "long" })
+              .toUpperCase(),
           }));
 
     return catalogo.map((m) => ({
@@ -507,6 +557,11 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     setError("");
   }, []);
 
+  const planesSeleccionados = useMemo(() => {
+    const set = new Set(planesSeleccionadosIds.map((x) => Number(x)));
+    return (planesMantenimiento || []).filter((p) => set.has(Number(p.id)));
+  }, [planesSeleccionadosIds, planesMantenimiento]);
+
   // ✅ registrar pago REAL
   const handleRealizarPago = useCallback(async () => {
     if (!id_sistema) return;
@@ -516,15 +571,26 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       return;
     }
 
-    // ✅ ahora el monto sale de planes
-    if (!planesSeleccionadosIds.length) {
-      setError("Seleccioná al menos un mantenimiento.");
+    // ✅ ahora puede ser: planes y/o desarrollo manual (POR MES)
+    const tienePlanes = planesSeleccionadosIds.length > 0;
+    const tieneDesarrollo = montoDesarrolloNum > 0;
+
+    if (!tienePlanes && !tieneDesarrollo) {
+      setError("Seleccioná al menos un mantenimiento o ingresá un monto por desarrollo.");
       return;
     }
 
-    const montoNum = Number(monto);
+    // ✅ validamos la base por mes
+    const base = Number(basePorMes);
+    if (!Number.isFinite(base) || base <= 0) {
+      setError("El monto por mes es inválido. Revisá mantenimientos y/o monto por desarrollo.");
+      return;
+    }
+
+    // ✅ total final = base * cantidadMeses
+    const montoNum = Number(totalFinal);
     if (!Number.isFinite(montoNum) || montoNum <= 0) {
-      setError("El monto calculado es inválido. Revisá los planes seleccionados.");
+      setError("El total calculado es inválido. Revisá los meses y montos.");
       return;
     }
 
@@ -547,12 +613,16 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         id_sistema: Number(id_sistema),
         anio: Number(selectedYear),
         meses: mesesSeleccionados,
+
+        // ✅ MONTO FINAL (basePorMes * cantidadMeses)
         monto: montoNum,
+
         fecha_pago: String(fechaPago),
         id_medio_pago: Number(idMedioPago),
 
-        // ✅ EXTRA (no rompe tu backend si lo ignorás)
+        // ✅ EXTRA (por mes, backend decide qué hace con esto)
         planes_seleccionados: planesSeleccionadosIds.map((x) => Number(x)),
+        monto_desarrollo: tieneDesarrollo ? montoDesarrolloNum : 0,
       };
 
       const result = await fetchJSON(url, {
@@ -580,6 +650,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       setPagoExitoso(true);
       setMesesSeleccionados([]);
       setPlanesSeleccionadosIds([]);
+      setMontoDesarrollo("");
       onPagoRealizado?.();
     } catch (e) {
       setError(e?.message || "Ocurrió un error al realizar el pago.");
@@ -587,7 +658,6 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
   }, [
     id_sistema,
     mesesSeleccionados,
-    monto,
     fechaPago,
     idMedioPago,
     selectedYear,
@@ -595,6 +665,9 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     onPagoRealizado,
     API,
     planesSeleccionadosIds,
+    montoDesarrolloNum,
+    totalFinal,
+    basePorMes,
   ]);
 
   const tituloCliente = useMemo(() => {
@@ -604,10 +677,14 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     return s || c || "Registro de Pagos";
   }, [detalle]);
 
-  const planesSeleccionados = useMemo(() => {
-    const set = new Set(planesSeleccionadosIds.map((x) => Number(x)));
-    return (planesMantenimiento || []).filter((p) => set.has(Number(p.id)));
-  }, [planesSeleccionadosIds, planesMantenimiento]);
+  // ✅ botón pagar habilitado solo si:
+  // - hay meses seleccionados
+  // - basePorMes > 0 (aunque totalFinal ya depende de meses, dejamos claro)
+  const puedePagar = useMemo(() => {
+    if (mesesSeleccionados.length === 0) return false;
+    if (basePorMes <= 0) return false;
+    return true;
+  }, [mesesSeleccionados.length, basePorMes]);
 
   if (loading) {
     return (
@@ -615,10 +692,16 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         <div className="modpag_contenido">
           <div className="modpag_header">
             <div className="modpag_header-left">
-              <div className="modpag_icon-circle"><FaCoins size={20} /></div>
-              <div className="modpag_header-texts"><h2 className="modpag_title">{tituloCliente}</h2></div>
+              <div className="modpag_icon-circle">
+                <FaCoins size={20} />
+              </div>
+              <div className="modpag_header-texts">
+                <h2 className="modpag_title">{tituloCliente}</h2>
+              </div>
             </div>
-            <button className="modpag_close-btn" disabled type="button">✕</button>
+            <button className="modpag_close-btn" disabled type="button">
+              ✕
+            </button>
           </div>
           <div className="modpag_body">
             <div className="modpag_loading-state">
@@ -637,10 +720,16 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         <div className="modpag_contenido">
           <div className="modpag_header">
             <div className="modpag_header-left">
-              <div className="modpag_icon-circle"><FaCoins size={20} /></div>
-              <div className="modpag_header-texts"><h2 className="modpag_title">{tituloCliente}</h2></div>
+              <div className="modpag_icon-circle">
+                <FaCoins size={20} />
+              </div>
+              <div className="modpag_header-texts">
+                <h2 className="modpag_title">{tituloCliente}</h2>
+              </div>
             </div>
-            <button className="modpag_close-btn" onClick={cerrarModal} type="button">✕</button>
+            <button className="modpag_close-btn" onClick={cerrarModal} type="button">
+              ✕
+            </button>
           </div>
           <div className="modpag_body">
             <p className="modpag_error-banner">{error}</p>
@@ -665,15 +754,23 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         <div className="modpag_contenido">
           <div className="modpag_header">
             <div className="modpag_header-left">
-              <div className="modpag_icon-circle"><FaCoins size={20} /></div>
-              <div className="modpag_header-texts"><h2 className="modpag_title">{tituloCliente}</h2></div>
+              <div className="modpag_icon-circle">
+                <FaCoins size={20} />
+              </div>
+              <div className="modpag_header-texts">
+                <h2 className="modpag_title">{tituloCliente}</h2>
+              </div>
             </div>
-            <button className="modpag_close-btn" type="button" onClick={cerrarModal}>✕</button>
+            <button className="modpag_close-btn" type="button" onClick={cerrarModal}>
+              ✕
+            </button>
           </div>
           <div className="modpag_body">
             <div className="modpag_success">
               <h2 className="modpag_success-title">¡Pago realizado con éxito!</h2>
-              <p className="modpag_success-subtitle">Ya quedó marcado como pagado en el año {selectedYear}.</p>
+              <p className="modpag_success-subtitle">
+                Ya quedó marcado como pagado en el año {selectedYear}.
+              </p>
             </div>
           </div>
           <div className="modpag_footer modpag_footer-sides">
@@ -695,17 +792,21 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       <div className="modpag_contenido">
         <div className="modpag_header">
           <div className="modpag_header-left">
-            <div className="modpag_icon-circle"><FaCoins size={20} /></div>
+            <div className="modpag_icon-circle">
+              <FaCoins size={20} />
+            </div>
             <div className="modpag_header-texts">
               <h2 className="modpag_title">{tituloCliente}</h2>
             </div>
           </div>
-          <button className="modpag_close-btn" onClick={cerrarModal} type="button">✕</button>
+          <button className="modpag_close-btn" onClick={cerrarModal} type="button">
+            ✕
+          </button>
         </div>
 
         <div className="modpag_body">
           <div className="modpag_info-summary">
-            <div className="modpag_info-row" >
+            <div className="modpag_info-row">
               <div className="modpag_info-item">
                 <span className="modpag_info-label">Fecha pago</span>
                 <input
@@ -716,7 +817,6 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
                 />
               </div>
 
-              {/* ✅ NUEVO: MULTISELECT PLANES */}
               <div className="modpag_info-item" style={{ minWidth: 260 }}>
                 <span className="modpag_info-label">Mantenimientos</span>
                 <MultiSelectPlanes
@@ -727,19 +827,15 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
                 />
               </div>
 
-              {/* ✅ Monto calculado */}
-              <div className="modpag_info-item" style={{ minWidth: 140 }}>
-                <span className="modpag_info-label">Total</span>
+              <div className="modpag_info-item" style={{ minWidth: 170 }}>
+                <span className="modpag_info-label">Monto desarrollo</span>
                 <input
                   type="text"
-                  value={
-                    totalPlanes
-                      ? `$${Number(totalPlanes).toLocaleString("es-AR")}`
-                      : ""
-                  }
-                  readOnly
-                  className="modpag_input modpag_input_readonly"
-                  placeholder="$0"
+                  value={montoDesarrollo}
+                  onChange={(e) => setMontoDesarrollo(sanitizeMoneyTyping(e.target.value))}
+                  className="modpag_input"
+                  placeholder="0"
+                  inputMode="decimal"
                 />
               </div>
 
@@ -763,7 +859,6 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
               </div>
             </div>
 
-            {/* ✅ Chips de planes seleccionados (opcional pero útil) */}
             {planesSeleccionados.length > 0 && (
               <div className="modpag_planes_chips">
                 {planesSeleccionados.map((p) => (
@@ -854,7 +949,15 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         </div>
 
         <div className="modpag_footer modpag_footer-sides">
-          <div className="modpag_footer-left" />
+          <div className="modpag_footer-left">
+            <div className="modpag_footer-total">
+              <span className="modpag_footer-total-label">Total:</span>
+              <span className="modpag_footer-total-value">
+                ${Number(totalFinal || 0).toLocaleString("es-AR")}
+              </span>
+            </div>
+          </div>
+
           <div className="modpag_footer-right">
             <button className="modpag_btn modpag_btn-secondary" onClick={cerrarModal} type="button">
               <span className="only-desktop">Cerrar</span>
@@ -864,7 +967,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
             <button
               className="modpag_btn modpag_btn-primary"
               onClick={handleRealizarPago}
-              disabled={mesesSeleccionados.length === 0}
+              disabled={!puedePagar}
               title={`Registrar pago en ${selectedYear}`}
               type="button"
             >

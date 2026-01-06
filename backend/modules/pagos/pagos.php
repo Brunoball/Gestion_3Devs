@@ -14,19 +14,22 @@ declare(strict_types=1);
  * - trabajadores (id, nombre, apellido, email, rol, alias_pago, activo, fecha_alta)
  */
 
-/* =========================
-   Helpers JSON / Request
-========================= */
-function json_ok($data): void {
-  http_response_code(200);
-  echo json_encode($data, JSON_UNESCAPED_UNICODE);
-  exit;
+if (!function_exists('json_ok')) {
+  function json_ok($data): void {
+    http_response_code(200);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    exit;
+  }
 }
 
-function json_error(string $msg, array $extra = []): void {
-  http_response_code(200);
-  echo json_encode(array_merge(['exito' => false, 'mensaje' => $msg], $extra), JSON_UNESCAPED_UNICODE);
-  exit;
+if (!function_exists('json_error')) {
+  function json_error(string $msg, array $extra = []): void {
+    http_response_code(200);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(array_merge(['exito' => false, 'mensaje' => $msg], $extra), JSON_UNESCAPED_UNICODE);
+    exit;
+  }
 }
 
 function get_int(string $key, int $min = 0, int $max = 999999999): int {
@@ -118,7 +121,7 @@ function build_obligaciones_por_anio(DateTime $inicio, DateTime $hoy): array {
    ✅ INCLUDE ENDPOINTS EXTRA
 ========================================================= */
 require_once __DIR__ . '/equipo_sistema.php';
-require_once __DIR__ . '/arca_factura.php'; // ✅ NUEVO ARCA
+require_once __DIR__ . '/arca_factura.php';
 
 /* =========================================================
    ✅ LISTAR AÑOS
@@ -212,7 +215,11 @@ function pagos_listar_pagados(): void
 }
 
 /* =========================================================
-   ✅ LISTAR DEUDORES POR MES/AÑO
+   ✅ LISTAR DEUDORES POR MES/AÑO (FIX DEFINITIVO REAL)
+   - Usa inicio_real robusto (soporta NULL / '0000-00-00' / '0000-00-00 00:00:00' / strings)
+   - NO muestra sistemas que arrancan DESPUÉS del período consultado
+   - Compara contra FIN de mes (último día)
+   - cs.estado compatible: 'activo' o 1
 ========================================================= */
 function pagos_listar_deudores(): void
 {
@@ -222,13 +229,39 @@ function pagos_listar_deudores(): void
   $mesParam = get_str('mes');
   $idMes = resolver_id_mes($pdo, $mesParam);
 
+  $periodStart = DateTime::createFromFormat('Y-n-j', "$anio-$idMes-1");
+  if (!$periodStart) json_error("Período inválido");
+
+  $periodEnd = (clone $periodStart);
+  $periodEnd->modify('last day of this month');
+  $periodEndStr = $periodEnd->format('Y-m-d');
+
   $sql = "
     SELECT
       cs.id_sistema,
       cs.nombre AS sistema,
       cs.descripcion AS sistema_descripcion,
       cs.estado AS sistema_estado,
-      c.nombre  AS cliente
+      cs.fecha_inicio,
+      cs.created_at,
+      c.nombre AS cliente,
+
+      /* ✅ inicio_real robusto (igual que tu query que sí funcionó) */
+      DATE(
+        CASE
+          WHEN STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d') IS NULL
+               AND DATE(cs.created_at) IS NULL
+            THEN NULL
+          WHEN STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d') IS NULL
+            THEN DATE(cs.created_at)
+          WHEN DATE(cs.created_at) IS NULL
+            THEN STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d')
+          ELSE GREATEST(
+            STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d'),
+            DATE(cs.created_at)
+          )
+        END
+      ) AS inicio_real
 
     FROM clientes_sistemas cs
     INNER JOIN clientes c ON c.id_cliente = cs.id_cliente
@@ -239,16 +272,37 @@ function pagos_listar_deudores(): void
      AND YEAR(p.fecha_pago) = :anio
 
     WHERE p.id_pago IS NULL
-      AND cs.estado = 'activo'
+
+      /* ✅ estado compatible */
+      AND (cs.estado = 'activo' OR cs.estado = 1)
+
+      /* ✅ clave: inicio_real debe ser <= fin del mes consultado */
+      AND DATE(
+        CASE
+          WHEN STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d') IS NULL
+               AND DATE(cs.created_at) IS NULL
+            THEN NULL
+          WHEN STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d') IS NULL
+            THEN DATE(cs.created_at)
+          WHEN DATE(cs.created_at) IS NULL
+            THEN STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d')
+          ELSE GREATEST(
+            STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d'),
+            DATE(cs.created_at)
+          )
+        END
+      ) <= :period_end
 
     ORDER BY c.nombre ASC, cs.nombre ASC
   ";
 
   $stmt = $pdo->prepare($sql);
   $stmt->execute([
-    ':id_mes' => $idMes,
-    ':anio'  => $anio,
+    ':id_mes'     => $idMes,
+    ':anio'       => $anio,
+    ':period_end' => $periodEndStr,
   ]);
+
   $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
   $out = [];
@@ -259,7 +313,7 @@ function pagos_listar_deudores(): void
     if ($concepto === '') $concepto = '—';
 
     $out[] = [
-      'id_sistema' => (int)($r['id_sistema'] ?? 0),
+      'id_sistema' => (int)$r['id_sistema'],
       'cliente'    => $r['cliente'] ?? '—',
       'concepto'   => $concepto,
       'medio_pago' => '—',
@@ -268,6 +322,10 @@ function pagos_listar_deudores(): void
       'mes'        => $mesParam,
       'anio'       => $anio,
       'estado_sistema' => $r['sistema_estado'] ?? null,
+
+      /* ✅ dejalo 1 día para debug si querés */
+      // 'inicio_real' => $r['inicio_real'] ?? null,
+      // 'period_end' => $periodEndStr,
     ];
   }
 
@@ -275,7 +333,7 @@ function pagos_listar_deudores(): void
 }
 
 /* =========================================================
-   ✅ DETALLE SISTEMA
+   ✅ DETALLE SISTEMA (FIX: inicio_real robusto)
 ========================================================= */
 function pagos_detalle_sistema(): void
 {
@@ -296,6 +354,23 @@ function pagos_detalle_sistema(): void
       cs.estado      AS sistema_estado,
       cs.fecha_inicio,
       cs.created_at  AS sistema_created_at,
+
+      /* ✅ inicio_real robusto (igual al deudores) */
+      DATE(
+        CASE
+          WHEN STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d') IS NULL
+               AND DATE(cs.created_at) IS NULL
+            THEN NULL
+          WHEN STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d') IS NULL
+            THEN DATE(cs.created_at)
+          WHEN DATE(cs.created_at) IS NULL
+            THEN STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d')
+          ELSE GREATEST(
+            STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d'),
+            DATE(cs.created_at)
+          )
+        END
+      ) AS inicio_real,
 
       c.nombre       AS cliente_nombre,
       c.notas        AS cliente_notas,
@@ -342,8 +417,16 @@ function pagos_detalle_sistema(): void
     $pagosPorAnio[$y] = $arr;
   }
 
-  $inicioStr = $row['fecha_inicio'] ?: ($row['sistema_created_at'] ?: date('Y-m-d'));
-  $inicioStr = substr((string)$inicioStr, 0, 10);
+  // ✅ usar inicio_real SIEMPRE (evita que te aparezca "enero 2026" cuando arrancó en mayo)
+  $inicioStr = $row['inicio_real'] ?? null;
+  if (!$inicioStr) {
+    // fallback extremo (no debería pasar)
+    $fi = (string)($row['fecha_inicio'] ?? '');
+    $ca = (string)($row['sistema_created_at'] ?? '');
+    $inicioStr = substr(($fi !== '' ? $fi : $ca), 0, 10);
+    if ($inicioStr === '' || $inicioStr === '0000-00-00') $inicioStr = date('Y-m-d');
+  }
+
   $inicio = new DateTime($inicioStr);
   $hoy = new DateTime(date('Y-m-d'));
 
@@ -367,6 +450,7 @@ function pagos_detalle_sistema(): void
       'estado'       => (string)($row['sistema_estado'] ?? ''),
       'fecha_inicio' => $row['fecha_inicio'] ?? null,
       'created_at'   => $row['sistema_created_at'] ?? null,
+      'inicio_real'  => $row['inicio_real'] ?? null,
     ],
     'cliente' => [
       'id_cliente' => (int)$row['id_cliente'],
@@ -518,3 +602,4 @@ function pagos_eliminar_pago(): void
     json_error("Error DB al eliminar pago", ['error' => $e->getMessage()]);
   }
 }
+

@@ -25,57 +25,65 @@ function route_pagos(string $action): bool
 {
   if ($action !== 'pagos' && $action !== 'anios_pagos') return false;
 
+  // ✅ Carga del módulo
   require_once __DIR__ . '/pagos.php';
 
+  // ✅ Respuesta siempre JSON (evita HTML silencioso)
+  if (!headers_sent()) {
+    header('Content-Type: application/json; charset=utf-8');
+  }
+
+  // ✅ Años de pagos
   if ($action === 'anios_pagos') {
     pagos_listar_anios();
     return true;
   }
 
-  $op = $_GET['op'] ?? '';
+  $op = (string)($_GET['op'] ?? '');
 
-  if ($op === 'detalle_sistema') {
-    pagos_detalle_sistema();
-    return true;
+  // ✅ Ops de modal / acciones
+  switch ($op) {
+    case 'detalle_sistema':
+      pagos_detalle_sistema();
+      return true;
+
+    case 'equipo_sistema':
+      pagos_equipo_sistema();
+      return true;
+
+    case 'registrar_pago':
+      pagos_registrar_pago();
+      return true;
+
+    case 'eliminar_pago':
+      pagos_eliminar_pago();
+      return true;
+
+    case 'factura_arca':
+      pagos_factura_arca();
+      return true;
   }
 
-  if ($op === 'equipo_sistema') {
-    pagos_equipo_sistema();
-    return true;
-  }
+  // ✅ Estado listados
+  $estado = strtolower(trim((string)($_GET['estado'] ?? 'pagado')));
 
-  if ($op === 'registrar_pago') {
-    pagos_registrar_pago();
-    return true;
-  }
-
-  if ($op === 'eliminar_pago') {
-    pagos_eliminar_pago();
-    return true;
-  }
-
-  // ✅ NUEVO: emitir factura ARCA (CAE real)
-  if ($op === 'factura_arca') {
-    pagos_factura_arca();
-    return true;
-  }
-
-  $estado = $_GET['estado'] ?? 'pagado';
-
-  if ($estado === 'pagado') {
+  if ($estado === 'pagado' || $estado === 'pagados') {
     pagos_listar_pagados();
     return true;
   }
 
   if ($estado === 'deudor' || $estado === 'deudores') {
+    // ✅ IMPORTANTE: el fix del bug está dentro de pagos_listar_deudores() en pagos.php
     pagos_listar_deudores();
     return true;
   }
 
+  // ✅ Fallback
   http_response_code(200);
   echo json_encode([
     'exito' => false,
     'mensaje' => 'Parámetros inválidos. Usá: ?estado=pagado|deudor o ?op=detalle_sistema|equipo_sistema|registrar_pago|eliminar_pago|factura_arca'
   ], JSON_UNESCAPED_UNICODE);
+
   return true;
 }

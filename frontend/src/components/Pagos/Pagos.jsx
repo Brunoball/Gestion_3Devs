@@ -13,18 +13,18 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowLeft,
   faSearch,
-  faMoneyCheckAlt, // ✅ $ botón registrar/pagar
+  faMoneyCheckAlt,
   faFilter,
   faCalendarAlt,
-  faUsers, // ✅ equipo
+  faUsers,
   faList,
   faCheckCircle,
   faExclamationTriangle,
   faExclamationCircle,
   faCreditCard,
-  faTimes, // ✅ eliminar
-  faFileInvoiceDollar, // ✅ ARCA
-  faFileExcel, // ✅ Excel
+  faTimes,
+  faFileInvoiceDollar,
+  faFileExcel,
 } from "@fortawesome/free-solid-svg-icons";
 
 import * as XLSX from "xlsx";
@@ -33,28 +33,19 @@ import BASE_URL from "../../config/config";
 import Toast from "../Global/Toast";
 import "./Pagos.css";
 
-// ✅ Modal de pago
 import ModalPago from "./modales/ModalPago";
-// ✅ Modal eliminar pago
 import ModalEliminarPago from "./modales/ModalEliminarPago";
-// ✅ NUEVO MODAL: equipo + monto a pagar
 import ModalEquipoPago from "./modales/ModalEquipoPago";
-// ✅ NUEVO MODAL: Factura ARCA
 import ModalFacturaArca from "./modales/ModalFacturaArca";
 
 const ACTION_PAGOS = "pagos";
 const API = `${BASE_URL}/api.php`;
 
-/**
- * ✅ LISTAS desde /api.php?action=listas
- */
+/** LISTAS desde /api.php?action=listas */
 const LISTAS_ACTION = "listas";
 const LISTAS_API = `${API}?action=${LISTAS_ACTION}`;
 
-/**
- * ✅ Fallback directo al archivo global (si tu router listas no está incluido)
- * Estructura: backend/modules/global/obtener_listas.php
- */
+/** Fallback directo si tu router listas no está */
 const BACKEND_BASE = BASE_URL.endsWith("/routes")
   ? BASE_URL.replace(/\/routes$/, "")
   : BASE_URL;
@@ -168,6 +159,7 @@ function buildClienteLabel(item) {
     "")
     .toString()
     .trim();
+
   const cli = (
     item?.cliente ||
     item?.cliente_nombre ||
@@ -208,7 +200,12 @@ function getIdSistema(item) {
 }
 
 function getIdPago(item) {
-  const v = item?.id_pago ?? item?.idPago ?? item?.IdPago ?? item?.ID_PAGO ?? null;
+  const v =
+    item?.id_pago ??
+    item?.idPago ??
+    item?.IdPago ??
+    item?.ID_PAGO ??
+    null;
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
@@ -244,7 +241,6 @@ const Row = memo(
     return (
       <div style={style} className="gpagos-virtual-row">
         <div className="gpagos-virtual-cell">{buildClienteLabel(item)}</div>
-
         <div className="gpagos-virtual-cell">{buildSistemaLabel(item)}</div>
 
         <div className="gpagos-virtual-cell gpagos-virtual-actions">
@@ -318,7 +314,7 @@ const Row = memo(
 function Pagos() {
   const navigate = useNavigate();
 
-  // ===== Tabs =====
+  // ✅ por defecto “pagado”, pero auto-cambiamos a deudores si hace falta
   const [activeTab, setActiveTab] = useState("pagado");
 
   // ===== Filtros =====
@@ -340,11 +336,7 @@ function Pagos() {
   // ===== UI =====
   const [loading, setLoading] = useState({ pagos: false, listas: false });
 
-  /* =========================
-     ✅ Toasts: SOLO importantes
-     - Pago realizado con éxito
-     - Pago eliminado correctamente
-  ========================= */
+  // ===== Toasts =====
   const [toast, setToast] = useState({
     show: false,
     tipo: "exito",
@@ -357,7 +349,7 @@ function Pagos() {
     setToast((t) => ({
       show: true,
       tipo,
-      mensaje, // ✅ solo texto (sin emojis / sin iconos)
+      mensaje,
       duracion,
       key: (t.key || 0) + 1,
     }));
@@ -369,19 +361,16 @@ function Pagos() {
 
   // ✅ MODAL PAGO
   const [modalPago, setModalPago] = useState(null);
-  const openModalPago = useCallback(
-    (row) => {
-      const id_sistema = getIdSistema(row);
-      if (!id_sistema) return; // ❌ sin toasts (solo importantes)
-      setModalPago({
-        open: true,
-        id_sistema,
-        labelCliente: buildClienteLabel(row),
-        labelSistema: buildSistemaLabel(row),
-      });
-    },
-    []
-  );
+  const openModalPago = useCallback((row) => {
+    const id_sistema = getIdSistema(row);
+    if (!id_sistema) return;
+    setModalPago({
+      open: true,
+      id_sistema,
+      labelCliente: buildClienteLabel(row),
+      labelSistema: buildSistemaLabel(row),
+    });
+  }, []);
   const closeModalPago = useCallback(() => setModalPago(null), []);
 
   // ✅ MODAL ELIMINAR
@@ -394,7 +383,7 @@ function Pagos() {
   const openModalEquipo = useCallback(
     (row) => {
       const id_sistema = getIdSistema(row);
-      if (!id_sistema) return; // ❌ sin toasts
+      if (!id_sistema) return;
       setModalEquipo({
         open: true,
         id_sistema,
@@ -417,8 +406,8 @@ function Pagos() {
     (row) => {
       const id_sistema = getIdSistema(row);
       const id_pago = getIdPago(row);
-      if (!id_sistema || !id_pago) return; // ❌ sin toasts
-      if (!selectedYear || !selectedMonth) return; // ❌ sin toasts
+      if (!id_sistema || !id_pago) return;
+      if (!selectedYear || !selectedMonth) return;
 
       setModalArca({
         open: true,
@@ -454,7 +443,6 @@ function Pagos() {
     const text = await res.text();
 
     if (!res.ok) {
-      // intentamos decodificar mensaje del backend, pero sin mostrar toasts acá
       let msg = `HTTP ${res.status}`;
       try {
         const parsed = JSON.parse(text);
@@ -467,6 +455,7 @@ function Pagos() {
     if (trimmed.startsWith("<")) {
       throw new Error("Backend devolvió HTML (error PHP).");
     }
+
     try {
       const data = JSON.parse(trimmed || "{}");
       if (data && typeof data === "object" && data?.exito === false) {
@@ -486,7 +475,7 @@ function Pagos() {
   );
 
   /* =========================================================
-     ✅ LISTAS
+     ✅ LISTAS (con AÑO ACTUAL SIEMPRE)
   ========================================================= */
   const fetchListas = useCallback(
     async (force = false) => {
@@ -516,6 +505,7 @@ function Pagos() {
       try {
         const listas = await fetchListas(false);
 
+        // meses
         const rawMeses = Array.isArray(listas?.meses) ? listas.meses : [];
         const mesesNorm = rawMeses
           .map((m) => ({
@@ -527,6 +517,7 @@ function Pagos() {
           .map((m) => ({ mes: m.mes }));
         setMeses(mesesNorm);
 
+        // medios pago
         const rawMP = Array.isArray(listas?.medios_pago)
           ? listas.medios_pago
           : [];
@@ -546,6 +537,9 @@ function Pagos() {
           .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
         setMediosPago(mpNorm);
 
+        // años
+        const current = new Date().getFullYear();
+
         const rawAnios = Array.isArray(listas?.anios) ? listas.anios : [];
         const aniosNorm = rawAnios
           .map((a) => (typeof a === "object" ? a.anio ?? a.year ?? a.value : a))
@@ -554,23 +548,25 @@ function Pagos() {
           .filter((n) => Number.isFinite(n))
           .sort((a, b) => b - a);
 
-        setYears(aniosNorm);
+        // ✅ SIEMPRE incluimos el año actual aunque no haya pagos
+        const finalYears = [
+          current,
+          ...aniosNorm.filter((y) => y !== current),
+        ];
 
-        const current = new Date().getFullYear();
-        setSelectedYear((prev) => {
-          if (prev) {
-            const cur = parseInt(prev, 10);
-            if (aniosNorm.includes(cur)) return prev;
-          }
-          if (aniosNorm.includes(current)) return String(current);
-          return aniosNorm.length ? String(aniosNorm[0]) : "";
-        });
+        setYears(finalYears);
+
+        // ✅ año siempre actual
+        setSelectedYear(String(current));
       } catch (e) {
-        // ❌ no toast (no es "importante" según lo pedido)
-        // si querés, dejalo en console
         console.error(e);
+        // ✅ fallback ultra seguro
+        const current = new Date().getFullYear();
+        setYears([current]);
+        setSelectedYear(String(current));
       }
     };
+
     run();
   }, [fetchListas]);
 
@@ -601,6 +597,8 @@ function Pagos() {
           mes
         )}`;
 
+        // ✅ Siempre pedimos ambos: pagados y deudores.
+        // Aunque pagados venga vacío, deudores viene bien.
         const [pagados, deudores] = await Promise.all([
           fetchJSON(`${API}?action=${ACTION_PAGOS}&estado=pagado${qp}`, {
             method: "GET",
@@ -620,7 +618,6 @@ function Pagos() {
         setPagosPagados(arrP);
         setPagosDeudores(arrD);
       } catch (e) {
-        // ❌ no toast (no es "importante" según lo pedido)
         console.error(e);
       } finally {
         setLoading((p) => ({ ...p, pagos: false }));
@@ -674,6 +671,26 @@ function Pagos() {
     [selectedMedioPago, searchTerm]
   );
 
+  // ✅ si NO hay pagados pero SÍ hay deudores, te paso automáticamente a “deudores”
+  useEffect(() => {
+    if (!filtrosCompletos) return;
+    if (loading.pagos) return;
+
+    const pagadosCount = filterData(pagosPagados).length;
+    const deudoresCount = filterData(pagosDeudores).length;
+
+    if (activeTab === "pagado" && pagadosCount === 0 && deudoresCount > 0) {
+      setActiveTab("deudores");
+    }
+  }, [
+    filtrosCompletos,
+    loading.pagos,
+    activeTab,
+    pagosPagados,
+    pagosDeudores,
+    filterData,
+  ]);
+
   const datosCrudosBase = useMemo(
     () => (activeTab === "pagado" ? pagosPagados : pagosDeudores),
     [activeTab, pagosPagados, pagosDeudores]
@@ -723,12 +740,15 @@ function Pagos() {
   }, []);
 
   const onPayClick = useCallback((row) => openModalPago(row), [openModalPago]);
-  const onTeamClick = useCallback((row) => openModalEquipo(row), [openModalEquipo]);
+  const onTeamClick = useCallback(
+    (row) => openModalEquipo(row),
+    [openModalEquipo]
+  );
   const onArcaClick = useCallback((row) => openModalArca(row), [openModalArca]);
 
   const onDeleteClick = useCallback((row) => {
     const id_pago = getIdPago(row);
-    if (!id_pago) return; // ❌ sin toasts
+    if (!id_pago) return;
     setModalEliminar({
       open: true,
       id_pago,
@@ -761,7 +781,7 @@ function Pagos() {
     [activeTab, selectedYear, selectedMonth, selectedMedioPago, searchTerm]
   );
 
-  // ✅ refrescar (se usa internamente)
+  // ✅ refrescar
   const recargarListado = useCallback(() => {
     if (!selectedYear || !selectedMonth) return;
     const k = cacheKey(selectedYear, selectedMonth);
@@ -771,7 +791,7 @@ function Pagos() {
     cargarPagosPorMes(selectedYear, selectedMonth, true);
   }, [selectedYear, selectedMonth, cacheKey, cargarPagosPorMes]);
 
-  // ✅ EXPORTAR EXCEL (sin toast)
+  // ✅ EXPORTAR EXCEL
   const exportarExcel = useCallback(() => {
     if (!filtrosCompletos) return;
     const data = Array.isArray(datosFiltrados) ? datosFiltrados : [];
@@ -805,7 +825,7 @@ function Pagos() {
     XLSX.writeFile(wb, fileName);
   }, [filtrosCompletos, datosFiltrados, activeTab, selectedYear, selectedMonth]);
 
-  // ✅ confirmar eliminación (toast importante)
+  // ✅ confirmar eliminación
   const confirmarEliminarPago = useCallback(async () => {
     if (!modalEliminar?.id_pago) return;
 
@@ -814,7 +834,10 @@ function Pagos() {
 
       await fetchJSON(`${API}?action=${ACTION_PAGOS}&op=eliminar_pago`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         body: JSON.stringify({ id_pago: modalEliminar.id_pago }),
       });
 
@@ -822,7 +845,6 @@ function Pagos() {
       closeModalEliminar();
       recargarListado();
     } catch (e) {
-      // ❌ pediste toast SOLO importantes, este error no lo pediste.
       console.error(e);
     } finally {
       setLoading((p) => ({ ...p, pagos: false }));
@@ -957,7 +979,9 @@ function Pagos() {
         >
           {(props) => {
             if (props.index >= datosFiltradosPaginated.length) {
-              return <div style={props.style} className="gpagos-loading-row"></div>;
+              return (
+                <div style={props.style} className="gpagos-loading-row"></div>
+              );
             }
             return (
               <Row
@@ -992,7 +1016,6 @@ function Pagos() {
 
   return (
     <div className="gpagos-container">
-      {/* ✅ TOAST SOLO IMPORTANTES */}
       {toast.show ? (
         <Toast
           key={toast.key}
@@ -1003,7 +1026,6 @@ function Pagos() {
         />
       ) : null}
 
-      {/* ✅ MODAL PAGO */}
       {modalPago?.open && (
         <ModalPago
           id_sistema={modalPago.id_sistema}
@@ -1011,13 +1033,11 @@ function Pagos() {
           onPagoRealizado={() => {
             closeModalPago();
             recargarListado();
-            // ✅ IMPORTANTE
             showToast("exito", "Pago realizado con éxito.", 2600);
           }}
         />
       )}
 
-      {/* ✅ MODAL EQUIPO */}
       {modalEquipo?.open && (
         <ModalEquipoPago
           open={modalEquipo.open}
@@ -1028,7 +1048,6 @@ function Pagos() {
         />
       )}
 
-      {/* ✅ MODAL ARCA */}
       {modalArca?.open && (
         <ModalFacturaArca
           open={modalArca.open}
@@ -1047,7 +1066,6 @@ function Pagos() {
         />
       )}
 
-      {/* ✅ MODAL ELIMINAR */}
       {modalEliminar?.open && (
         <ModalEliminarPago
           open={modalEliminar.open}
@@ -1089,8 +1107,11 @@ function Pagos() {
                   id="anio"
                   value={selectedYear}
                   onChange={(e) => {
+                    // ✅ si querés “siempre actual”, igual lo dejamos editable
                     setSelectedYear(e.target.value);
-                    setSelectedMonth("");
+
+                    // si querés conservar mes al cambiar año, sacá esta línea:
+                    // setSelectedMonth("");
                     setSelectedMedioPago("");
                     setSearchTerm("");
                   }}
@@ -1113,6 +1134,7 @@ function Pagos() {
                 <label htmlFor="meses" className="gpagos-input-label">
                   <FontAwesomeIcon icon={faCalendarAlt} /> Mes
                 </label>
+
                 <select
                   id="meses"
                   value={selectedMonth}
@@ -1121,7 +1143,7 @@ function Pagos() {
                     setSearchTerm("");
                   }}
                   className="gpagos-dropdown"
-                  disabled={!selectedYear || loading.listas || loading.pagos}
+                  disabled={loading.listas}
                 >
                   <option value="" disabled>
                     Mes
@@ -1230,7 +1252,9 @@ function Pagos() {
         <div className="gpagos-table-header">
           <h3>
             <FontAwesomeIcon
-              icon={activeTab === "pagado" ? faCheckCircle : faExclamationTriangle}
+              icon={
+                activeTab === "pagado" ? faCheckCircle : faExclamationTriangle
+              }
             />
             {activeTab === "pagado" ? "Pagos Registrados" : "Pagos Pendientes"}
           </h3>
