@@ -740,3 +740,110 @@ html, body {
 .gridtable-body.minimal{
   overflow-x: auto;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+/* =========================
+   Empty state (sin registros)
+   ========================= */
+.detalle-empty{
+  flex: 1 1 auto;
+  min-height: 160px;
+  display: grid;
+  place-items: center;
+  padding: 22px 14px;
+  background: radial-gradient(
+    1200px 220px at 50% 0%,
+    rgba(37, 99, 235, 0.08),
+    rgba(255, 255, 255, 0) 60%
+  );
+}
+
+.gridtable-empty-inner{
+  width: min(520px, 100%);
+  text-align: center;
+  padding: 18px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px dashed rgba(148, 163, 184, 0.55);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(6px);
+}
+
+.gridtable-empty-inner .empty-icon{
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 10px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  font-size: 26px;
+}
+
+.gridtable-empty-inner > div:last-child{
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.35;
+}
+
+/* Subtexto opcional si después agregás otra línea */
+.gridtable-empty-inner .empty-sub{
+  margin-top: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+/* Responsive */
+@media (max-width: 920px){
+  .gridtable-empty-inner{
+    padding: 16px 14px;
+    border-radius: 14px;
+  }
+  .gridtable-empty-inner .empty-icon{
+    width: 52px;
+    height: 52px;
+    border-radius: 13px;
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+.gridtable-empty-inner .empty-icon{
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 10px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.18);
+}
+
+.gridtable-empty-inner .empty-icon svg{
+  font-size: 24px;     /* tamaño del icono */
+  color: #2563EB;      /* color */
+  opacity: 0.95;
+}

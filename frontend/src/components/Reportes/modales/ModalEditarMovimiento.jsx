@@ -9,7 +9,9 @@ import {
   faUser,
   faEye,
   faTrash,
-  faUpload,
+  faPaperclip,
+  faFilePdf,
+  faImage,
 } from "@fortawesome/free-solid-svg-icons";
 
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
@@ -21,6 +23,14 @@ function isPdfPath(pathOrUrl) {
 
 // ✅ helper: convierte a MAYÚSCULAS “en vivo”
 const toUpperLive = (v) => String(v ?? "").toUpperCase();
+
+function fileNameFromPath(p) {
+  const s = String(p || "").trim();
+  if (!s) return "";
+  const clean = s.split("?")[0].split("#")[0];
+  const parts = clean.split("/").filter(Boolean);
+  return parts[parts.length - 1] || clean;
+}
 
 export default function ModalEditarMovimiento({
   open,
@@ -264,6 +274,12 @@ export default function ModalEditarMovimiento({
   const hasCurrent = !!currentCompPath;
   const canPreviewInline = hasCurrent && !!currentCompUrl;
 
+  // ✅ meta para estilos tipo ModalNuevoEgreso (cmp-*)
+  const currentIsPdf = isPdfPath(currentCompPath) || isPdfPath(currentCompUrl);
+  const currentName = fileNameFromPath(currentCompPath) || "Comprobante";
+  const newIsPdf = newFile ? /\.(pdf)$/i.test(newFile.name || "") : false;
+  const newIsImg = newFile ? /\.(jpg|jpeg|png|webp)$/i.test(newFile.name || "") : false;
+
   return (
     <div
       className="mi-modal__overlay"
@@ -478,106 +494,140 @@ export default function ModalEditarMovimiento({
                     </div>
                   </article>
 
+                  {/* ✅ CARD: Comprobante con las MISMAS CLASES cmp-* que ModalNuevoEgreso */}
                   {tipo === "egreso" && (
                     <article className="mi-card">
                       <h3 className="mi-card__title">Comprobante</h3>
 
-                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                        <button
-                          type="button"
-                          className="mit-btn mit-btn--ghost"
-                          disabled={!hasCurrent || loading}
-                          onClick={() => (onVerComprobante ? onVerComprobante(currentCompPath) : null)}
-                          title={!hasCurrent ? "No hay comprobante" : "Ver comprobante"}
-                        >
-                          <FontAwesomeIcon icon={faEye} /> Ver
-                        </button>
+                      <div className="fl-grid">
+                        <div className="fl-field fl-col-full">
+                          <div className={`cmp-box ${error ? "is-error" : ""}`}>
+<div className="cmp-actions">
 
-                        <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                          <input
-                            type="checkbox"
-                            checked={deleteComp}
-                            onChange={(e) => setDeleteComp(e.target.checked)}
-                            disabled={loading || (!hasCurrent && !newFile)}
-                          />
-                          <span>
-                            <FontAwesomeIcon icon={faTrash} /> Eliminar comprobante
-                          </span>
-                        </label>
-                      </div>
+</div>
 
-                      <div style={{ marginTop: 10 }}>
-                        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>
-                          {hasCurrent ? "Actual" : "No hay comprobante cargado"}
-                        </div>
 
-                        {canPreviewInline ? (
-                          <div
-                            style={{
-                              border: "1px solid rgba(0,0,0,.10)",
-                              borderRadius: 12,
-                              overflow: "hidden",
-                              background: "#fff",
-                            }}
-                          >
-                            {isPdfPath(currentCompUrl) ? (
-                              <iframe
-                                title="Comprobante PDF"
-                                src={currentCompUrl}
-                                style={{ width: "100%", height: 340, border: 0 }}
+                            {/* DROPZONE estilo NuevoEgreso */}
+                            <label className="cmp-drop">
+                              <input
+                                ref={fileRef}
+                                className="cmp-inputfile"
+                                type="file"
+                                accept="application/pdf,image/*"
+                                disabled={loading}
+                                onChange={(e) => onPickFile(e.target.files?.[0] || null)}
                               />
+
+                              <div className="cmp-drop__icon">
+                                <FontAwesomeIcon icon={faPaperclip} />
+                              </div>
+
+                              <div className="cmp-drop__text">
+                                <b>{hasCurrent ? "Reemplazar archivo" : "Seleccioná un archivo"}</b>
+                                <span>o arrastralo acá</span>
+                              </div>
+
+                              <div className="cmp-drop__btn">Elegir archivo</div>
+                            </label>
+
+                            {/* Estado actual / nuevo */}
+                            {newFile ? (
+                              <div className="cmp-file">
+                                <div className="cmp-file__left">
+                                  <div className={`cmp-badge ${newIsPdf ? "is-pdf" : newIsImg ? "is-img" : ""}`}>
+                                    <FontAwesomeIcon icon={newIsPdf ? faFilePdf : newIsImg ? faImage : faPaperclip} />
+                                  </div>
+
+                                  <div className="cmp-file__meta">
+                                    <div className="cmp-file__name" title={newFile.name}>
+                                      {newFile.name}
+                                    </div>
+                                    <div className="cmp-file__size">{Math.round(newFile.size / 1024)} KB</div>
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  className="cmp-remove"
+                                  onClick={() => {
+                                    setNewFile(null);
+                                    if (fileRef.current) fileRef.current.value = "";
+                                  }}
+                                  disabled={loading}
+                                  title="Quitar archivo"
+                                >
+                                  <FontAwesomeIcon icon={faTimes} />
+                                </button>
+                              </div>
+                            ) : hasCurrent ? (
+                              deleteComp ? (
+                                <div className="cmp-empty">Marcado para eliminar</div>
+                              ) : (
+                                <div className="cmp-file">
+                                  <div className="cmp-file__left">
+                                    <div className={`cmp-badge ${currentIsPdf ? "is-pdf" : "is-img"}`}>
+                                      <FontAwesomeIcon icon={currentIsPdf ? faFilePdf : faImage} />
+                                    </div>
+
+                                    <div className="cmp-file__meta">
+                                      <div className="cmp-file__name" title={currentName}>
+                                        {currentName}
+                                      </div>
+                                      <div className="cmp-file__size">Actual</div>
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    className="cmp-remove"
+                                    onClick={() => setDeleteComp(true)}
+                                    disabled={loading}
+                                    title="Marcar para eliminar"
+                                  >
+                                    <FontAwesomeIcon icon={faTrash} />
+                                  </button>
+                                </div>
+                              )
                             ) : (
-                              <img
-                                src={currentCompUrl}
-                                alt="Comprobante"
-                                style={{
-                                  width: "100%",
-                                  maxHeight: 340,
-                                  objectFit: "contain",
-                                  display: "block",
-                                }}
-                              />
+                              <div className="cmp-empty">Sin archivo adjunto</div>
                             )}
+
+                            {/* Preview inline (lo dejo, pero sin romper las clases cmp-*) */}
+                            {canPreviewInline && !deleteComp && !newFile ? (
+                              <div
+                                style={{
+                                  marginTop: 10,
+                                  border: "1px solid rgba(0,0,0,.10)",
+                                  borderRadius: 12,
+                                  overflow: "hidden",
+                                  background: "#fff",
+                                }}
+                              >
+                                {isPdfPath(currentCompUrl) ? (
+                                  <iframe
+                                    title="Comprobante PDF"
+                                    src={currentCompUrl}
+                                    style={{ width: "100%", height: 340, border: 0 }}
+                                  />
+                                ) : (
+                                  <img
+                                    src={currentCompUrl}
+                                    alt="Comprobante"
+                                    style={{
+                                      width: "100%",
+                                      maxHeight: 340,
+                                      objectFit: "contain",
+                                      display: "block",
+                                    }}
+                                  />
+                                )}
+                              </div>
+                            ) : null}
+
+                            <div style={{ marginTop: 8, fontSize: 11, color: "#64748b" }}>
+                              * Si subís un archivo nuevo, reemplaza al anterior automáticamente. (Máx 8MB)
+                            </div>
                           </div>
-                        ) : (
-                          <div
-                            style={{
-                              padding: "10px 12px",
-                              borderRadius: 12,
-                              border: "1px dashed rgba(0,0,0,.18)",
-                              background: "rgba(2, 132, 199, .05)",
-                              color: "#0f172a",
-                              fontSize: 13,
-                            }}
-                          >
-                            {hasCurrent
-                              ? "No se pudo previsualizar el archivo."
-                              : "Subí un PDF o imagen para asociar al egreso."}
-                          </div>
-                        )}
-                      </div>
-
-                      <div style={{ marginTop: 12 }}>
-                        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>
-                          {hasCurrent ? "Reemplazar comprobante (opcional)" : "Agregar comprobante (opcional)"}
-                        </div>
-
-                        <input
-                          ref={fileRef}
-                          type="file"
-                          accept=".pdf,image/jpeg,image/jpg,image/png,image/webp,application/pdf"
-                          disabled={loading}
-                          onChange={(e) => onPickFile(e.target.files?.[0] || null)}
-                        />
-
-                        {newFile ? (
-                          <div style={{ marginTop: 6, fontSize: 12, color: "#0f172a" }}>
-                            <FontAwesomeIcon icon={faUpload} /> Nuevo archivo: <b>{newFile.name}</b>
-                          </div>
-                        ) : null}
-
-                        <div style={{ marginTop: 6, fontSize: 11, color: "#64748b" }}>
-                          * Si subís un archivo nuevo, reemplaza al anterior automáticamente. (Máx 8MB)
                         </div>
                       </div>
                     </article>
@@ -596,12 +646,7 @@ export default function ModalEditarMovimiento({
           </div>
 
           <div className="mit-actions">
-            <button
-              type="button"
-              className="mit-btn mit-btn--ghost"
-              onClick={cerrar}
-              disabled={loading}
-            >
+            <button type="button" className="mit-btn mit-btn--ghost" onClick={cerrar} disabled={loading}>
               <FontAwesomeIcon icon={faTimes} /> Cancelar
             </button>
 

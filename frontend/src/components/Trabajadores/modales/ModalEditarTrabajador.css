@@ -594,3 +594,72 @@
     max-width: 240px;
   }
 }
+/* =========================
+   Eliminar comprobante (chip)
+========================= */
+.cmp-actions{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-left:auto;
+}
+
+.cmp-chip{
+  border:1px solid rgba(0,0,0,.14);
+  background:#fff;
+  color:#0f172a;
+  border-radius:999px;
+  padding:6px 10px;
+  font-size:13px;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  cursor:pointer;
+  transition:transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease;
+}
+
+.cmp-chip__icon{
+  width:22px;
+  height:22px;
+  border-radius:999px;
+  display:grid;
+  place-items:center;
+  background:rgba(239,68,68,.10);
+  border:1px solid rgba(239,68,68,.22);
+}
+
+.cmp-chip:hover{
+  box-shadow:0 8px 18px rgba(2,6,23,.08);
+  transform:translateY(-1px);
+}
+
+.cmp-chip.is-on{
+  background:rgba(239,68,68,.10);
+  border-color:rgba(239,68,68,.35);
+}
+
+.cmp-chip.is-on .cmp-chip__icon{
+  background:rgba(239,68,68,.16);
+  border-color:rgba(239,68,68,.35);
+}
+
+.cmp-chip:disabled{
+  opacity:.55;
+  cursor:not-allowed;
+  box-shadow:none;
+  transform:none;
+}
+
+/* =========================
+   Advertencia eliminar PDF
+========================= */
+.cmp-warning{
+  margin-top:8px;
+  padding:8px 10px;
+  border-radius:10px;
+  background:rgba(239,68,68,.08);
+  border:1px dashed rgba(239,68,68,.35);
+  color:#7f1d1d;
+  font-size:12px;
+  line-height:1.35;
+}

@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import "./dashboard.css";
 import BASE_URL from "../../config/config";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faInbox } from "@fortawesome/free-solid-svg-icons";
+
 import {
   faArrowLeft,
   faCalendarAlt,
@@ -136,12 +138,16 @@ function GridTable({ title, icon, columns = [], rows = [], loading = false, acti
               </div>
             ))
           ) : (
-            <div className="detalle-empty">
-              <div className="gridtable-empty-inner">
-                <div className="empty-icon">📭</div>
-                <div>No hay datos para los filtros aplicados.</div>
-              </div>
-            </div>
+<div className="detalle-empty">
+  <div className="gridtable-empty-inner">
+<div className="empty-icon" aria-hidden="true">
+  <FontAwesomeIcon icon={faInbox} />
+</div>
+
+    <div>No hay datos para los filtros aplicados.</div>
+  </div>
+</div>
+
           )}
         </div>
       </div>
