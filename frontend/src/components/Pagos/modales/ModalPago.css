@@ -677,7 +677,7 @@
   position: absolute;
   top: calc(100% + 10px);
   left: 0;
-  width: 100%;
+  width: 114%;
   z-index: 1002;
 
   background: var(--modpag_white);
