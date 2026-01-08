@@ -1,4 +1,4 @@
-const BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:3001/routes";
+const BASE_URL = process.env.REACT_APP_API_URL || "https://app.3devsnet.com/api/routes/api.php";
 
 export default BASE_URL;
 

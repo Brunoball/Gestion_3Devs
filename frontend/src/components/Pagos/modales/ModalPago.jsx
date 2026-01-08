@@ -1029,25 +1029,25 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
             </div>
           </div>
 
-{/* ✅ TARJETA DÓLAR (SIN STYLES INLINE) */}
-<div className="modpag_footer-middle">
-  <div
-    className={`modpag_dolar2 ${dolarVenta ? "is-ok" : "is-empty"}`}
-    title={dolarInfo?.fecha ? `Actualizado: ${dolarInfo.fecha}` : ""}
-  >
-    <div className="modpag_dolar2-left">
-      <span className="modpag_dolar2-dot" aria-hidden="true" />
-      <div className="modpag_dolar2-text">
-        <div className="modpag_dolar2-title">Dólar venta</div>
+          {/* ✅ TARJETA DÓLAR (SIN STYLES INLINE) */}
+          <div className="modpag_footer-middle">
+            <div
+              className={`modpag_dolar2 ${dolarVenta ? "is-ok" : "is-empty"}`}
+              title={dolarInfo?.fecha ? `Actualizado: ${dolarInfo.fecha}` : ""}
+            >
+              <div className="modpag_dolar2-left">
+                <span className="modpag_dolar2-dot" aria-hidden="true" />
+                <div className="modpag_dolar2-text">
+                  <div className="modpag_dolar2-title">Dólar venta</div>
 
-      </div>
-    </div>
+                </div>
+              </div>
 
-    <div className="modpag_dolar2-value">
-      {dolarVenta ? `$${Number(dolarVenta).toLocaleString("es-AR")}` : "—"}
-    </div>
-  </div>
-</div>
+              <div className="modpag_dolar2-value">
+                {dolarVenta ? `$${Number(dolarVenta).toLocaleString("es-AR")}` : "—"}
+              </div>
+            </div>
+          </div>
 
 
           <div className="modpag_footer-right">
@@ -1063,7 +1063,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
               title={`Registrar pago en ${selectedYear}`}
               type="button"
             >
-              <span className="only-desktop">Realizar Pago</span>
+              <span className="only-desktop">Pagar</span>
               <FaCheck className="only-mobile-inline" />
             </button>
           </div>
