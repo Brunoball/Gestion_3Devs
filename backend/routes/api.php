@@ -34,12 +34,9 @@ require_once __DIR__ . '/../modules/pagos/route.php';
 require_once __DIR__ . '/../modules/reportes/route.php';
 
 /**
- * ✅ LISTAS (OJO: tu carpeta real es "Global" con G mayúscula)
- * Ruta real del archivo:
- *   backend/modules/Global/obtener_listas.php
- *
- * Entonces el router debe estar en:
- *   backend/modules/Global/route.php
+ * ✅ GLOBAL (listas + dolar)
+ * ruta real:
+ * backend/modules/global/route.php
  */
 require_once __DIR__ . '/../modules/global/route.php';
 
@@ -54,7 +51,6 @@ function fallback_reportes(PDO $pdo): void
 
   // GET /api.php?action=reportes&op=anios
   if ($op === 'anios') {
-    // Años disponibles basados en egresos (podés sumar ingresos/pagos después si querés)
     $stmt = $pdo->query("
       SELECT DISTINCT YEAR(fecha) AS anio
       FROM egresos
@@ -75,13 +71,6 @@ function fallback_reportes(PDO $pdo): void
     $anio = isset($_GET['anio']) ? (int)$_GET['anio'] : null;
     $mes  = isset($_GET['mes'])  ? (int)$_GET['mes']  : null;
 
-    // 🔸 EGRESOS
-    // Basado en tu tabla egresos: id_egreso, concepto, descripcion, monto, fecha, id_medio_pago...
-    // Se asume:
-    // - tabla "meses" con columnas: id, mes (como usás en action=listas)
-    // - tabla "medios_pago" con columnas: id_medio_pago, nombre
-    //
-    // Si tu tabla de medios se llama distinto, decime el nombre y lo ajusto 1:1.
     $sqlE = "
       SELECT
         e.id_egreso AS id,
@@ -116,17 +105,14 @@ function fallback_reportes(PDO $pdo): void
     $stE->execute($params);
     $egresos = $stE->fetchAll(PDO::FETCH_ASSOC);
 
-    // 👇 Para no romper tu React, devolvemos ambos arrays.
-    // Tu frontend ya soporta pagosArr desde data.pagos o data.ingresos.
     echo json_encode([
       'exito'   => true,
-      'pagos'   => [],       // si todavía no lo implementaste en módulo
+      'pagos'   => [],
       'egresos' => $egresos,
     ], JSON_UNESCAPED_UNICODE);
     exit;
   }
 
-  // op inválido
   echo json_encode([
     'exito'   => false,
     'mensaje' => 'op no válida en reportes: ' . $op
@@ -145,7 +131,6 @@ try {
   if (function_exists('route_pagos') && route_pagos($action)) exit;
 
   // ✅ reportes (action=reportes)
-  // Si el módulo reportes no respondió (o no está completo), usamos fallback para egresos.
   if ($action === 'reportes') {
     if (function_exists('route_reportes') && route_reportes($action)) {
       exit;
@@ -154,7 +139,15 @@ try {
     exit;
   }
 
-  // ✅ listas (action=listas)
+  /**
+   * ✅ GLOBAL (listas y dolar)
+   * - action=listas        -> obtener_listas.php (como ya lo usás)
+   * - action=dolar_oficial -> obtener_dolar.php (nuevo)
+   */
+  if (function_exists('route_global') && route_global($action)) exit;
+
+  // ✅ Para compatibilidad por si tu frontend sigue usando route_listas (viejo):
+  // Si tu router global no estuviera, esto mantiene listas funcionando.
   if (function_exists('route_listas') && route_listas($action)) exit;
 
   http_response_code(200);

@@ -64,12 +64,7 @@ function YearDropdown({ value, options = [], onChange }) {
 /* =========================
    MultiSelect Planes (checkbox dropdown)
 ========================= */
-function MultiSelectPlanes({
-  options = [],
-  selectedIds = [],
-  onChangeIds,
-  disabled,
-}) {
+function MultiSelectPlanes({ options = [], selectedIds = [], onChangeIds, disabled }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -138,9 +133,7 @@ function MultiSelectPlanes({
           <div className="modpag_ms-list">
             {options.length ? (
               options.map((p) => {
-                const checked = (selectedIds || []).some(
-                  (x) => Number(x) === Number(p.id)
-                );
+                const checked = (selectedIds || []).some((x) => Number(x) === Number(p.id));
                 return (
                   <button
                     key={p.id}
@@ -153,8 +146,10 @@ function MultiSelectPlanes({
                     </span>
                     <span className="modpag_ms-item-text">
                       <span className="modpag_ms-item-name">{p.nombre}</span>
+
+                      {/* ✅ montos de planes: están en USD */}
                       <span className="modpag_ms-item-amt">
-                        ${Number(p.monto || 0).toLocaleString("es-AR")}
+                        USD {Number(p.monto || 0).toLocaleString("es-AR")}
                       </span>
                     </span>
                   </button>
@@ -201,8 +196,8 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
   const [mesesSeleccionados, setMesesSeleccionados] = useState([]);
   const [pagoExitoso, setPagoExitoso] = useState(false);
 
-  // ✅ montos base (por mes)
-  const [montoDesarrollo, setMontoDesarrollo] = useState(""); // editable
+  // ✅ montos base (por mes) -> EN USD
+  const [montoDesarrollo, setMontoDesarrollo] = useState(""); // USD editable
 
   const [fechaPago, setFechaPago] = useState(() => {
     const d = new Date();
@@ -217,9 +212,17 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
   const [mesesCatalogo, setMesesCatalogo] = useState([]);
   const [mediosPago, setMediosPago] = useState([]);
 
-  // ✅ planes mantenimiento + selección múltiple
+  // ✅ planes mantenimiento + selección múltiple -> montos en USD
   const [planesMantenimiento, setPlanesMantenimiento] = useState([]);
   const [planesSeleccionadosIds, setPlanesSeleccionadosIds] = useState([]);
+
+  // ✅ dólar actual (venta)
+  const [dolarInfo, setDolarInfo] = useState({
+    venta: null,
+    compra: null,
+    fecha: null,
+    fuente: null,
+  });
 
   const hoy = useMemo(() => new Date(), []);
   const yearNow = hoy.getFullYear();
@@ -228,9 +231,10 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
   const API = useMemo(() => `${BASE_URL}/api.php`, []);
 
   /* =========================================================
-     ✅ LISTAS
+     ✅ LISTAS + DÓLAR
   ========================================================= */
   const LISTAS_API = useMemo(() => `${API}?action=listas`, [API]);
+  const DOLAR_API = useMemo(() => `${API}?action=dolar_oficial`, [API]);
 
   const BACKEND_BASE = useMemo(() => {
     if (typeof BASE_URL !== "string") return "";
@@ -239,6 +243,11 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
 
   const LISTAS_DIRECT = useMemo(
     () => `${BACKEND_BASE}/modules/global/obtener_listas.php`,
+    [BACKEND_BASE]
+  );
+
+  const DOLAR_DIRECT = useMemo(
+    () => `${BACKEND_BASE}/modules/global/obtener_dolar.php`,
     [BACKEND_BASE]
   );
 
@@ -271,19 +280,12 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         id_mes: Number(m?.id_mes ?? m?.id ?? null),
         mes: String(m?.mes ?? m?.nombre ?? "").trim(),
       }))
-      .filter(
-        (m) =>
-          Number.isFinite(m.id_mes) &&
-          m.id_mes >= 1 &&
-          m.id_mes <= 12 &&
-          m.mes
-      )
+      .filter((m) => Number.isFinite(m.id_mes) && m.id_mes >= 1 && m.id_mes <= 12 && m.mes)
       .sort((a, b) => a.id_mes - b.id_mes);
   }, []);
 
   const normalizarMedios = useCallback((data) => {
-    const raw =
-      data?.listas?.medios_pago || data?.medios_pago || data?.mediosPago || [];
+    const raw = data?.listas?.medios_pago || data?.medios_pago || data?.mediosPago || [];
     const arr = Array.isArray(raw) ? raw : [];
     return arr
       .map((x) => ({
@@ -305,35 +307,30 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       .map((p) => ({
         id: Number(p?.id ?? p?.id_plan ?? null),
         nombre: String(p?.nombre ?? p?.plan ?? "").trim(),
-        monto: Number(p?.monto ?? p?.precio ?? 0),
+        monto: Number(p?.monto ?? p?.precio ?? 0), // ✅ USD
       }))
-      .filter(
-        (p) =>
-          Number.isFinite(p.id) &&
-          p.id > 0 &&
-          p.nombre &&
-          Number.isFinite(p.monto)
-      )
+      .filter((p) => Number.isFinite(p.id) && p.id > 0 && p.nombre && Number.isFinite(p.monto))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, []);
 
-  // ✅ Cargar catálogos
+  // ✅ cargar catálogos + dólar
   useEffect(() => {
     let alive = true;
 
     (async () => {
+      // --- LISTAS ---
       try {
-        let data;
+        let dataListas;
         try {
-          data = await fetchJSON(LISTAS_API, { method: "GET" });
+          dataListas = await fetchJSON(LISTAS_API, { method: "GET" });
         } catch {
-          data = await fetchJSON(LISTAS_DIRECT, { method: "GET" });
+          dataListas = await fetchJSON(LISTAS_DIRECT, { method: "GET" });
         }
         if (!alive) return;
 
-        const m = normalizarMeses(data);
-        const mp = normalizarMedios(data);
-        const pl = normalizarPlanes(data);
+        const m = normalizarMeses(dataListas);
+        const mp = normalizarMedios(dataListas);
+        const pl = normalizarPlanes(dataListas);
 
         setMesesCatalogo(m.length ? m : []);
         setMediosPago(mp.length ? mp : []);
@@ -346,13 +343,36 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         setMesesCatalogo(
           Array.from({ length: 12 }, (_, i) => ({
             id_mes: i + 1,
-            mes: new Date(0, i)
-              .toLocaleString("es", { month: "long" })
-              .toUpperCase(),
+            mes: new Date(0, i).toLocaleString("es", { month: "long" }).toUpperCase(),
           }))
         );
         setMediosPago([]);
         setPlanesMantenimiento([]);
+      }
+
+      // --- DÓLAR ---
+      try {
+        let d;
+        try {
+          d = await fetchJSON(DOLAR_API, { method: "GET" });
+        } catch {
+          d = await fetchJSON(DOLAR_DIRECT, { method: "GET" });
+        }
+        if (!alive) return;
+
+        // tu PHP devuelve: ok, compra, venta, fecha, fuente
+        const venta = Number(d?.venta);
+        const compra = Number(d?.compra);
+
+        setDolarInfo({
+          venta: Number.isFinite(venta) && venta > 0 ? venta : null,
+          compra: Number.isFinite(compra) && compra > 0 ? compra : null,
+          fecha: d?.fecha || null,
+          fuente: d?.fuente || "Dólar Oficial",
+        });
+      } catch {
+        if (!alive) return;
+        setDolarInfo({ venta: null, compra: null, fecha: null, fuente: null });
       }
     })();
 
@@ -362,6 +382,8 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
   }, [
     LISTAS_API,
     LISTAS_DIRECT,
+    DOLAR_API,
+    DOLAR_DIRECT,
     fetchJSON,
     normalizarMeses,
     normalizarMedios,
@@ -369,8 +391,13 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     idMedioPago,
   ]);
 
-  // ✅ total planes (por mes)
-  const totalPlanes = useMemo(() => {
+  const dolarVenta = useMemo(() => {
+    const v = Number(dolarInfo?.venta);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  }, [dolarInfo]);
+
+  // ✅ total planes (USD por mes)
+  const totalPlanesUSD = useMemo(() => {
     if (!planesSeleccionadosIds?.length) return 0;
     const set = new Set(planesSeleccionadosIds.map((x) => Number(x)));
     const total = (planesMantenimiento || []).reduce((acc, p) => {
@@ -380,26 +407,33 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     return Math.round(total * 100) / 100;
   }, [planesSeleccionadosIds, planesMantenimiento]);
 
-  // ✅ monto manual (por mes)
-  const montoDesarrolloNum = useMemo(
+  // ✅ monto manual USD (por mes)
+  const montoDesarrolloUSD = useMemo(
     () => Math.round(parseMoneyInput(montoDesarrollo) * 100) / 100,
     [montoDesarrollo]
   );
 
-  // ✅ BASE por mes (planes + desarrollo)
-  const basePorMes = useMemo(() => {
-    const t = Number(totalPlanes) + Number(montoDesarrolloNum);
+  // ✅ BASE USD por mes = (planes + desarrollo)
+  const basePorMesUSD = useMemo(() => {
+    const t = Number(totalPlanesUSD) + Number(montoDesarrolloUSD);
     return Math.round(t * 100) / 100;
-  }, [totalPlanes, montoDesarrolloNum]);
+  }, [totalPlanesUSD, montoDesarrolloUSD]);
 
-  // ✅ TOTAL FINAL = basePorMes * cantidadMesesSeleccionados
-  //    Si no hay meses seleccionados => 0 (aunque haya mantenimientos / desarrollo cargado)
-  const totalFinal = useMemo(() => {
+  // ✅ total USD = basePorMesUSD * cantidadMesesSeleccionados
+  const totalUSD = useMemo(() => {
     const cant = Number(mesesSeleccionados?.length || 0);
     if (!cant) return 0;
-    const t = Number(basePorMes) * cant;
+    const t = Number(basePorMesUSD) * cant;
     return Math.round(t * 100) / 100;
-  }, [basePorMes, mesesSeleccionados]);
+  }, [basePorMesUSD, mesesSeleccionados]);
+
+  // ✅ total ARS = totalUSD * dólar venta
+  const totalARS = useMemo(() => {
+    if (!totalUSD) return 0;
+    if (!dolarVenta) return 0;
+    const t = Number(totalUSD) * Number(dolarVenta);
+    return Math.round(t * 100) / 100;
+  }, [totalUSD, dolarVenta]);
 
   // ESC para cerrar
   useEffect(() => {
@@ -445,13 +479,9 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         const years = Object.keys(pagos).map(Number).filter(Boolean);
         if (years.length) {
           const maxYear = Math.max(...years, yearNow);
-          setSelectedYear((prev) =>
-            Number.isFinite(Number(prev)) ? Number(prev) : maxYear
-          );
+          setSelectedYear((prev) => (Number.isFinite(Number(prev)) ? Number(prev) : maxYear));
         } else {
-          setSelectedYear((prev) =>
-            Number.isFinite(Number(prev)) ? Number(prev) : yearNow
-          );
+          setSelectedYear((prev) => (Number.isFinite(Number(prev)) ? Number(prev) : yearNow));
         }
       } catch (e) {
         if (!alive) return;
@@ -498,9 +528,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         ? mesesCatalogo
         : Array.from({ length: 12 }, (_, i) => ({
             id_mes: i + 1,
-            mes: new Date(0, i)
-              .toLocaleString("es", { month: "long" })
-              .toUpperCase(),
+            mes: new Date(0, i).toLocaleString("es", { month: "long" }).toUpperCase(),
           }));
 
     return catalogo.map((m) => ({
@@ -562,7 +590,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     return (planesMantenimiento || []).filter((p) => set.has(Number(p.id)));
   }, [planesSeleccionadosIds, planesMantenimiento]);
 
-  // ✅ registrar pago REAL
+  // ✅ registrar pago REAL (monto final en ARS)
   const handleRealizarPago = useCallback(async () => {
     if (!id_sistema) return;
 
@@ -571,26 +599,38 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       return;
     }
 
-    // ✅ ahora puede ser: planes y/o desarrollo manual (POR MES)
     const tienePlanes = planesSeleccionadosIds.length > 0;
-    const tieneDesarrollo = montoDesarrolloNum > 0;
+    const tieneDesarrollo = montoDesarrolloUSD > 0;
 
     if (!tienePlanes && !tieneDesarrollo) {
-      setError("Seleccioná al menos un mantenimiento o ingresá un monto por desarrollo.");
+      setError("Seleccioná al menos un mantenimiento o ingresá un monto por desarrollo (USD).");
       return;
     }
 
-    // ✅ validamos la base por mes
-    const base = Number(basePorMes);
-    if (!Number.isFinite(base) || base <= 0) {
-      setError("El monto por mes es inválido. Revisá mantenimientos y/o monto por desarrollo.");
+    // base por mes USD
+    const baseUSD = Number(basePorMesUSD);
+    if (!Number.isFinite(baseUSD) || baseUSD <= 0) {
+      setError("El monto por mes (USD) es inválido.");
       return;
     }
 
-    // ✅ total final = base * cantidadMeses
-    const montoNum = Number(totalFinal);
-    if (!Number.isFinite(montoNum) || montoNum <= 0) {
-      setError("El total calculado es inválido. Revisá los meses y montos.");
+    // total USD
+    const totalUsdNum = Number(totalUSD);
+    if (!Number.isFinite(totalUsdNum) || totalUsdNum <= 0) {
+      setError("El total (USD) calculado es inválido.");
+      return;
+    }
+
+    // dólar venta
+    if (!dolarVenta) {
+      setError("No se pudo obtener el dólar actual. Probá de nuevo.");
+      return;
+    }
+
+    // total ARS
+    const totalArsNum = Number(totalARS);
+    if (!Number.isFinite(totalArsNum) || totalArsNum <= 0) {
+      setError("El total (ARS) calculado es inválido.");
       return;
     }
 
@@ -614,15 +654,28 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         anio: Number(selectedYear),
         meses: mesesSeleccionados,
 
-        // ✅ MONTO FINAL (basePorMes * cantidadMeses)
-        monto: montoNum,
+        // ✅ MONTO FINAL EN ARS
+        monto: totalArsNum,
 
         fecha_pago: String(fechaPago),
         id_medio_pago: Number(idMedioPago),
 
-        // ✅ EXTRA (por mes, backend decide qué hace con esto)
+        // ✅ extras (por si querés guardar trazabilidad)
+        monto_usd: totalUsdNum,
+        dolar_venta: Number(dolarVenta),
+        dolar_compra: Number(dolarInfo?.compra || 0),
+        dolar_fecha: dolarInfo?.fecha || null,
+
+        // ✅ planes (montos en USD en DB, acá mandamos ids)
         planes_seleccionados: planesSeleccionadosIds.map((x) => Number(x)),
-        monto_desarrollo: tieneDesarrollo ? montoDesarrolloNum : 0,
+
+        // ✅ desarrollo: mandamos ya convertido a ARS para que sea coherente con monto final
+        monto_desarrollo: tieneDesarrollo
+          ? Math.round(Number(montoDesarrolloUSD) * Number(dolarVenta) * 100) / 100
+          : 0,
+
+        // también mandamos desarrollo USD como extra
+        monto_desarrollo_usd: tieneDesarrollo ? montoDesarrolloUSD : 0,
       };
 
       const result = await fetchJSON(url, {
@@ -635,9 +688,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         throw new Error(result?.mensaje || "Error al registrar el pago");
       }
 
-      const insertados = Array.isArray(result?.insertados)
-        ? result.insertados
-        : mesesSeleccionados;
+      const insertados = Array.isArray(result?.insertados) ? result.insertados : mesesSeleccionados;
 
       setPagosPorAnio((prev) => {
         const copia = { ...(prev || {}) };
@@ -665,9 +716,12 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     onPagoRealizado,
     API,
     planesSeleccionadosIds,
-    montoDesarrolloNum,
-    totalFinal,
-    basePorMes,
+    montoDesarrolloUSD,
+    totalUSD,
+    totalARS,
+    basePorMesUSD,
+    dolarVenta,
+    dolarInfo,
   ]);
 
   const tituloCliente = useMemo(() => {
@@ -679,12 +733,14 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
 
   // ✅ botón pagar habilitado solo si:
   // - hay meses seleccionados
-  // - basePorMes > 0 (aunque totalFinal ya depende de meses, dejamos claro)
+  // - basePorMesUSD > 0
+  // - hay dólar
   const puedePagar = useMemo(() => {
     if (mesesSeleccionados.length === 0) return false;
-    if (basePorMes <= 0) return false;
+    if (basePorMesUSD <= 0) return false;
+    if (!dolarVenta) return false;
     return true;
-  }, [mesesSeleccionados.length, basePorMes]);
+  }, [mesesSeleccionados.length, basePorMesUSD, dolarVenta]);
 
   if (loading) {
     return (
@@ -768,9 +824,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
           <div className="modpag_body">
             <div className="modpag_success">
               <h2 className="modpag_success-title">¡Pago realizado con éxito!</h2>
-              <p className="modpag_success-subtitle">
-                Ya quedó marcado como pagado en el año {selectedYear}.
-              </p>
+              <p className="modpag_success-subtitle">Ya quedó marcado como pagado en el año {selectedYear}.</p>
             </div>
           </div>
           <div className="modpag_footer modpag_footer-sides">
@@ -818,7 +872,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
               </div>
 
               <div className="modpag_info-item" style={{ minWidth: 260 }}>
-                <span className="modpag_info-label">Mantenimientos</span>
+                <span className="modpag_info-label">Mantenimientos (USD)</span>
                 <MultiSelectPlanes
                   options={planesMantenimiento}
                   selectedIds={planesSeleccionadosIds}
@@ -828,7 +882,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
               </div>
 
               <div className="modpag_info-item" style={{ minWidth: 170 }}>
-                <span className="modpag_info-label">Monto desarrollo</span>
+                <span className="modpag_info-label">Monto desarrollo (USD)</span>
                 <input
                   type="text"
                   value={montoDesarrollo}
@@ -863,7 +917,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
               <div className="modpag_planes_chips">
                 {planesSeleccionados.map((p) => (
                   <span key={p.id} className="modpag_chip">
-                    {p.nombre} · ${Number(p.monto).toLocaleString("es-AR")}
+                    {p.nombre} · USD {Number(p.monto).toLocaleString("es-AR")}
                   </span>
                 ))}
               </div>
@@ -948,13 +1002,41 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
           </div>
         </div>
 
+        {/* =========================
+            FOOTER: total ARS + tarjeta dólar + botones
+        ========================= */}
         <div className="modpag_footer modpag_footer-sides">
           <div className="modpag_footer-left">
             <div className="modpag_footer-total">
               <span className="modpag_footer-total-label">Total:</span>
               <span className="modpag_footer-total-value">
-                ${Number(totalFinal || 0).toLocaleString("es-AR")}
+                ${Number(totalARS || 0).toLocaleString("es-AR")}
               </span>
+
+              {/* opcional: mostrar total usd chiquito */}
+              <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>
+                USD {Number(totalUSD || 0).toLocaleString("es-AR")}
+              </div>
+            </div>
+          </div>
+
+          {/* ✅ TARJETA DÓLAR (en el medio) */}
+          <div className="modpag_footer-middle" style={{ display: "flex", alignItems: "center" }}>
+            <div
+              style={{
+                padding: "8px 12px",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: "rgba(255,255,255,0.06)",
+                minWidth: 170,
+                textAlign: "center",
+              }}
+              title={dolarInfo?.fecha ? `Actualizado: ${dolarInfo.fecha}` : ""}
+            >
+              <div style={{ fontSize: 12, opacity: 0.85 }}>Dólar (venta)</div>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>
+                {dolarVenta ? `$${Number(dolarVenta).toLocaleString("es-AR")}` : "—"}
+              </div>
             </div>
           </div>
 
