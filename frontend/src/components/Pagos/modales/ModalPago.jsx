@@ -1039,9 +1039,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       <span className="modpag_dolar2-dot" aria-hidden="true" />
       <div className="modpag_dolar2-text">
         <div className="modpag_dolar2-title">Dólar venta</div>
-        <div className="modpag_dolar2-sub">
-          {dolarInfo?.fecha ? `Actualizado: ${dolarInfo.fecha}` : "Sin actualización"}
-        </div>
+
       </div>
     </div>
 
