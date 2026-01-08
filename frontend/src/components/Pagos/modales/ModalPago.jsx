@@ -1,3 +1,4 @@
+// src/components/Pagos/modales/ModalPago.jsx
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { FaCoins, FaTimes, FaCheck } from "react-icons/fa";
 import BASE_URL from "../../../config/config";
@@ -64,7 +65,12 @@ function YearDropdown({ value, options = [], onChange }) {
 /* =========================
    MultiSelect Planes (checkbox dropdown)
 ========================= */
-function MultiSelectPlanes({ options = [], selectedIds = [], onChangeIds, disabled }) {
+function MultiSelectPlanes({
+  options = [],
+  selectedIds = [],
+  onChangeIds,
+  disabled,
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -133,7 +139,9 @@ function MultiSelectPlanes({ options = [], selectedIds = [], onChangeIds, disabl
           <div className="modpag_ms-list">
             {options.length ? (
               options.map((p) => {
-                const checked = (selectedIds || []).some((x) => Number(x) === Number(p.id));
+                const checked = (selectedIds || []).some(
+                  (x) => Number(x) === Number(p.id)
+                );
                 return (
                   <button
                     key={p.id}
@@ -144,6 +152,7 @@ function MultiSelectPlanes({ options = [], selectedIds = [], onChangeIds, disabl
                     <span className={`modpag_ms-box ${checked ? "on" : ""}`}>
                       {checked ? "✓" : ""}
                     </span>
+
                     <span className="modpag_ms-item-text">
                       <span className="modpag_ms-item-name">{p.nombre}</span>
 
@@ -280,7 +289,10 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         id_mes: Number(m?.id_mes ?? m?.id ?? null),
         mes: String(m?.mes ?? m?.nombre ?? "").trim(),
       }))
-      .filter((m) => Number.isFinite(m.id_mes) && m.id_mes >= 1 && m.id_mes <= 12 && m.mes)
+      .filter(
+        (m) =>
+          Number.isFinite(m.id_mes) && m.id_mes >= 1 && m.id_mes <= 12 && m.mes
+      )
       .sort((a, b) => a.id_mes - b.id_mes);
   }, []);
 
@@ -309,7 +321,13 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         nombre: String(p?.nombre ?? p?.plan ?? "").trim(),
         monto: Number(p?.monto ?? p?.precio ?? 0), // ✅ USD
       }))
-      .filter((p) => Number.isFinite(p.id) && p.id > 0 && p.nombre && Number.isFinite(p.monto))
+      .filter(
+        (p) =>
+          Number.isFinite(p.id) &&
+          p.id > 0 &&
+          p.nombre &&
+          Number.isFinite(p.monto)
+      )
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, []);
 
@@ -360,7 +378,6 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         }
         if (!alive) return;
 
-        // tu PHP devuelve: ok, compra, venta, fecha, fuente
         const venta = Number(d?.venta);
         const compra = Number(d?.compra);
 
@@ -607,27 +624,23 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       return;
     }
 
-    // base por mes USD
     const baseUSD = Number(basePorMesUSD);
     if (!Number.isFinite(baseUSD) || baseUSD <= 0) {
       setError("El monto por mes (USD) es inválido.");
       return;
     }
 
-    // total USD
     const totalUsdNum = Number(totalUSD);
     if (!Number.isFinite(totalUsdNum) || totalUsdNum <= 0) {
       setError("El total (USD) calculado es inválido.");
       return;
     }
 
-    // dólar venta
     if (!dolarVenta) {
       setError("No se pudo obtener el dólar actual. Probá de nuevo.");
       return;
     }
 
-    // total ARS
     const totalArsNum = Number(totalARS);
     if (!Number.isFinite(totalArsNum) || totalArsNum <= 0) {
       setError("El total (ARS) calculado es inválido.");
@@ -660,21 +673,20 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         fecha_pago: String(fechaPago),
         id_medio_pago: Number(idMedioPago),
 
-        // ✅ extras (por si querés guardar trazabilidad)
+        // ✅ extras
         monto_usd: totalUsdNum,
         dolar_venta: Number(dolarVenta),
         dolar_compra: Number(dolarInfo?.compra || 0),
         dolar_fecha: dolarInfo?.fecha || null,
 
-        // ✅ planes (montos en USD en DB, acá mandamos ids)
+        // ✅ planes
         planes_seleccionados: planesSeleccionadosIds.map((x) => Number(x)),
 
-        // ✅ desarrollo: mandamos ya convertido a ARS para que sea coherente con monto final
+        // ✅ desarrollo en ARS coherente con total
         monto_desarrollo: tieneDesarrollo
           ? Math.round(Number(montoDesarrolloUSD) * Number(dolarVenta) * 100) / 100
           : 0,
 
-        // también mandamos desarrollo USD como extra
         monto_desarrollo_usd: tieneDesarrollo ? montoDesarrolloUSD : 0,
       };
 
@@ -731,10 +743,6 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     return s || c || "Registro de Pagos";
   }, [detalle]);
 
-  // ✅ botón pagar habilitado solo si:
-  // - hay meses seleccionados
-  // - basePorMesUSD > 0
-  // - hay dólar
   const puedePagar = useMemo(() => {
     if (mesesSeleccionados.length === 0) return false;
     if (basePorMesUSD <= 0) return false;
@@ -824,7 +832,9 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
           <div className="modpag_body">
             <div className="modpag_success">
               <h2 className="modpag_success-title">¡Pago realizado con éxito!</h2>
-              <p className="modpag_success-subtitle">Ya quedó marcado como pagado en el año {selectedYear}.</p>
+              <p className="modpag_success-subtitle">
+                Ya quedó marcado como pagado en el año {selectedYear}.
+              </p>
             </div>
           </div>
           <div className="modpag_footer modpag_footer-sides">
@@ -871,7 +881,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
                 />
               </div>
 
-              <div className="modpag_info-item" style={{ minWidth: 260 }}>
+              <div className="modpag_info-item">
                 <span className="modpag_info-label">Mantenimientos (USD)</span>
                 <MultiSelectPlanes
                   options={planesMantenimiento}
@@ -881,7 +891,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
                 />
               </div>
 
-              <div className="modpag_info-item" style={{ minWidth: 170 }}>
+              <div className="modpag_info-item">
                 <span className="modpag_info-label">Monto desarrollo (USD)</span>
                 <input
                   type="text"
@@ -893,7 +903,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
                 />
               </div>
 
-              <div className="modpag_info-item" style={{ minWidth: 200 }}>
+              <div className="modpag_info-item">
                 <span className="modpag_info-label">Medio de pago</span>
                 <select
                   className="modpag_input"
@@ -928,7 +938,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
             <div className="modpag_section-header">
               <h4 className="modpag_section-title">Meses</h4>
 
-              <div className="modpag_section-header-actions" style={{ display: "flex", gap: 8 }}>
+              <div className="modpag_section-header-actions">
                 <YearDropdown value={selectedYear} options={yearOptions} onChange={onChangeYear} />
 
                 <button
@@ -1013,32 +1023,34 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
                 ${Number(totalARS || 0).toLocaleString("es-AR")}
               </span>
 
-              {/* opcional: mostrar total usd chiquito */}
-              <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>
+              <div className="modpag_footer-total-usd">
                 USD {Number(totalUSD || 0).toLocaleString("es-AR")}
               </div>
             </div>
           </div>
 
-          {/* ✅ TARJETA DÓLAR (en el medio) */}
-          <div className="modpag_footer-middle" style={{ display: "flex", alignItems: "center" }}>
-            <div
-              style={{
-                padding: "8px 12px",
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.12)",
-                background: "rgba(255,255,255,0.06)",
-                minWidth: 170,
-                textAlign: "center",
-              }}
-              title={dolarInfo?.fecha ? `Actualizado: ${dolarInfo.fecha}` : ""}
-            >
-              <div style={{ fontSize: 12, opacity: 0.85 }}>Dólar (venta)</div>
-              <div style={{ fontSize: 16, fontWeight: 700 }}>
-                {dolarVenta ? `$${Number(dolarVenta).toLocaleString("es-AR")}` : "—"}
-              </div>
-            </div>
-          </div>
+{/* ✅ TARJETA DÓLAR (SIN STYLES INLINE) */}
+<div className="modpag_footer-middle">
+  <div
+    className={`modpag_dolar2 ${dolarVenta ? "is-ok" : "is-empty"}`}
+    title={dolarInfo?.fecha ? `Actualizado: ${dolarInfo.fecha}` : ""}
+  >
+    <div className="modpag_dolar2-left">
+      <span className="modpag_dolar2-dot" aria-hidden="true" />
+      <div className="modpag_dolar2-text">
+        <div className="modpag_dolar2-title">Dólar venta</div>
+        <div className="modpag_dolar2-sub">
+          {dolarInfo?.fecha ? `Actualizado: ${dolarInfo.fecha}` : "Sin actualización"}
+        </div>
+      </div>
+    </div>
+
+    <div className="modpag_dolar2-value">
+      {dolarVenta ? `$${Number(dolarVenta).toLocaleString("es-AR")}` : "—"}
+    </div>
+  </div>
+</div>
+
 
           <div className="modpag_footer-right">
             <button className="modpag_btn modpag_btn-secondary" onClick={cerrarModal} type="button">

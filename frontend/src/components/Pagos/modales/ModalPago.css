@@ -103,7 +103,7 @@
 .modpag_contenido {
   background-color: var(--modpag_white);
   width: 100%;
-  max-width: 660px;
+  max-width: 760px;
   max-height: 90vh; /* Desktop como antes */
   display: flex;
   flex-direction: column;
@@ -1031,3 +1031,120 @@
   }
 }
 
+/* =========================
+   ✅ Dólar venta (diseño 2)
+========================= */
+
+.modpag_footer-middle{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+/* pill */
+.modpag_dolar2{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+
+  min-width: 240px;
+  padding: 10px 12px;
+
+  border-radius: 9999px;
+  background: var(--modpag_white);
+  border: 1px solid var(--modpag_gray-200);
+  box-shadow: var(--modpag_shadow-sm);
+
+  transition: transform .12s ease, box-shadow .2s ease, border-color .2s ease;
+}
+
+.modpag_dolar2:hover{
+  box-shadow: var(--modpag_shadow);
+  transform: translateY(-1px);
+  border-color: rgba(0,0,0,0.10);
+}
+
+.modpag_dolar2-left{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* dot */
+.modpag_dolar2-dot{
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: var(--modpag_gray-300);
+  box-shadow: 0 0 0 4px rgba(0,0,0,0.04);
+  flex-shrink: 0;
+}
+
+.modpag_dolar2.is-ok .modpag_dolar2-dot{
+  background: var(--modpag_success);
+  box-shadow: 0 0 0 4px rgba(16,185,129,0.14);
+}
+
+/* texts */
+.modpag_dolar2-text{
+  display:flex;
+  flex-direction:column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.modpag_dolar2-title{
+  font-size: .78rem;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--modpag_gray-700);
+  white-space: nowrap;
+}
+
+.modpag_dolar2-sub{
+  font-size: .75rem;
+  font-weight: 700;
+  color: var(--modpag_gray-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+/* value badge */
+.modpag_dolar2-value{
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: 9999px;
+  font-weight: 900;
+  font-size: .92rem;
+  color: var(--modpag_gray-900);
+
+  background: var(--modpag_gray-50);
+  border: 1px solid var(--modpag_gray-200);
+}
+
+.modpag_dolar2.is-ok .modpag_dolar2-value{
+  color: var(--modpag_primary-dark);
+  background: var(--modpag_primary-light);
+  border-color: rgba(251,146,60,0.25);
+}
+
+/* mobile */
+@media (max-width: 600px){
+  .modpag_dolar2{
+    min-width: 180px;
+    padding: 8px 10px;
+    gap: 10px;
+  }
+  .modpag_dolar2-sub{
+    display:none; /* en mobile queda más limpio */
+  }
+  .modpag_dolar2-value{
+    padding: 5px 9px;
+    font-size: .88rem;
+  }
+}

@@ -847,3 +847,38 @@ html, body {
   color: #2563EB;      /* color */
   opacity: 0.95;
 }
+/* Header siempre limpio (sin shimmer detrás) */
+.gridtable-header.minimal{
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #F1F5F9;          /* ✅ opaco: tapa lo de atrás */
+  backdrop-filter: none;        /* opcional */
+}
+
+/* Body con skeleton normal */
+.gridtable-body.minimal{
+  position: relative;
+  z-index: 1;
+}
+/* ✅ Evita que el skeleton "se meta" arriba */
+.gridtable-cell{
+  overflow: hidden;        /* recorta lo que sobresale */
+}
+
+/* ✅ Skeleton más compacto (no invade visualmente el header) */
+.skeleton-row .gridtable-cell{
+  padding: 0 !important;
+}
+
+.skeleton-bar{
+  height: 10px !important;
+  margin: 0 !important;    /* 🔥 esto suele ser lo que lo agranda */
+  border-radius: 999px;
+}
+
+/* opcional: que el skeleton quede centrado verticalmente en la celda */
+.skeleton-row .gridtable-cell{
+  display: flex;
+  align-items: center;
+}
