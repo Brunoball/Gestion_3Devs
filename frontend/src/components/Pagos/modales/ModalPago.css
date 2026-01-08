@@ -260,7 +260,7 @@
   padding: .75rem; border-radius: var(--modpag_border-radius);
   font-size: .85rem; font-weight: 700; cursor: pointer; transition: all .2s;
   border: 1px solid transparent; display: inline-flex; align-items: center; justify-content: center;
-  min-width: 120px; gap: .25rem;
+  min-width: 110px; gap: .25rem;
 }
 .modpag_btn-small { padding: .35rem .5rem; font-size: .7rem; min-width: auto; }
 .modpag_btn-terciario { background-color: var(--modpag_primary-light); color: var(--modpag_primary); border: 1px solid var(--modpag_primary); }
@@ -280,7 +280,7 @@
 /* --- Breakpoints --- */
 @media (min-width: 400px) {
   .modpag_body { padding: 1.25rem 1.25rem 0; }
-  .modpag_footer { padding: 1rem 1.25rem; }
+  .modpag_footer { padding: 1rem .7rem; }
   .modpag_periodos-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: .75rem; }
 }
 @media (min-width: 600px) {
@@ -677,7 +677,7 @@
   position: absolute;
   top: calc(100% + 10px);
   left: 0;
-  width: 114%;
+  width: 104%;
   z-index: 1002;
 
   background: var(--modpag_white);
@@ -710,7 +710,7 @@
 
 .modpag_ms-top-title {
   font-size: .75rem;
-  font-weight: 800;
+  font-weight: 820;
   letter-spacing: .06em;
   text-transform: uppercase;
   color: var(--modpag_gray-600);
@@ -1048,7 +1048,7 @@
   justify-content:space-between;
   gap: 8px;
 
-  min-width: 240px;
+
   padding: 10px 12px;
 
   border-radius: 9999px;
