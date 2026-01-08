@@ -103,7 +103,7 @@
 .modpag_contenido {
   background-color: var(--modpag_white);
   width: 100%;
-  max-width: 560px;
+  max-width: 660px;
   max-height: 90vh; /* Desktop como antes */
   display: flex;
   flex-direction: column;
