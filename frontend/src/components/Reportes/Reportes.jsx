@@ -1041,7 +1041,6 @@ export default function Reportes() {
                 onClick={() => setModalGraficosOpen(true)}
                 disabled={disableFilters}
                 title="Ver gráficos"
-                style={{ marginLeft: 8 }}
               >
                 <FontAwesomeIcon icon={faChartLine} /> Gráficos
               </button>
