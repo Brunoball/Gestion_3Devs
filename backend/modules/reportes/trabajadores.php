@@ -12,6 +12,7 @@ $op = $_GET['op'] ?? '';
 if (!function_exists('reptra_json_ok')) {
   function reptra_json_ok(array $extra = []): void {
     http_response_code(200);
+    header('Content-Type: application/json; charset=utf-8');
     echo json_encode(array_merge(['exito' => true], $extra), JSON_UNESCAPED_UNICODE);
     exit;
   }
@@ -19,6 +20,7 @@ if (!function_exists('reptra_json_ok')) {
 if (!function_exists('reptra_json_fail')) {
   function reptra_json_fail(string $mensaje, array $extra = []): void {
     http_response_code(200);
+    header('Content-Type: application/json; charset=utf-8');
     echo json_encode(array_merge(['exito' => false, 'mensaje' => $mensaje], $extra), JSON_UNESCAPED_UNICODE);
     exit;
   }
@@ -46,12 +48,13 @@ try {
   if (reptra_req_method() !== 'GET') reptra_json_fail('Método no permitido. Se esperaba GET');
 
   // Filtros que vienen desde Reportes.jsx
-  $mes  = reptra_int('mes', 0);    // (1..12) usando p.id_mes
-  $anio = reptra_int('anio', 0);   // YEAR(p.fecha_pago)
+  // mes: 1..12 (selección del selector)
+  // anio: YYYY
+  $mes  = reptra_int('mes', 0);
+  $anio = reptra_int('anio', 0);
 
   /* =========================================================
-     1) Buscar sistemas que tuvieron pagos en el período
-        y sumar el total cobrado por sistema
+     1) Sistemas con pagos en el período (usar MES REAL de fecha_pago)
   ========================================================= */
   $sqlSys = "
     SELECT
@@ -65,8 +68,9 @@ try {
 
   $paramsSys = [];
 
+  // ✅ FIX: antes era p.id_mes = :mes (si id_mes está mal cargado, rompe)
   if ($mes > 0) {
-    $sqlSys .= " AND p.id_mes = :mes ";
+    $sqlSys .= " AND MONTH(p.fecha_pago) = :mes ";
     $paramsSys[':mes'] = $mes;
   }
   if ($anio > 0) {
@@ -85,17 +89,16 @@ try {
   $sistemasPagados = $stSys->fetchAll(PDO::FETCH_ASSOC);
 
   // Acumulador por trabajador
-  // [id_trabajador => ['id'=>..,'nombre'=>..,'apellido'=>..,'email'=>..,'rol'=>..,'alias_pago'=>..,'sistemas_cobrados'=>..,'monto'=>..]]
   $acc = [];
 
-  // Para debug/admin: sistemas que tuvieron pagos pero no tienen trabajadores asignados
+  // Para debug/admin: sistemas con pagos pero sin trabajadores asignados
   $sinAsignar = [];
 
   /* =========================================================
      2) Por cada sistema con pagos:
-        - buscar trabajadores asignados en sistemas_trabajadores
+        - buscar trabajadores asignados
         - dividir total del sistema por cantidad de trabajadores
-        - acumular ese monto en cada trabajador
+        - acumular en cada trabajador
   ========================================================= */
   $sqlTrab = "
     SELECT
@@ -125,7 +128,6 @@ try {
 
     $cantTrab = count($trabDelSistema);
 
-    // si no hay asignados, lo registramos y seguimos
     if ($cantTrab === 0) {
       $sinAsignar[] = [
         'id_sistema' => $idSistema,
@@ -155,17 +157,13 @@ try {
         ];
       }
 
-      // suma el reparto del sistema
       $acc[$idT]['monto'] = (float)$acc[$idT]['monto'] + (float)$share;
-      // cuenta 1 sistema más en el que participó (que tuvo pago)
       $acc[$idT]['sistemas_cobrados'] = (int)$acc[$idT]['sistemas_cobrados'] + 1;
     }
   }
 
-  // Pasamos a array plano
   $trabajadores = array_values($acc);
 
-  // Orden: más cobra primero
   usort($trabajadores, function ($a, $b) {
     return ($b['monto'] <=> $a['monto']);
   });
@@ -176,7 +174,7 @@ try {
       'anio' => $anio > 0 ? $anio : null,
     ],
     'trabajadores' => $trabajadores,
-    'sistemas_sin_asignar' => $sinAsignar, // opcional (podés ocultarlo en frontend)
+    'sistemas_sin_asignar' => $sinAsignar,
   ]);
 
 } catch (Throwable $e) {

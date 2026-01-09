@@ -20,6 +20,7 @@ import {
   faTrash,
   faEye,
   faPaperclip, // ✅ NUEVO
+  faChartLine, // ✅ NUEVO (botón gráficos)
 } from "@fortawesome/free-solid-svg-icons";
 import * as XLSX from "xlsx";
 
@@ -34,6 +35,7 @@ import * as ModEditarMovimiento from "./modales/ModalEditarMovimiento";
 import * as ModEliminarEgreso from "./modales/ModalEliminarEgreso";
 import * as ModVerComprobante from "./modales/ModalVerComprobante";
 import * as ModComprobantePago from "./modales/ModalComprobantePago"; // ✅ NUEVO
+import * as ModGraficosReportes from "./modales/ModalGraficosReportes"; // ✅ NUEVO (modal gráficos)
 
 function pickComponent(mod, preferredName) {
   const c =
@@ -49,6 +51,7 @@ const ModalEditarMovimiento = pickComponent(ModEditarMovimiento, "ModalEditarMov
 const ModalEliminarEgreso = pickComponent(ModEliminarEgreso, "ModalEliminarEgreso");
 const ModalVerComprobante = pickComponent(ModVerComprobante, "ModalVerComprobante");
 const ModalComprobantePago = pickComponent(ModComprobantePago, "ModalComprobantePago"); // ✅ NUEVO
+const ModalGraficosReportes = pickComponent(ModGraficosReportes, "ModalGraficosReportes"); // ✅ NUEVO
 
 function assertIsComponent(Cmp, name) {
   if (process.env.NODE_ENV !== "production") {
@@ -66,6 +69,7 @@ assertIsComponent(ModalEditarMovimiento, "ModalEditarMovimiento");
 assertIsComponent(ModalEliminarEgreso, "ModalEliminarEgreso");
 assertIsComponent(ModalVerComprobante, "ModalVerComprobante");
 assertIsComponent(ModalComprobantePago, "ModalComprobantePago"); // ✅ NUEVO
+assertIsComponent(ModalGraficosReportes, "ModalGraficosReportes"); // ✅ NUEVO
 
 const nfPesos = new Intl.NumberFormat("es-AR");
 const SKELETON_ROWS = 8;
@@ -218,6 +222,9 @@ export default function Reportes() {
   const [modalPagoCompOpen, setModalPagoCompOpen] = useState(false);
   const [savingPagoComp, setSavingPagoComp] = useState(false);
   const [pagoItem, setPagoItem] = useState(null);
+
+  // ✅ NUEVO: modal gráficos
+  const [modalGraficosOpen, setModalGraficosOpen] = useState(false);
 
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -372,6 +379,7 @@ export default function Reportes() {
 
         showToast("exito", "Editado correctamente.", 3000);
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.error("Error editando:", e);
         const msg = String(e?.message || e);
         setErrorMsg(msg);
@@ -404,6 +412,7 @@ export default function Reportes() {
 
         showToast("exito", "Egreso eliminado correctamente.", 2400);
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.error("Error eliminando egreso:", e);
         const msg = String(e?.message || e);
         setErrorMsg(msg);
@@ -434,6 +443,7 @@ export default function Reportes() {
 
         showToast("exito", "Comprobante guardado.", 2600);
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.error("Error comprobante pago:", e);
         const msg = String(e?.message || e);
         setErrorMsg(msg);
@@ -476,6 +486,7 @@ export default function Reportes() {
           didInitAnios.current = true;
         }
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.error("Error cargando años:", e);
         if (!alive) return;
 
@@ -544,6 +555,7 @@ export default function Reportes() {
           didInitMeses.current = true;
         }
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.error("Error cargando meses:", e);
         if (!alive) return;
 
@@ -639,6 +651,7 @@ export default function Reportes() {
         setEgresos(egresosArr.map(norm));
         setTrabajadores([]);
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.error("Error cargando reportes:", e);
         if (!alive) return;
 
@@ -659,19 +672,31 @@ export default function Reportes() {
   }, [mesSeleccionado, anioSeleccionado, view, fetchJSON, reloadKey, showToast]);
 
   const totalPagos = useMemo(
-    () => (Array.isArray(pagos) ? pagos : []).reduce((acc, r) => acc + (Number(r?.monto || 0) || 0), 0),
+    () =>
+      (Array.isArray(pagos) ? pagos : []).reduce(
+        (acc, r) => acc + (Number(r?.monto || 0) || 0),
+        0
+      ),
     [pagos]
   );
 
   const totalEgresos = useMemo(
-    () => (Array.isArray(egresos) ? egresos : []).reduce((acc, r) => acc + (Number(r?.monto || 0) || 0), 0),
+    () =>
+      (Array.isArray(egresos) ? egresos : []).reduce(
+        (acc, r) => acc + (Number(r?.monto || 0) || 0),
+        0
+      ),
     [egresos]
   );
 
   const balance = useMemo(() => totalPagos - totalEgresos, [totalPagos, totalEgresos]);
 
   const totalTrabajadores = useMemo(
-    () => (Array.isArray(trabajadores) ? trabajadores : []).reduce((acc, r) => acc + (Number(r?.monto || 0) || 0), 0),
+    () =>
+      (Array.isArray(trabajadores) ? trabajadores : []).reduce(
+        (acc, r) => acc + (Number(r?.monto || 0) || 0),
+        0
+      ),
     [trabajadores]
   );
 
@@ -920,6 +945,7 @@ export default function Reportes() {
 
         showToast("exito", "Egreso creado correctamente.", 3000);
       } catch (e) {
+        // eslint-disable-next-line no-console
         console.error("Error creando egreso:", e);
         const msg = String(e?.message || e);
         setErrorMsg(msg);
@@ -997,6 +1023,7 @@ export default function Reportes() {
             </label>
 
             <div className="side-actions">
+              {/* ✅ Excel */}
               <button
                 className="btn-dark excel"
                 type="button"
@@ -1005,6 +1032,18 @@ export default function Reportes() {
                 title="Exportar Excel"
               >
                 <FontAwesomeIcon icon={faFileExcel} /> Excel
+              </button>
+
+              {/* ✅ NUEVO: Gráficos (al lado de Excel) */}
+              <button
+                className="btn-dark"
+                type="button"
+                onClick={() => setModalGraficosOpen(true)}
+                disabled={disableFilters}
+                title="Ver gráficos"
+                style={{ marginLeft: 8 }}
+              >
+                <FontAwesomeIcon icon={faChartLine} /> Gráficos
               </button>
             </div>
 
@@ -1370,6 +1409,17 @@ export default function Reportes() {
         loading={savingPagoComp}
         item={pagoItem}
         buildFileUrl={buildFileUrl}
+      />
+
+      {/* ✅✅ NUEVO: Modal de Gráficos */}
+      <ModalGraficosReportes
+        open={modalGraficosOpen}
+        onClose={() => setModalGraficosOpen(false)}
+        fetchJSON={fetchJSON}
+        baseUrl={BASE_URL}
+        anioSeleccionado={anioSeleccionado}
+        mesesDisponibles={mesesDisponibles}
+        showToast={showToast}
       />
     </div>
   );

@@ -248,11 +248,6 @@ try {
 
   /* =========================
      ✅ NUEVO: COMPROBANTE DE PAGO (POST multipart)
-     POST /api.php?action=reportes&op=pago_comprobante
-     form-data:
-       - id (requerido)
-       - delete_comprobante = 1 (opcional)
-       - comprobante (file) (opcional)
   ========================= */
   if ($op === 'pago_comprobante') {
     if (repreg_req_method() !== 'POST') repreg_json_fail('Método no permitido. Se esperaba POST');
@@ -265,7 +260,6 @@ try {
     $idInt = (int)$id;
     if ($idInt <= 0) repreg_json_fail('ID inválido.');
 
-    // comprobante actual
     $stCur = $pdo->prepare("SELECT comprobante FROM pagos WHERE id_pago = :id LIMIT 1");
     $stCur->execute([':id' => $idInt]);
     $cur = $stCur->fetch(PDO::FETCH_ASSOC);
@@ -277,7 +271,6 @@ try {
     $deleteComp = (string)($body['delete_comprobante'] ?? '0');
     $wantsDelete = ($deleteComp === '1' || strtolower($deleteComp) === 'true');
 
-    // upload (si viene)
     $uploadedUrl = null;
     try {
       $uploadedUrl = repreg_upload_to_subdir('pagos', 'comprobante'); // ✅ api/uploads/pagos
@@ -285,19 +278,16 @@ try {
       repreg_json_fail('Comprobante: ' . $upErr->getMessage());
     }
 
-    // delete
     if ($wantsDelete) {
       if ($curComp !== '') repreg_delete_file_if_exists($curComp);
       $newComp = null;
     }
 
-    // replace
     if ($uploadedUrl) {
       if ($curComp !== '') repreg_delete_file_if_exists($curComp);
       $newComp = $uploadedUrl;
     }
 
-    // si no pidió borrar y no subió archivo, no hacemos nada
     if (!$wantsDelete && !$uploadedUrl) {
       repreg_json_fail('No se recibió archivo ni se solicitó eliminar.');
     }
@@ -539,7 +529,7 @@ try {
   $anio = repreg_int('anio', 0);
 
   /* =========================
-     PAGOS (✅ ahora incluye comprobante)
+     PAGOS (✅ ARREGLO MESES: usa MONTH(p.fecha_pago) para el nombre del mes)
   ========================= */
   $sqlP = "
     SELECT
@@ -556,7 +546,7 @@ try {
     FROM pagos p
     JOIN clientes_sistemas cs ON cs.id_sistema = p.id_sistema
     JOIN clientes c          ON c.id_cliente  = cs.id_cliente
-    LEFT JOIN meses m        ON m.id_mes      = p.id_mes
+    LEFT JOIN meses m        ON m.id_mes      = MONTH(p.fecha_pago)   -- ✅ FIX CLAVE
     LEFT JOIN medios_pago mp ON mp.id_medio_pago = p.id_medio_pago
     WHERE 1=1
   ";
