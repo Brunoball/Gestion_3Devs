@@ -60,8 +60,6 @@ if (!function_exists('repreg_is_multipart')) {
 
 /* =========================
    Paths (API ROOT)
-   En Hostinger: public_html/APP_3DEVS/api/...
-   __DIR__ está en: api/modules/reportes/
 ========================= */
 if (!function_exists('repreg_api_root')) {
   function repreg_api_root(): string {
@@ -81,7 +79,6 @@ if (!function_exists('repreg_abs_path_from_api_rel')) {
 
 /* =========================
    Public base URL: https://dominio.com/api
-   (sirve para guardar URL completa en DB)
 ========================= */
 if (!function_exists('repreg_public_api_base')) {
   function repreg_public_api_base(): string {
@@ -89,19 +86,17 @@ if (!function_exists('repreg_public_api_base')) {
     $scheme = $https ? 'https' : 'http';
     $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
 
-    $script = (string)($_SERVER['SCRIPT_NAME'] ?? ''); // ej: /api/api.php o /api/routes/api.php
+    $script = (string)($_SERVER['SCRIPT_NAME'] ?? '');
     $basePath = '/api';
 
     $pos = strpos($script, '/api/');
     if ($pos !== false) {
-      $basePath = substr($script, 0, $pos + 4); // incluye "/api"
+      $basePath = substr($script, 0, $pos + 4);
     } else {
-      // fallback
       $basePath = rtrim(dirname($script), '/');
       if ($basePath === '') $basePath = '/api';
     }
 
-    // si termina en /api/routes, bajamos a /api
     if (str_ends_with($basePath, '/api/routes')) {
       $basePath = '/api';
     }
@@ -118,11 +113,9 @@ if (!function_exists('repreg_extract_uploads_rel')) {
     $p = trim((string)$pathOrUrl);
     if ($p === '') return '';
 
-    // si es URL completa, tomamos el path
     if (preg_match('~^https?://~i', $p)) {
       $u = parse_url($p);
       $path = (string)($u['path'] ?? '');
-      // buscamos "uploads/"
       $ix = stripos($path, '/uploads/');
       if ($ix !== false) {
         return ltrim(substr($path, $ix + 1), '/'); // uploads/...
@@ -130,11 +123,10 @@ if (!function_exists('repreg_extract_uploads_rel')) {
       return '';
     }
 
-    // si es relativo pero viene con /uploads/...
     $p = ltrim($p, '/');
     $ix2 = stripos($p, 'uploads/');
     if ($ix2 !== false) {
-      return substr($p, $ix2); // uploads/...
+      return substr($p, $ix2);
     }
 
     return $p;
@@ -146,7 +138,7 @@ if (!function_exists('repreg_delete_file_if_exists')) {
     $rel = repreg_extract_uploads_rel($pathOrUrl);
     if ($rel === '') return;
 
-    $abs = repreg_abs_path_from_api_rel($rel); // api/uploads/...
+    $abs = repreg_abs_path_from_api_rel($rel);
     if (file_exists($abs)) {
       @unlink($abs);
     }
@@ -154,17 +146,14 @@ if (!function_exists('repreg_delete_file_if_exists')) {
 }
 
 /* =========================
-   Upload comprobante
-   Guarda en: api/uploads/egresos/
-   Devuelve URL pública completa para DB:
-   https://dominio.com/api/uploads/egresos/archivo.ext
+   Upload genérico a subcarpeta
+   Guarda URL pública completa en DB
 ========================= */
-if (!function_exists('repreg_upload_comprobante')) {
-  function repreg_upload_comprobante(string $fieldName = 'comprobante'): ?string {
+if (!function_exists('repreg_upload_to_subdir')) {
+  function repreg_upload_to_subdir(string $subdir, string $fieldName = 'comprobante'): ?string {
     if (!isset($_FILES[$fieldName])) return null;
 
     $f = $_FILES[$fieldName];
-
     if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
       return null;
     }
@@ -216,11 +205,12 @@ if (!function_exists('repreg_upload_comprobante')) {
     $rand  = bin2hex(random_bytes(5));
     $fileName = "{$stamp}_{$rand}_{$safeBase}.{$ext}";
 
-    // api/uploads/egresos
-    $destDir = repreg_abs_path_from_api_rel('uploads/egresos');
+    $subdir = trim($subdir, "/\\");
+    $destDir = repreg_abs_path_from_api_rel('uploads/' . $subdir);
+
     if (!is_dir($destDir)) {
       if (!mkdir($destDir, 0775, true) && !is_dir($destDir)) {
-        throw new RuntimeException('No se pudo crear la carpeta api/uploads/egresos.');
+        throw new RuntimeException('No se pudo crear la carpeta api/uploads/' . $subdir);
       }
     }
 
@@ -230,9 +220,8 @@ if (!function_exists('repreg_upload_comprobante')) {
       throw new RuntimeException('No se pudo guardar el archivo en el servidor.');
     }
 
-    // ✅ guardamos URL pública completa en DB
     $publicBase = repreg_public_api_base(); // https://dominio.com/api
-    $publicUrl  = $publicBase . '/uploads/egresos/' . $fileName;
+    $publicUrl  = $publicBase . '/uploads/' . $subdir . '/' . $fileName;
 
     return $publicUrl;
   }
@@ -246,8 +235,83 @@ try {
 
   if ($op === '') repreg_json_fail('Falta parámetro op en reportes');
 
-  if (!in_array($op, ['movimientos', 'registros', 'crear_egreso', 'editar_movimiento', 'eliminar_egreso'], true)) {
+  if (!in_array($op, [
+    'movimientos',
+    'registros',
+    'crear_egreso',
+    'editar_movimiento',
+    'eliminar_egreso',
+    'pago_comprobante', // ✅ NUEVO
+  ], true)) {
     repreg_json_fail('op no válida en registros: ' . $op);
+  }
+
+  /* =========================
+     ✅ NUEVO: COMPROBANTE DE PAGO (POST multipart)
+     POST /api.php?action=reportes&op=pago_comprobante
+     form-data:
+       - id (requerido)
+       - delete_comprobante = 1 (opcional)
+       - comprobante (file) (opcional)
+  ========================= */
+  if ($op === 'pago_comprobante') {
+    if (repreg_req_method() !== 'POST') repreg_json_fail('Método no permitido. Se esperaba POST');
+    if (!repreg_is_multipart()) repreg_json_fail('Se esperaba multipart/form-data (archivo).');
+
+    $body = $_POST ?? [];
+
+    $id = $body['id'] ?? null;
+    if (!is_numeric($id)) repreg_json_fail('ID inválido.');
+    $idInt = (int)$id;
+    if ($idInt <= 0) repreg_json_fail('ID inválido.');
+
+    // comprobante actual
+    $stCur = $pdo->prepare("SELECT comprobante FROM pagos WHERE id_pago = :id LIMIT 1");
+    $stCur->execute([':id' => $idInt]);
+    $cur = $stCur->fetch(PDO::FETCH_ASSOC);
+    if (!$cur) repreg_json_fail('El pago no existe.');
+
+    $curComp = (string)($cur['comprobante'] ?? '');
+    $newComp = $curComp !== '' ? $curComp : null;
+
+    $deleteComp = (string)($body['delete_comprobante'] ?? '0');
+    $wantsDelete = ($deleteComp === '1' || strtolower($deleteComp) === 'true');
+
+    // upload (si viene)
+    $uploadedUrl = null;
+    try {
+      $uploadedUrl = repreg_upload_to_subdir('pagos', 'comprobante'); // ✅ api/uploads/pagos
+    } catch (Throwable $upErr) {
+      repreg_json_fail('Comprobante: ' . $upErr->getMessage());
+    }
+
+    // delete
+    if ($wantsDelete) {
+      if ($curComp !== '') repreg_delete_file_if_exists($curComp);
+      $newComp = null;
+    }
+
+    // replace
+    if ($uploadedUrl) {
+      if ($curComp !== '') repreg_delete_file_if_exists($curComp);
+      $newComp = $uploadedUrl;
+    }
+
+    // si no pidió borrar y no subió archivo, no hacemos nada
+    if (!$wantsDelete && !$uploadedUrl) {
+      repreg_json_fail('No se recibió archivo ni se solicitó eliminar.');
+    }
+
+    $stUp = $pdo->prepare("UPDATE pagos SET comprobante = :c WHERE id_pago = :id");
+    $stUp->execute([
+      ':c' => $newComp,
+      ':id' => $idInt,
+    ]);
+
+    repreg_json_ok([
+      'mensaje' => 'Comprobante de pago actualizado.',
+      'comprobante' => $newComp ?? '',
+    ]);
   }
 
   /* =========================
@@ -281,7 +345,7 @@ try {
     $rutaComprobante = null;
     if (repreg_is_multipart()) {
       try {
-        $rutaComprobante = repreg_upload_comprobante('comprobante'); // ✅ URL completa
+        $rutaComprobante = repreg_upload_to_subdir('egresos', 'comprobante');
       } catch (Throwable $upErr) {
         repreg_json_fail('Comprobante: ' . $upErr->getMessage());
       }
@@ -296,7 +360,7 @@ try {
       ':descripcion' => ($descripcion !== '' ? $descripcion : null),
       ':monto' => $montoNum,
       ':id_medio_pago' => $idMedioInt,
-      ':comprobante' => $rutaComprobante, // ✅ URL completa en DB
+      ':comprobante' => $rutaComprobante,
     ]);
 
     $newId = (int)$pdo->lastInsertId();
@@ -310,9 +374,6 @@ try {
 
   /* =========================
      EDITAR MOVIMIENTO (POST)
-     Soporta multipart para EGRESO:
-     - delete_comprobante=1
-     - comprobante (archivo) para reemplazo
   ========================= */
   if ($op === 'editar_movimiento') {
     if (repreg_req_method() !== 'POST') repreg_json_fail('Método no permitido. Se esperaba POST');
@@ -350,7 +411,6 @@ try {
       $montoNum = (float)$monto;
       if ($montoNum <= 0) repreg_json_fail('El monto debe ser mayor a 0.');
 
-      // comprobante actual (puede ser URL completa)
       $stCur = $pdo->prepare("SELECT comprobante FROM egresos WHERE id_egreso = :id LIMIT 1");
       $stCur->execute([':id' => $idInt]);
       $cur = $stCur->fetch(PDO::FETCH_ASSOC);
@@ -362,24 +422,23 @@ try {
       $deleteComp = (string)($body['delete_comprobante'] ?? '0');
       $wantsDelete = ($deleteComp === '1' || strtolower($deleteComp) === 'true');
 
-      // archivo nuevo
       $uploadedUrl = null;
       if ($isMp) {
         try {
-          $uploadedUrl = repreg_upload_comprobante('comprobante'); // ✅ URL completa
+          $uploadedUrl = repreg_upload_to_subdir('egresos', 'comprobante');
         } catch (Throwable $upErr) {
           repreg_json_fail('Comprobante: ' . $upErr->getMessage());
         }
       }
 
       if ($wantsDelete) {
-        if ($curComp !== '') repreg_delete_file_if_exists($curComp); // ✅ borra aunque sea URL
+        if ($curComp !== '') repreg_delete_file_if_exists($curComp);
         $newComp = null;
       }
 
       if ($uploadedUrl) {
         if ($curComp !== '') repreg_delete_file_if_exists($curComp);
-        $newComp = $uploadedUrl; // ✅ URL nueva completa
+        $newComp = $uploadedUrl;
       }
 
       $sql = "UPDATE egresos
@@ -460,7 +519,7 @@ try {
 
     $comp = (string)($row['comprobante'] ?? '');
     if ($comp !== '') {
-      repreg_delete_file_if_exists($comp); // ✅ borra aunque sea URL completa
+      repreg_delete_file_if_exists($comp);
     }
 
     $st = $pdo->prepare("DELETE FROM egresos WHERE id_egreso = :id");
@@ -480,7 +539,7 @@ try {
   $anio = repreg_int('anio', 0);
 
   /* =========================
-     PAGOS
+     PAGOS (✅ ahora incluye comprobante)
   ========================= */
   $sqlP = "
     SELECT
@@ -492,7 +551,8 @@ try {
       COALESCE(m.mes, '')        AS categoria,
       COALESCE(mp.nombre, '')   AS medio,
       p.id_medio_pago           AS id_medio_pago,
-      COALESCE(p.monto, 0)      AS monto
+      COALESCE(p.monto, 0)      AS monto,
+      COALESCE(p.comprobante, '') AS comprobante
     FROM pagos p
     JOIN clientes_sistemas cs ON cs.id_sistema = p.id_sistema
     JOIN clientes c          ON c.id_cliente  = cs.id_cliente

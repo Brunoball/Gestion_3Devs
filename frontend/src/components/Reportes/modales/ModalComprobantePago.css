@@ -1,0 +1,131 @@
+/* src/components/Reportes/modales/ModalComprobantePago.css */
+.mcp-backdrop{
+  position: fixed;
+  inset: 0;
+  background: rgba(2,6,23,.45);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding: 18px;
+  z-index: 9999;
+}
+
+.mcp-modal{
+  width: min(620px, 100%);
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.25);
+  overflow:hidden;
+  border: 1px solid rgba(0,0,0,.10);
+}
+
+.mcp-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(0,0,0,.08);
+}
+
+.mcp-title{
+  font-weight: 900;
+  color: #0f172a;
+  display:flex;
+  align-items:center;
+  gap: 10px;
+}
+
+.mcp-close{
+  border: 0;
+  background: transparent;
+  cursor:pointer;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+.mcp-close:hover{ background: rgba(0,0,0,.06); }
+
+.mcp-body{
+  padding: 14px 16px 6px;
+}
+
+.mcp-row{
+  display:flex;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px dashed rgba(0,0,0,.08);
+}
+.mcp-row:last-child{ border-bottom: 0; }
+
+.mcp-label{
+  width: 170px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #64748b;
+  padding-top: 2px;
+}
+
+.mcp-value{
+  flex:1;
+  color:#0f172a;
+  font-size: 13px;
+}
+
+.mcp-sub{ font-size: 12px; color:#64748b; margin-top: 2px; }
+
+.mcp-link{
+  display:inline-flex;
+  align-items:center;
+  gap: 8px;
+  text-decoration:none;
+  font-weight: 800;
+  color: #0b5ed7;
+}
+.mcp-link:hover{ text-decoration: underline; }
+
+.mcp-hint{
+  font-size: 11px;
+  color:#64748b;
+  margin-top: 6px;
+}
+
+.mcp-check{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  padding: 10px 0 6px;
+  font-size: 13px;
+  color:#991b1b;
+  font-weight: 800;
+}
+
+.mcp-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap: 10px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid rgba(0,0,0,.08);
+}
+
+.mcp-btn{
+  border-radius: 12px;
+  border: 1px solid rgba(0,0,0,.14);
+  padding: 10px 14px;
+  font-weight: 900;
+  cursor:pointer;
+  background:#fff;
+}
+
+.mcp-btn.ghost:hover{ background: rgba(0,0,0,.04); }
+
+.mcp-btn.primary{
+  border-color: rgba(11,94,215,.30);
+  background: rgba(11,94,215,.10);
+  color:#0b5ed7;
+}
+.mcp-btn.primary:hover{ background: rgba(11,94,215,.16); }
+
+.mcp-btn:disabled{
+  opacity:.6;
+  cursor:not-allowed;
+}

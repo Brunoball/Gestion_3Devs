@@ -14,10 +14,16 @@ function route_reportes(string $action): bool
     return true;
   }
 
-  // 👉 funciones de registros (listados + crear egreso + editar + eliminar egreso)
-  // ✅ tu archivo real es "registro.php"
-  if (in_array($op, ['movimientos', 'registros', 'crear_egreso', 'editar_movimiento', 'eliminar_egreso'], true)) {
-    require_once __DIR__ . '/registro.php';
+  // 👉 registros/listados + egresos + ediciones
+  if (in_array($op, [
+    'movimientos',
+    'registros',
+    'crear_egreso',
+    'editar_movimiento',
+    'eliminar_egreso',
+    'pago_comprobante', // ✅ NUEVO
+  ], true)) {
+    require_once __DIR__ . '/registro.php'; // ✅ tu archivo real
     return true;
   }
 

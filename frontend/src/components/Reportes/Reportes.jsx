@@ -19,6 +19,7 @@ import {
   faPenToSquare,
   faTrash,
   faEye,
+  faPaperclip, // ✅ NUEVO
 } from "@fortawesome/free-solid-svg-icons";
 import * as XLSX from "xlsx";
 
@@ -27,31 +28,28 @@ import Toast from "../Global/Toast";
 
 /* =========================================================
    ✅ IMPORTS ROBUSTOS (evita error "got: object")
-   Soporta default export y named export sin cambiar los modales
 ========================================================= */
 import * as ModNuevoEgreso from "./modales/ModalNuevoEgreso";
 import * as ModEditarMovimiento from "./modales/ModalEditarMovimiento";
 import * as ModEliminarEgreso from "./modales/ModalEliminarEgreso";
 import * as ModVerComprobante from "./modales/ModalVerComprobante";
+import * as ModComprobantePago from "./modales/ModalComprobantePago"; // ✅ NUEVO
 
-// helper: elige default o named de forma segura
 function pickComponent(mod, preferredName) {
   const c =
     (mod && mod.default) ||
     (preferredName && mod && mod[preferredName]) ||
     (mod && Object.values(mod).find((v) => typeof v === "function")) ||
     null;
-
   return c;
 }
 
-// ✅ componentes finales (funciones React)
 const ModalNuevoEgreso = pickComponent(ModNuevoEgreso, "ModalNuevoEgreso");
 const ModalEditarMovimiento = pickComponent(ModEditarMovimiento, "ModalEditarMovimiento");
 const ModalEliminarEgreso = pickComponent(ModEliminarEgreso, "ModalEliminarEgreso");
 const ModalVerComprobante = pickComponent(ModVerComprobante, "ModalVerComprobante");
+const ModalComprobantePago = pickComponent(ModComprobantePago, "ModalComprobantePago"); // ✅ NUEVO
 
-// Si alguno sigue mal exportado (objeto/undefined), tiramos error claro en dev
 function assertIsComponent(Cmp, name) {
   if (process.env.NODE_ENV !== "production") {
     if (typeof Cmp !== "function") {
@@ -67,8 +65,8 @@ assertIsComponent(ModalNuevoEgreso, "ModalNuevoEgreso");
 assertIsComponent(ModalEditarMovimiento, "ModalEditarMovimiento");
 assertIsComponent(ModalEliminarEgreso, "ModalEliminarEgreso");
 assertIsComponent(ModalVerComprobante, "ModalVerComprobante");
+assertIsComponent(ModalComprobantePago, "ModalComprobantePago"); // ✅ NUEVO
 
-/* Helpers */
 const nfPesos = new Intl.NumberFormat("es-AR");
 const SKELETON_ROWS = 8;
 
@@ -84,7 +82,6 @@ function renderSkeletonRows(cols = 5) {
   ));
 }
 
-/* Tabla genérica */
 function GridTable({ title, icon, columns = [], rows = [], loading = false, actions }) {
   const safeRows = Array.isArray(rows) ? rows : [];
 
@@ -94,7 +91,7 @@ function GridTable({ title, icon, columns = [], rows = [], loading = false, acti
       ...columns,
       {
         key: "__actions",
-        label: "Acciones", // ✅ header visible
+        label: "Acciones",
         fr: "1fr",
         center: true,
         render: (r) => actions(r),
@@ -138,16 +135,14 @@ function GridTable({ title, icon, columns = [], rows = [], loading = false, acti
               </div>
             ))
           ) : (
-<div className="detalle-empty">
-  <div className="gridtable-empty-inner">
-<div className="empty-icon" aria-hidden="true">
-  <FontAwesomeIcon icon={faInbox} />
-</div>
-
-    <div>No hay datos para los filtros aplicados.</div>
-  </div>
-</div>
-
+            <div className="detalle-empty">
+              <div className="gridtable-empty-inner">
+                <div className="empty-icon" aria-hidden="true">
+                  <FontAwesomeIcon icon={faInbox} />
+                </div>
+                <div>No hay datos para los filtros aplicados.</div>
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -158,9 +153,6 @@ function GridTable({ title, icon, columns = [], rows = [], loading = false, acti
 export default function Reportes() {
   const navigate = useNavigate();
 
-  /* ===========================
-     ✅ TOAST GLOBAL
-  =========================== */
   const [toast, setToast] = useState({
     show: false,
     tipo: "info",
@@ -183,63 +175,54 @@ export default function Reportes() {
     setToast((t) => ({ ...t, show: false }));
   }, []);
 
-  // ✅ Tabs
   const [view, setView] = useState("pagos");
 
-  // ✅ Años
   const [aniosDisponibles, setAniosDisponibles] = useState([]);
   const [loadingAnios, setLoadingAnios] = useState(true);
   const [anioSeleccionado, setAnioSeleccionado] = useState("TODOS");
 
-  // ✅ Meses
   const [mesesDisponibles, setMesesDisponibles] = useState([]);
   const [loadingMeses, setLoadingMeses] = useState(true);
   const [mesSeleccionado, setMesSeleccionado] = useState("TODOS");
 
-  // ✅ medios pago
   const [mediosDisponibles, setMediosDisponibles] = useState([]);
 
   const didInitAnios = useRef(false);
   const didInitMeses = useRef(false);
 
-  // Búsqueda
   const [searchText, setSearchText] = useState("");
-
-  // Carga
   const [loadingData, setLoadingData] = useState(false);
 
-  // Data
   const [pagos, setPagos] = useState([]);
   const [egresos, setEgresos] = useState([]);
   const [trabajadores, setTrabajadores] = useState([]);
 
-  // Error visible (panel)
   const [errorMsg, setErrorMsg] = useState("");
 
-  // ✅ Modal egreso
   const [modalEgresoOpen, setModalEgresoOpen] = useState(false);
   const [savingEgreso, setSavingEgreso] = useState(false);
 
-  // ✅ Modal editar
   const [modalEditarOpen, setModalEditarOpen] = useState(false);
   const [savingEditar, setSavingEditar] = useState(false);
   const [editarTipo, setEditarTipo] = useState("pago");
   const [editarItem, setEditarItem] = useState(null);
 
-  // ✅ Modal eliminar egreso
   const [modalEliminarOpen, setModalEliminarOpen] = useState(false);
   const [deletingEgreso, setDeletingEgreso] = useState(false);
   const [egresoAEliminar, setEgresoAEliminar] = useState(null);
 
-  // ✅ Modal ver comprobante
   const [modalVerCompOpen, setModalVerCompOpen] = useState(false);
   const [compItem, setCompItem] = useState(null);
+
+  // ✅ NUEVO: modal comprobante pago
+  const [modalPagoCompOpen, setModalPagoCompOpen] = useState(false);
+  const [savingPagoComp, setSavingPagoComp] = useState(false);
+  const [pagoItem, setPagoItem] = useState(null);
 
   const [reloadKey, setReloadKey] = useState(0);
 
   const volver = useCallback(() => navigate(-1), [navigate]);
 
-  // ✅ arma URL absoluta al comprobante
   const buildFileUrl = useCallback((path) => {
     const p = String(path || "").trim();
     if (!p) return "";
@@ -249,7 +232,6 @@ export default function Reportes() {
     return `${base}/${clean}`;
   }, []);
 
-  // ✅ GET robusto
   const fetchJSON = useCallback(async (url) => {
     const sep = url.includes("?") ? "&" : "?";
     const finalUrl = `${url}${sep}ts=${Date.now()}`;
@@ -260,14 +242,11 @@ export default function Reportes() {
     });
 
     const text = await res.text();
-
     if (!res.ok) throw new Error(`HTTP ${res.status} :: ${text.slice(0, 300)}`);
 
     const trimmed = (text || "").trim();
     if (trimmed.startsWith("<")) {
-      throw new Error(
-        `Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`
-      );
+      throw new Error(`Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`);
     }
 
     try {
@@ -277,7 +256,6 @@ export default function Reportes() {
     }
   }, []);
 
-  // ✅ POST JSON robusto
   const postJSON = useCallback(async (url, bodyObj) => {
     const sep = url.includes("?") ? "&" : "?";
     const finalUrl = `${url}${sep}ts=${Date.now()}`;
@@ -296,9 +274,7 @@ export default function Reportes() {
 
     const trimmed = (text || "").trim();
     if (trimmed.startsWith("<")) {
-      throw new Error(
-        `Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`
-      );
+      throw new Error(`Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`);
     }
 
     try {
@@ -308,14 +284,13 @@ export default function Reportes() {
     }
   }, []);
 
-  // ✅✅ POST FormData robusto (SUBIR ARCHIVOS)
   const postFormData = useCallback(async (url, formData) => {
     const sep = url.includes("?") ? "&" : "?";
     const finalUrl = `${url}${sep}ts=${Date.now()}`;
 
     const res = await fetch(finalUrl, {
       method: "POST",
-      headers: { Accept: "application/json" }, // ⚠️ NO Content-Type
+      headers: { Accept: "application/json" },
       body: formData,
     });
 
@@ -324,9 +299,7 @@ export default function Reportes() {
 
     const trimmed = (text || "").trim();
     if (trimmed.startsWith("<")) {
-      throw new Error(
-        `Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`
-      );
+      throw new Error(`Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`);
     }
 
     try {
@@ -336,19 +309,13 @@ export default function Reportes() {
     }
   }, []);
 
-  // ✅ Abrir modal editar según pestaña
   const onEditar = useCallback(
     (row) => {
       const t =
         view === "egresos" ? "egreso" : view === "trabajadores" ? "trabajador" : "pago";
 
       const fixedId =
-        row?.id ??
-        row?.id_mov ??
-        row?.id_pago ??
-        row?.id_egreso ??
-        row?.id_trabajador ??
-        null;
+        row?.id ?? row?.id_mov ?? row?.id_pago ?? row?.id_egreso ?? row?.id_trabajador ?? null;
 
       const fixedRow = { ...(row || {}), id: fixedId };
 
@@ -359,18 +326,18 @@ export default function Reportes() {
     [view]
   );
 
-  // ✅ Ver comprobante (SOLO EGRESOS)
-  const onVerComprobante = useCallback(
-    (row) => {
+  // ✅ Ver comprobante (egresos / pagos)
+  const openViewerFromRow = useCallback(
+    (row, fallbackTitle = "Comprobante") => {
       const r = row || {};
       const comp = String(r?.comprobante || "").trim();
       if (!comp) {
-        showToast("advertencia", "Este egreso no tiene comprobante.", 2200);
+        showToast("advertencia", "Este registro no tiene comprobante.", 2200);
         return;
       }
       setCompItem({
-        id: r?.id ?? r?.id_egreso ?? null,
-        concepto: r?.concepto || "Comprobante",
+        id: r?.id ?? null,
+        concepto: r?.concepto || fallbackTitle,
         fecha: r?.fecha || "",
         comprobante: comp,
         url: buildFileUrl(comp),
@@ -386,7 +353,6 @@ export default function Reportes() {
     setModalEliminarOpen(true);
   }, []);
 
-  // ✅ Confirmar editar
   const confirmarEditar = useCallback(
     async (payload) => {
       try {
@@ -398,7 +364,6 @@ export default function Reportes() {
         const isFD = typeof FormData !== "undefined" && payload instanceof FormData;
 
         const data = isFD ? await postFormData(url, payload) : await postJSON(url, payload);
-
         if (!data?.exito) throw new Error(data?.mensaje || "No se pudo editar.");
 
         setModalEditarOpen(false);
@@ -418,7 +383,6 @@ export default function Reportes() {
     [postJSON, postFormData, showToast]
   );
 
-  // ✅ Confirmar eliminar egreso
   const confirmarEliminarEgreso = useCallback(
     async (eg) => {
       try {
@@ -449,6 +413,36 @@ export default function Reportes() {
       }
     },
     [postJSON, showToast]
+  );
+
+  // ✅✅ NUEVO: Guardar comprobante de PAGO (FormData)
+  const guardarComprobantePago = useCallback(
+    async (formData) => {
+      try {
+        setErrorMsg("");
+        setSavingPagoComp(true);
+        showToast("cargando", "Guardando comprobante…", 1200);
+
+        const url = `${BASE_URL}/api.php?action=reportes&op=pago_comprobante`;
+        const data = await postFormData(url, formData);
+
+        if (!data?.exito) throw new Error(data?.mensaje || "No se pudo guardar el comprobante.");
+
+        setModalPagoCompOpen(false);
+        setPagoItem(null);
+        setReloadKey((k) => k + 1);
+
+        showToast("exito", "Comprobante guardado.", 2600);
+      } catch (e) {
+        console.error("Error comprobante pago:", e);
+        const msg = String(e?.message || e);
+        setErrorMsg(msg);
+        showToast("error", `❌ Error: ${msg}`, 3800);
+      } finally {
+        setSavingPagoComp(false);
+      }
+    },
+    [postFormData, showToast]
   );
 
   /* ===== AÑOS ===== */
@@ -637,7 +631,7 @@ export default function Reportes() {
           cliente_nombre: r.cliente_nombre ?? r.cliente ?? "",
           sistema_nombre: r.sistema_nombre ?? r.sistema ?? "",
           id_medio_pago: r.id_medio_pago ?? r.idMedio ?? r.id_medio ?? r.medio_id ?? null,
-          comprobante: r.comprobante ?? "",
+          comprobante: r.comprobante ?? "", // ✅ ahora viene también en pagos
         });
 
         if (!alive) return;
@@ -664,37 +658,23 @@ export default function Reportes() {
     };
   }, [mesSeleccionado, anioSeleccionado, view, fetchJSON, reloadKey, showToast]);
 
-  /* ===== Totales ===== */
   const totalPagos = useMemo(
-    () =>
-      (Array.isArray(pagos) ? pagos : []).reduce(
-        (acc, r) => acc + (Number(r?.monto || 0) || 0),
-        0
-      ),
+    () => (Array.isArray(pagos) ? pagos : []).reduce((acc, r) => acc + (Number(r?.monto || 0) || 0), 0),
     [pagos]
   );
 
   const totalEgresos = useMemo(
-    () =>
-      (Array.isArray(egresos) ? egresos : []).reduce(
-        (acc, r) => acc + (Number(r?.monto || 0) || 0),
-        0
-      ),
+    () => (Array.isArray(egresos) ? egresos : []).reduce((acc, r) => acc + (Number(r?.monto || 0) || 0), 0),
     [egresos]
   );
 
   const balance = useMemo(() => totalPagos - totalEgresos, [totalPagos, totalEgresos]);
 
   const totalTrabajadores = useMemo(
-    () =>
-      (Array.isArray(trabajadores) ? trabajadores : []).reduce(
-        (acc, r) => acc + (Number(r?.monto || 0) || 0),
-        0
-      ),
+    () => (Array.isArray(trabajadores) ? trabajadores : []).reduce((acc, r) => acc + (Number(r?.monto || 0) || 0), 0),
     [trabajadores]
   );
 
-  /* ===== Búsqueda ===== */
   const q = (searchText || "").trim().toLowerCase();
 
   const pagosFiltrados = useMemo(() => {
@@ -727,7 +707,6 @@ export default function Reportes() {
     });
   }, [trabajadores, q]);
 
-  /* ===== Columnas ===== */
   const colsMov = useMemo(
     () => [
       { key: "fecha", label: "Fecha", fr: "1fr" },
@@ -772,7 +751,6 @@ export default function Reportes() {
         key: "descripcion",
         label: "Descripción",
         fr: "1fr",
-        // ✅✅ LIMITE VISUAL + "..." + tooltip con texto completo
         render: (r) => (
           <span className="truncate" title={r?.descripcion || ""}>
             {r?.descripcion || "—"}
@@ -820,7 +798,6 @@ export default function Reportes() {
     []
   );
 
-  /* ===== Export Excel ===== */
   const exportarExcel = useCallback(() => {
     try {
       const wb = XLSX.utils.book_new();
@@ -887,8 +864,9 @@ export default function Reportes() {
           MES: r.categoria,
           MEDIO: r.medio,
           MONTO: r.monto,
+          COMPROBANTE: r.comprobante || "", // ✅ NUEVO
         })),
-        { header: ["FECHA", "CLIENTE", "SISTEMA", "MES", "MEDIO", "MONTO"] }
+        { header: ["FECHA", "CLIENTE", "SISTEMA", "MES", "MEDIO", "MONTO", "COMPROBANTE"] }
       );
 
       ws["!cols"] = [
@@ -898,6 +876,7 @@ export default function Reportes() {
         { wch: 14 },
         { wch: 16 },
         { wch: 12 },
+        { wch: 28 },
       ];
       XLSX.utils.book_append_sheet(wb, ws, "Pagos");
       XLSX.writeFile(wb, `reportes_pagos_${anioTxt}_${mesTxt}.xlsx`);
@@ -924,7 +903,6 @@ export default function Reportes() {
 
   const labelAnio = anioSeleccionado === "TODOS" ? "Todos los años" : `Año ${anioSeleccionado}`;
 
-  // ✅✅ Guardar egreso (FormData)
   const crearEgreso = useCallback(
     async (formData) => {
       try {
@@ -957,7 +935,6 @@ export default function Reportes() {
 
   return (
     <div className="contable-viewport">
-      {/* ✅ TOAST */}
       {toast.show ? (
         <Toast
           key={toast.key}
@@ -968,7 +945,6 @@ export default function Reportes() {
         />
       ) : null}
 
-      {/* TOPBAR */}
       <header className="contable-topbar">
         <h1 className="contable-topbar-title">
           <FontAwesomeIcon icon={faCoins} /> Reportes
@@ -981,14 +957,12 @@ export default function Reportes() {
       </header>
 
       <div className="contable-grid reportes-grid">
-        {/* SIDEBAR */}
         <aside className="contable-sidebar">
           <h3 className="side-block-title" style={{ marginTop: 0 }}>
             <FontAwesomeIcon icon={faCalendarAlt} /> Filtros
           </h3>
 
           <section className="side-block">
-            {/* Año */}
             <label className="side-field">
               <span>
                 Año {loadingAnios ? <span style={{ opacity: 0.7 }}>(cargando…)</span> : null}
@@ -1006,7 +980,6 @@ export default function Reportes() {
               </select>
             </label>
 
-            {/* Mes */}
             <label className="side-field">
               <span>Mes</span>
               <select
@@ -1023,7 +996,6 @@ export default function Reportes() {
               </select>
             </label>
 
-            {/* Acciones */}
             <div className="side-actions">
               <button
                 className="btn-dark excel"
@@ -1036,7 +1008,6 @@ export default function Reportes() {
               </button>
             </div>
 
-            {/* Error (panel) */}
             {errorMsg ? (
               <div
                 style={{
@@ -1057,9 +1028,7 @@ export default function Reportes() {
           </section>
         </aside>
 
-        {/* MAIN */}
         <main className="contable-main">
-          {/* Toolbar */}
           <div className="main-switch" role="tablist" aria-label="Cambiar vista principal">
             <div className="switch-left">
               <button
@@ -1224,14 +1193,7 @@ export default function Reportes() {
           </div>
 
           {/* Tabla */}
-<div
-  style={{
-    padding: "10px 12px 14px",
-    flex: "1 1 auto",
-    minHeight: 0,
-    overflow: "hidden",
-  }}
->
+          <div style={{ padding: "10px 12px 14px", flex: "1 1 auto", minHeight: 0, overflow: "hidden" }}>
             {view === "pagos" && (
               <GridTable
                 title="Pagos"
@@ -1239,6 +1201,35 @@ export default function Reportes() {
                 columns={colsMov}
                 rows={pagosFiltrados}
                 loading={loadingData}
+                actions={(r) => (
+                  <div className="actions-cell">
+                    {/* ver comprobante si existe */}
+                    <button
+                      type="button"
+                      className={`icon-btn ${r?.comprobante ? "" : "disabled"}`}
+                      title={r?.comprobante ? "Ver comprobante" : "Sin comprobante"}
+                      onClick={() => openViewerFromRow(r, "Comprobante de pago")}
+                      aria-label="Ver comprobante"
+                      disabled={!r?.comprobante}
+                    >
+                      <FontAwesomeIcon icon={faEye} />
+                    </button>
+
+                    {/* ✅ abrir modal para adjuntar / borrar */}
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Adjuntar comprobante"
+                      onClick={() => {
+                        setPagoItem(r);
+                        setModalPagoCompOpen(true);
+                      }}
+                      aria-label="Adjuntar comprobante"
+                    >
+                      <FontAwesomeIcon icon={faPaperclip} />
+                    </button>
+                  </div>
+                )}
               />
             )}
 
@@ -1255,7 +1246,7 @@ export default function Reportes() {
                       type="button"
                       className={`icon-btn ${r?.comprobante ? "" : "disabled"}`}
                       title={r?.comprobante ? "Ver comprobante" : "Sin comprobante"}
-                      onClick={() => onVerComprobante(r)}
+                      onClick={() => openViewerFromRow(r, "Comprobante")}
                       aria-label="Ver comprobante"
                       disabled={!r?.comprobante}
                     >
@@ -1306,7 +1297,7 @@ export default function Reportes() {
           if (savingEgreso) return;
           setModalEgresoOpen(false);
         }}
-        onConfirm={crearEgreso} // recibe FormData
+        onConfirm={crearEgreso}
         loading={savingEgreso}
         medios={mediosDisponibles}
       />
@@ -1365,6 +1356,20 @@ export default function Reportes() {
         title={compItem?.concepto || "Comprobante"}
         subtitle={compItem?.fecha ? `Fecha: ${compItem.fecha}` : ""}
         url={compItem?.url || ""}
+      />
+
+      {/* ✅✅ NUEVO: Modal comprobante de PAGO */}
+      <ModalComprobantePago
+        open={modalPagoCompOpen}
+        onClose={() => {
+          if (savingPagoComp) return;
+          setModalPagoCompOpen(false);
+          setPagoItem(null);
+        }}
+        onConfirm={guardarComprobantePago}
+        loading={savingPagoComp}
+        item={pagoItem}
+        buildFileUrl={buildFileUrl}
       />
     </div>
   );
