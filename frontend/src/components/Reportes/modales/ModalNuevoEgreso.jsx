@@ -263,7 +263,7 @@ export default function ModalNuevoEgreso({
               </article>
 
               {/* ✅ CARD 3: Comprobante (ahora va DESPUÉS de Detalles) */}
-              <article className="mi-card">
+              <article className="mi-card mi-card--fullsd">
                 <h3 className="mi-card__title">Comprobante</h3>
 
                 <div className="fl-grid">
@@ -352,6 +352,7 @@ export default function ModalNuevoEgreso({
           </div>
 
           <div className="mit-actions">
+           <div className="mit-help down-left">* Campos obligatorios</div>
             <button
               type="button"
               className="mit-btn mit-btn--ghost"
@@ -366,7 +367,6 @@ export default function ModalNuevoEgreso({
             </button>
           </div>
 
-          <div className="mit-help">* Campos obligatorios</div>
         </form>
       </div>
     </div>

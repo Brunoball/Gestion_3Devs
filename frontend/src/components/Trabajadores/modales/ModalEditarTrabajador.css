@@ -663,3 +663,43 @@
   font-size:12px;
   line-height:1.35;
 }
+.down-left{
+  margin-right: auto; padding-bottom: 0; align-self: flex-end;
+}
+/* =========================
+   FIX overflow general en CSS Grid
+   (clave: min-width: 0 en items)
+========================= */
+.mi-grid > * { min-width: 0; }     /* cards dentro del grid */
+.mi-card { min-width: 0; }         /* por las dudas */
+
+.fl-grid { min-width: 0; }
+.fl-field { min-width: 0; }
+
+.cmp-box { min-width: 0; width: 100%; box-sizing: border-box; }
+
+/* dropzone */
+.cmp-drop{
+  width: 100%;
+  box-sizing: border-box;
+  grid-template-columns: 44px minmax(0, 1fr) auto; /* 1fr que sí achica */
+}
+
+/* el texto DEBE poder achicarse */
+.cmp-drop__text{ min-width: 0; }
+.cmp-drop__text b,
+.cmp-drop__text span{
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* si el botón está empujando, dejalo envolver */
+.cmp-drop__btn{
+  white-space: normal; /* <-- importante si tu layout queda justo */
+  text-align: center;
+}
+.mi-card--fullsd{
+  min-height: 200px; /* o lo que quieras */
+}
