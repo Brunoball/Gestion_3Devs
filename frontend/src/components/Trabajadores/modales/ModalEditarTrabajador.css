@@ -576,3 +576,9 @@
     max-width: 240px;
   }
 }
+.mi-card--fullsd{ height: 260px;}
+/* ✅ Alias por compatibilidad: si algún modal usa mi-card--fullsd */
+.mi-card--fullsd{
+  grid-column: 1 / -1;
+}
+

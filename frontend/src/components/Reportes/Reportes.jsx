@@ -106,7 +106,7 @@ function GridTable({ title, icon, columns = [], rows = [], loading = false, acti
   return (
     <section className="reportes-block">
       <div className="contable-tablewrap reportes-tablewrap minimal">
-        <div
+                  <div
           className="gridtable-header minimal"
           style={{ gridTemplateColumns: allCols.map((c) => c.fr).join(" ") }}
         >
@@ -117,7 +117,10 @@ function GridTable({ title, icon, columns = [], rows = [], loading = false, acti
           ))}
         </div>
 
-        <div className="gridtable-body minimal">
+
+
+  <div className="gridtable-scroll minimal">
+     <div className="gridtable-body minimal">
           {loading ? (
             renderSkeletonRows(allCols.length || 5)
           ) : safeRows.length ? (
@@ -149,6 +152,15 @@ function GridTable({ title, icon, columns = [], rows = [], loading = false, acti
             </div>
           )}
         </div>
+
+  </div>
+
+       
+
+
+
+
+
       </div>
     </section>
   );

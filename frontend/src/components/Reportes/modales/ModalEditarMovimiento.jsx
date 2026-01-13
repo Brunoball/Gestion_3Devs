@@ -1,5 +1,5 @@
 // src/components/Contable/modales/ModalEditarMovimiento.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faSave,
@@ -7,7 +7,6 @@ import {
   faMoneyBillTrendUp,
   faMoneyBillTransfer,
   faUser,
-  faEye,
   faTrash,
   faPaperclip,
   faFilePdf,
@@ -15,6 +14,9 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
+
+// ✅ TOAST (ruta que pasaste)
+import Toast from "../../Global/Toast";
 
 function isPdfPath(pathOrUrl) {
   const p = String(pathOrUrl || "").toLowerCase();
@@ -45,6 +47,27 @@ export default function ModalEditarMovimiento({
 }) {
   const firstRef = useRef(null);
   const fileRef = useRef(null);
+
+  /* =========================
+     ✅ TOAST STATE (solo errores por toast)
+     - arranca con message: null para evitar “toast vacío”
+     - Toast se renderiza SOLO si open && message
+  ========================= */
+  const [toast, setToast] = useState({
+    open: false,
+    type: "danger",
+    message: null,
+  });
+
+  const showError = useCallback((msg) => {
+    const m = String(msg || "").trim();
+    if (!m) return;
+    setToast({ open: true, type: "danger", message: m });
+  }, []);
+
+  const closeToast = useCallback(() => {
+    setToast({ open: false, type: "danger", message: null });
+  }, []);
 
   const itemFecha = useMemo(() => String(item?.fecha || ""), [item]);
   const itemMonto = useMemo(() => {
@@ -91,8 +114,6 @@ export default function ModalEditarMovimiento({
   const [deleteComp, setDeleteComp] = useState(false);
   const [newFile, setNewFile] = useState(null);
 
-  const [error, setError] = useState("");
-
   const meta = useMemo(() => {
     if (tipo === "egreso") return { icon: faMoneyBillTransfer, title: "Editar egreso" };
     if (tipo === "trabajador") return { icon: faUser, title: "Editar trabajador" };
@@ -123,7 +144,8 @@ export default function ModalEditarMovimiento({
   useEffect(() => {
     if (!open) return;
 
-    setError("");
+    // ✅ opcional: al abrir, cerramos cualquier toast colgado
+    closeToast();
 
     // ✅ Carga en MAYÚSCULAS para que al abrir también quede uniforme
     setFecha(itemFecha);
@@ -145,6 +167,7 @@ export default function ModalEditarMovimiento({
     setTimeout(() => firstRef.current?.focus(), 0);
   }, [
     open,
+    closeToast,
     itemFecha,
     itemMonto,
     itemConcepto,
@@ -185,73 +208,68 @@ export default function ModalEditarMovimiento({
     }
     const okExt = /\.(pdf|jpg|jpeg|png|webp)$/i.test(f.name || "");
     if (!okExt) {
-      setError("Comprobante: formato inválido. Solo PDF/JPG/PNG/WEBP.");
+      showError("Comprobante: formato inválido. Solo PDF/JPG/PNG/WEBP.");
       setNewFile(null);
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
     if (f.size > 8 * 1024 * 1024) {
-      setError("Comprobante: el archivo supera 8MB.");
+      showError("Comprobante: el archivo supera 8MB.");
       setNewFile(null);
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
-    setError("");
     setNewFile(f);
     setDeleteComp(false);
   };
 
   const submit = (e) => {
     e?.preventDefault?.();
-    setError("");
 
-    if (!item?.id && item?.id !== 0) {
-      return setError("No se encontró el ID del registro a editar.");
-    }
+    if (!item?.id && item?.id !== 0) return showError("No se encontró el ID del registro a editar.");
 
     if (tipo === "trabajador") {
-      if (!String(nombre || "").trim()) return setError("El nombre es obligatorio.");
-      if (!String(apellido || "").trim()) return setError("El apellido es obligatorio.");
+      if (!String(nombre || "").trim()) return showError("El nombre es obligatorio.");
+      if (!String(apellido || "").trim()) return showError("El apellido es obligatorio.");
 
       const montoNum = validarMonto(monto);
-      if (monto === "" || monto === null) return setError("El monto es obligatorio.");
-      if (!montoNum) return setError("El monto debe ser un número mayor a 0.");
+      if (monto === "" || monto === null) return showError("El monto es obligatorio.");
+      if (!montoNum) return showError("El monto debe ser un número mayor a 0.");
 
       const sis = Number(String(sistemasCobrados || "0").replace(",", "."));
       const sisOk = Number.isFinite(sis) && sis >= 0 ? Math.trunc(sis) : null;
-      if (sisOk === null) return setError("Sistemas debe ser 0 o un número válido.");
+      if (sisOk === null) return showError("Sistemas debe ser 0 o un número válido.");
 
       onConfirm?.({
         id: item.id,
         tipo,
-        nombre: String(nombre).trim(), // ya en mayúsculas
-        apellido: String(apellido).trim(), // ya en mayúsculas
-        rol: String(rol || "").trim() || null, // ya en mayúsculas
-        alias_pago: String(aliasPago || "").trim() || null, // ya en mayúsculas
+        nombre: String(nombre).trim(),
+        apellido: String(apellido).trim(),
+        rol: String(rol || "").trim() || null,
+        alias_pago: String(aliasPago || "").trim() || null,
         sistemas_cobrados: sisOk,
         monto: montoNum,
       });
       return;
     }
 
-    if (!fecha) return setError("La fecha es obligatoria.");
-    if (!String(concepto || "").trim()) return setError("El concepto es obligatorio.");
-    if (monto === "" || monto === null) return setError("El monto es obligatorio.");
+    if (!fecha) return showError("La fecha es obligatoria.");
+    if (!String(concepto || "").trim()) return showError("El concepto es obligatorio.");
+    if (monto === "" || monto === null) return showError("El monto es obligatorio.");
 
     const montoNum = validarMonto(monto);
-    if (!montoNum) return setError("El monto debe ser un número mayor a 0.");
+    if (!montoNum) return showError("El monto debe ser un número mayor a 0.");
 
     if (tipo === "egreso") {
       const fd = new FormData();
       fd.append("id", String(item.id));
       fd.append("tipo", "egreso");
       fd.append("fecha", String(fecha));
-      fd.append("concepto", String(concepto).trim()); // mayúsculas
-      fd.append("descripcion", String(descripcion || "").trim()); // mayúsculas
+      fd.append("concepto", String(concepto).trim());
+      fd.append("descripcion", String(descripcion || "").trim());
       fd.append("monto", String(montoNum));
       fd.append("id_medio_pago", idMedio ? String(Number(idMedio)) : "");
       fd.append("delete_comprobante", deleteComp ? "1" : "0");
-
       if (newFile) fd.append("comprobante", newFile);
 
       onConfirm?.(fd);
@@ -262,8 +280,8 @@ export default function ModalEditarMovimiento({
       id: item.id,
       tipo,
       fecha,
-      concepto: String(concepto).trim(), // mayúsculas
-      descripcion: String(descripcion || "").trim() || null, // mayúsculas
+      concepto: String(concepto).trim(),
+      descripcion: String(descripcion || "").trim() || null,
       monto: montoNum,
       id_medio_pago: idMedio ? Number(idMedio) : null,
     });
@@ -274,7 +292,6 @@ export default function ModalEditarMovimiento({
   const hasCurrent = !!currentCompPath;
   const canPreviewInline = hasCurrent && !!currentCompUrl;
 
-  // ✅ meta para estilos tipo ModalNuevoEgreso (cmp-*)
   const currentIsPdf = isPdfPath(currentCompPath) || isPdfPath(currentCompUrl);
   const currentName = fileNameFromPath(currentCompPath) || "Comprobante";
   const newIsPdf = newFile ? /\.(pdf)$/i.test(newFile.name || "") : false;
@@ -285,6 +302,20 @@ export default function ModalEditarMovimiento({
       className="mi-modal__overlay"
       onClick={(e) => e.target.classList.contains("mi-modal__overlay") && cerrar()}
     >
+      {/* ✅ Toast se monta SOLO si hay mensaje (evita toast vacío) */}
+      {toast.open && toast.message ? (
+        <Toast
+          open
+          show
+          type={toast.type}
+          variant={toast.type}
+          message={toast.message}
+          text={toast.message}
+          onClose={closeToast}
+          onHide={closeToast}
+        />
+      ) : null}
+
       <div
         className="mi-modal__container"
         role="dialog"
@@ -307,15 +338,7 @@ export default function ModalEditarMovimiento({
             type="button"
             title="Cerrar"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -494,20 +517,15 @@ export default function ModalEditarMovimiento({
                     </div>
                   </article>
 
-                  {/* ✅ CARD: Comprobante con las MISMAS CLASES cmp-* que ModalNuevoEgreso */}
                   {tipo === "egreso" && (
-                    <article className="mi-card">
+                    <article className="mi-card mi-card--fullsd">
                       <h3 className="mi-card__title">Comprobante</h3>
 
                       <div className="fl-grid">
                         <div className="fl-field fl-col-full">
-                          <div className={`cmp-box ${error ? "is-error" : ""}`}>
-<div className="cmp-actions">
+                          <div className="cmp-box">
+                            <div className="cmp-actions"></div>
 
-</div>
-
-
-                            {/* DROPZONE estilo NuevoEgreso */}
                             <label className="cmp-drop">
                               <input
                                 ref={fileRef}
@@ -530,7 +548,6 @@ export default function ModalEditarMovimiento({
                               <div className="cmp-drop__btn">Elegir archivo</div>
                             </label>
 
-                            {/* Estado actual / nuevo */}
                             {newFile ? (
                               <div className="cmp-file">
                                 <div className="cmp-file__left">
@@ -592,7 +609,6 @@ export default function ModalEditarMovimiento({
                               <div className="cmp-empty">Sin archivo adjunto</div>
                             )}
 
-                            {/* Preview inline (lo dejo, pero sin romper las clases cmp-*) */}
                             {canPreviewInline && !deleteComp && !newFile ? (
                               <div
                                 style={{
@@ -604,21 +620,12 @@ export default function ModalEditarMovimiento({
                                 }}
                               >
                                 {isPdfPath(currentCompUrl) ? (
-                                  <iframe
-                                    title="Comprobante PDF"
-                                    src={currentCompUrl}
-                                    style={{ width: "100%", height: 340, border: 0 }}
-                                  />
+                                  <iframe title="Comprobante PDF" src={currentCompUrl} style={{ width: "100%", height: 340, border: 0 }} />
                                 ) : (
                                   <img
                                     src={currentCompUrl}
                                     alt="Comprobante"
-                                    style={{
-                                      width: "100%",
-                                      maxHeight: 340,
-                                      objectFit: "contain",
-                                      display: "block",
-                                    }}
+                                    style={{ width: "100%", maxHeight: 340, objectFit: "contain", display: "block" }}
                                   />
                                 )}
                               </div>
@@ -634,14 +641,6 @@ export default function ModalEditarMovimiento({
                   )}
                 </>
               )}
-
-              {error ? (
-                <article className="mi-card mi-card--full">
-                  <div className="mit-alert mit-alert--danger">
-                    <b>Error:</b> {error}
-                  </div>
-                </article>
-              ) : null}
             </div>
           </div>
 

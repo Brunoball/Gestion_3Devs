@@ -1,5 +1,5 @@
 // src/components/Contable/modales/ModalNuevoEgreso.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faMoneyBillTransfer,
@@ -11,6 +11,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
+import Toast from "../../Global/Toast";
 
 export default function ModalNuevoEgreso({
   open,
@@ -33,10 +34,28 @@ export default function ModalNuevoEgreso({
   const [monto, setMonto] = useState("");
   const [idMedio, setIdMedio] = useState("");
   const [comprobanteFile, setComprobanteFile] = useState(null);
-  const [error, setError] = useState("");
 
-  // ✅ helper: convierte a MAYÚSCULAS “en vivo”
+  // ✅ helper: MAYÚSCULAS “en vivo”
   const toUpperLive = (v) => String(v ?? "").toUpperCase();
+
+  /* =========================
+     ✅ TOAST (solo errores)
+  ========================= */
+  const [toast, setToast] = useState({
+    open: false,
+    type: "danger",
+    message: "", // string siempre
+  });
+
+  const closeToast = useCallback(() => {
+    setToast({ open: false, type: "danger", message: "" });
+  }, []);
+
+  const showError = useCallback((msg) => {
+    const m = String(msg || "").trim();
+    if (!m) return;
+    setToast({ open: true, type: "danger", message: m });
+  }, []);
 
   const subtitle = useMemo(() => {
     const c = (concepto || "").trim();
@@ -47,21 +66,21 @@ export default function ModalNuevoEgreso({
 
   useEffect(() => {
     if (!open) return;
+
+    closeToast();
     setFecha(hoyISO);
     setConcepto("");
     setDescripcion("");
     setMonto("");
     setIdMedio("");
     setComprobanteFile(null);
-    setError("");
+
     setTimeout(() => firstRef.current?.focus(), 0);
-  }, [open, hoyISO]);
+  }, [open, hoyISO, closeToast]);
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => {
-      if (e.key === "Escape") cerrar();
-    };
+    const onKey = (e) => e.key === "Escape" && cerrar();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -73,7 +92,6 @@ export default function ModalNuevoEgreso({
   };
 
   const onPickFile = (e) => {
-    setError("");
     const f = e.target.files?.[0] || null;
 
     if (!f) {
@@ -82,17 +100,15 @@ export default function ModalNuevoEgreso({
     }
 
     const allowed = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
-
     if (!allowed.includes(f.type)) {
       setComprobanteFile(null);
-      setError("Solo se permite PDF o imágenes (JPG/PNG/WEBP).");
+      showError("Solo se permite PDF o imágenes (JPG/PNG/WEBP).");
       return;
     }
 
-    const maxBytes = 8 * 1024 * 1024; // 8MB
-    if (f.size > maxBytes) {
+    if (f.size > 8 * 1024 * 1024) {
       setComprobanteFile(null);
-      setError("El archivo no puede pesar más de 8MB.");
+      showError("El archivo no puede pesar más de 8MB.");
       return;
     }
 
@@ -101,29 +117,24 @@ export default function ModalNuevoEgreso({
 
   const submit = (e) => {
     e?.preventDefault?.();
-    setError("");
 
-    if (!fecha) return setError("La fecha es obligatoria.");
-    if (!concepto.trim()) return setError("El concepto es obligatorio.");
-    if (monto === "" || monto === null) return setError("El monto es obligatorio.");
+    // ✅ mensaje “completar campos”
+    if (!fecha || !concepto.trim() || monto === "" || monto === null) {
+      return showError("Completá todos los campos obligatorios (*).");
+    }
 
     const montoNum = Number(String(monto).replace(",", "."));
     if (!Number.isFinite(montoNum) || montoNum <= 0) {
-      return setError("El monto debe ser un número mayor a 0.");
+      return showError("El monto debe ser un número mayor a 0.");
     }
 
-    // ✅ Mandamos FormData (sirve con o sin archivo)
     const fd = new FormData();
     fd.append("fecha", fecha);
-    fd.append("concepto", concepto.trim()); // ya viene en mayúsculas
-    fd.append("descripcion", (descripcion || "").trim()); // ya viene en mayúsculas
+    fd.append("concepto", concepto.trim());
+    fd.append("descripcion", (descripcion || "").trim());
     fd.append("monto", String(montoNum));
     fd.append("id_medio_pago", idMedio ? String(Number(idMedio)) : "");
-
-    // ✅ el backend espera el nombre: "comprobante"
-    if (comprobanteFile) {
-      fd.append("comprobante", comprobanteFile);
-    }
+    if (comprobanteFile) fd.append("comprobante", comprobanteFile);
 
     onConfirm?.(fd);
   };
@@ -138,6 +149,27 @@ export default function ModalNuevoEgreso({
       className="mi-modal__overlay"
       onClick={(e) => e.target.classList.contains("mi-modal__overlay") && cerrar()}
     >
+      {/* ✅ Toast: pasamos duración + mensaje en VARIOS nombres */}
+      {toast.open && toast.message ? (
+        <Toast
+          open
+          show
+          type={toast.type}
+          variant={toast.type}
+          duration={3200}
+          duracion={3200}
+          // texto/mensaje/message por compatibilidad
+          text={toast.message}
+          texto={toast.message}
+          message={toast.message}
+          mensaje={toast.message}
+          onClose={closeToast}
+          onHide={closeToast}
+        >
+          {toast.message}
+        </Toast>
+      ) : null}
+
       <div
         className="mi-modal__container"
         role="dialog"
@@ -160,15 +192,7 @@ export default function ModalNuevoEgreso({
             type="button"
             title="Cerrar"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -178,7 +202,6 @@ export default function ModalNuevoEgreso({
         <form className="mit-modal__body" onSubmit={submit}>
           <div className="mi-tabpanel is-active">
             <div className="mi-grid">
-              {/* ✅ CARD 1: Datos del egreso */}
               <article className="mi-card">
                 <h3 className="mi-card__title">Datos del egreso</h3>
 
@@ -223,7 +246,6 @@ export default function ModalNuevoEgreso({
                 </div>
               </article>
 
-              {/* ✅ CARD 2: Detalles (ahora va ANTES) */}
               <article className="mi-card">
                 <h3 className="mi-card__title">Detalles</h3>
 
@@ -249,10 +271,7 @@ export default function ModalNuevoEgreso({
                     >
                       <option value="">(Sin medio)</option>
                       {medios.map((m) => (
-                        <option
-                          key={m.id ?? m.id_medio_pago}
-                          value={m.id ?? m.id_medio_pago}
-                        >
+                        <option key={m.id ?? m.id_medio_pago} value={m.id ?? m.id_medio_pago}>
                           {m.nombre ?? m.medio ?? ""}
                         </option>
                       ))}
@@ -262,13 +281,12 @@ export default function ModalNuevoEgreso({
                 </div>
               </article>
 
-              {/* ✅ CARD 3: Comprobante (ahora va DESPUÉS de Detalles) */}
               <article className="mi-card mi-card--fullsd">
                 <h3 className="mi-card__title">Comprobante</h3>
 
                 <div className="fl-grid">
                   <div className="fl-field fl-col-full">
-                    <div className={`cmp-box ${error ? "is-error" : ""}`}>
+                    <div className="cmp-box">
                       <div className="cmp-head">
                         <label className="cmp-title">
                           <FontAwesomeIcon icon={faPaperclip} /> Archivo (opcional)
@@ -300,26 +318,15 @@ export default function ModalNuevoEgreso({
                       {comprobanteFile ? (
                         <div className="cmp-file">
                           <div className="cmp-file__left">
-                            <div
-                              className={`cmp-badge ${
-                                isPdf ? "is-pdf" : isImg ? "is-img" : ""
-                              }`}
-                            >
-                              <FontAwesomeIcon
-                                icon={isPdf ? faFilePdf : isImg ? faImage : faPaperclip}
-                              />
+                            <div className={`cmp-badge ${isPdf ? "is-pdf" : isImg ? "is-img" : ""}`}>
+                              <FontAwesomeIcon icon={isPdf ? faFilePdf : isImg ? faImage : faPaperclip} />
                             </div>
 
                             <div className="cmp-file__meta">
-                              <div
-                                className="cmp-file__name"
-                                title={comprobanteFile.name}
-                              >
+                              <div className="cmp-file__name" title={comprobanteFile.name}>
                                 {comprobanteFile.name}
                               </div>
-                              <div className="cmp-file__size">
-                                {Math.round(comprobanteFile.size / 1024)} KB
-                              </div>
+                              <div className="cmp-file__size">{Math.round(comprobanteFile.size / 1024)} KB</div>
                             </div>
                           </div>
 
@@ -340,24 +347,11 @@ export default function ModalNuevoEgreso({
                   </div>
                 </div>
               </article>
-
-              {error ? (
-                <article className="mi-card mi-card--full">
-                  <div className="mit-alert mit-alert--danger">
-                    <b>Error:</b> {error}
-                  </div>
-                </article>
-              ) : null}
             </div>
           </div>
 
           <div className="mit-actions">
-            <button
-              type="button"
-              className="mit-btn mit-btn--ghost"
-              onClick={cerrar}
-              disabled={loading}
-            >
+            <button type="button" className="mit-btn mit-btn--ghost" onClick={cerrar} disabled={loading}>
               <FontAwesomeIcon icon={faTimes} /> Cancelar
             </button>
 
@@ -365,7 +359,6 @@ export default function ModalNuevoEgreso({
               <FontAwesomeIcon icon={faSave} /> {loading ? "Guardando…" : "Guardar"}
             </button>
           </div>
-
         </form>
       </div>
     </div>

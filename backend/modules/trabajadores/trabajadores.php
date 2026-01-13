@@ -10,6 +10,9 @@ try {
 
   switch ($op) {
 
+    /* =========================
+       LISTAR (activos o todos)
+    ========================== */
     case 'listar': {
       $soloActivos = isset($_GET['activos']) ? (int)$_GET['activos'] : 1;
 
@@ -26,6 +29,9 @@ try {
       exit;
     }
 
+    /* =========================
+       GET 1
+    ========================== */
     case 'get': {
       $id = (int)($_GET['id'] ?? 0);
       if ($id <= 0) {
@@ -43,6 +49,9 @@ try {
       exit;
     }
 
+    /* =========================
+       CREAR
+    ========================== */
     case 'crear': {
       $body = json_decode(file_get_contents('php://input'), true) ?: [];
 
@@ -71,6 +80,9 @@ try {
       exit;
     }
 
+    /* =========================
+       EDITAR
+    ========================== */
     case 'editar': {
       $body = json_decode(file_get_contents('php://input'), true) ?: [];
 
@@ -106,6 +118,60 @@ try {
       exit;
     }
 
+    /* =========================
+       BAJA LÓGICA (DAR DE BAJA)
+       activo = 0
+    ========================== */
+    case 'baja': {
+      $body = json_decode(file_get_contents('php://input'), true) ?: [];
+      $id = (int)($body['id'] ?? 0);
+
+      if ($id <= 0) {
+        echo json_encode(['exito' => false, 'mensaje' => 'ID inválido'], JSON_UNESCAPED_UNICODE);
+        exit;
+      }
+
+      $st = $pdo->prepare("UPDATE trabajadores SET activo = 0 WHERE id = ? LIMIT 1");
+      $st->execute([$id]);
+
+      if ($st->rowCount() === 0) {
+        echo json_encode(['exito' => false, 'mensaje' => 'No existe el trabajador.'], JSON_UNESCAPED_UNICODE);
+        exit;
+      }
+
+      echo json_encode(['exito' => true], JSON_UNESCAPED_UNICODE);
+      exit;
+    }
+
+    /* =========================
+       REACTIVAR
+       activo = 1
+    ========================== */
+    case 'reactivar': {
+      $body = json_decode(file_get_contents('php://input'), true) ?: [];
+      $id = (int)($body['id'] ?? 0);
+
+      if ($id <= 0) {
+        echo json_encode(['exito' => false, 'mensaje' => 'ID inválido'], JSON_UNESCAPED_UNICODE);
+        exit;
+      }
+
+      $st = $pdo->prepare("UPDATE trabajadores SET activo = 1 WHERE id = ? LIMIT 1");
+      $st->execute([$id]);
+
+      if ($st->rowCount() === 0) {
+        echo json_encode(['exito' => false, 'mensaje' => 'No existe el trabajador.'], JSON_UNESCAPED_UNICODE);
+        exit;
+      }
+
+      echo json_encode(['exito' => true], JSON_UNESCAPED_UNICODE);
+      exit;
+    }
+
+    /* =========================
+       ELIMINAR PERMANENTE
+       (DELETE físico)
+    ========================== */
     case 'eliminar': {
       $body = json_decode(file_get_contents('php://input'), true) ?: [];
       $id = (int)($body['id'] ?? 0);
@@ -115,9 +181,13 @@ try {
         exit;
       }
 
-      // Baja lógica
-      $st = $pdo->prepare("UPDATE trabajadores SET activo = 0 WHERE id = ? LIMIT 1");
+      $st = $pdo->prepare("DELETE FROM trabajadores WHERE id = ? LIMIT 1");
       $st->execute([$id]);
+
+      if ($st->rowCount() === 0) {
+        echo json_encode(['exito' => false, 'mensaje' => 'No existe el trabajador o ya fue eliminado.'], JSON_UNESCAPED_UNICODE);
+        exit;
+      }
 
       echo json_encode(['exito' => true], JSON_UNESCAPED_UNICODE);
       exit;
@@ -130,15 +200,23 @@ try {
   }
 
 } catch (PDOException $e) {
-  // ✅ Detectar duplicados (MySQL error 1062)
   $mysqlCode = isset($e->errorInfo[1]) ? (int)$e->errorInfo[1] : 0;
   $msg = $e->getMessage();
 
+  // ✅ Duplicados (1062)
   if ($mysqlCode === 1062 || str_contains($msg, 'Duplicate entry')) {
-    // Si querés, podés afinar por campo (email), pero con esto ya queda bien.
     echo json_encode([
       'exito' => false,
       'mensaje' => 'Ya existe un trabajador con ese correo.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+  }
+
+  // ✅ FK constraint (1451) típico al DELETE
+  if ($mysqlCode === 1451 || str_contains($msg, 'a foreign key constraint fails')) {
+    echo json_encode([
+      'exito' => false,
+      'mensaje' => 'No se puede eliminar: el trabajador está referenciado por otros registros.'
     ], JSON_UNESCAPED_UNICODE);
     exit;
   }
