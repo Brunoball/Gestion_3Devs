@@ -296,8 +296,6 @@ export default function ModalAgregarTrabajador({ open, onClose, onSaved }) {
               Crear trabajador
             </button>
           </div>
-
-          <div className="mit-help">* Campos obligatorios</div>
         </form>
       </div>
     </div>

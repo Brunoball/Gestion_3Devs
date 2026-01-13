@@ -12,12 +12,9 @@ require_once __DIR__ . '/arca_wsfe.php';
  *   "id_pago": 123,
  *   "doc_tipo": 80|96,
  *   "doc_nro": 2030...,
- *   "cbte_tipo": 11|6|1,
+ *   "cbte_tipo": 11,
  *   "pto_vta": 1
  * }
- *
- * Devuelve:
- * { exito:true, factura:{...} }
  */
 
 function pagos_factura_arca(): void
@@ -36,13 +33,11 @@ function pagos_factura_arca(): void
   if ($id_pago <= 0) json_error("Falta id_pago");
   if (!in_array($doc_tipo, [80, 96], true)) json_error("doc_tipo inválido (80=CUIT, 96=DNI)");
   if ($doc_nro <= 0) json_error("doc_nro inválido");
-  if (!in_array($cbte_tipo, [11, 6, 1], true)) json_error("cbte_tipo inválido");
   if ($pto_vta <= 0) json_error("pto_vta inválido (obligatorio)");
 
-  // ⚠️ En este módulo dejamos “perfecto” para Factura C (11) sin IVA detallado.
-  // Para A/B necesitás IVA y/o condición fiscal (si querés lo sumamos después).
+  // Por ahora dejamos “perfecto” para Factura C (11)
   if ($cbte_tipo !== 11) {
-    json_error("Por ahora, el endpoint está configurado para FACTURA C (11). Para A/B agregamos IVA y datos fiscales.");
+    json_error("Por ahora, este endpoint está configurado para FACTURA C (11).");
   }
 
   // 1) Buscar el pago
@@ -88,16 +83,18 @@ function pagos_factura_arca(): void
   $moneda   = (string)($cfg['defaults']['moneda'] ?? 'PES');
   $cotiz    = (float)($cfg['defaults']['cotiz'] ?? 1.0);
 
+  $sslVerify = (bool)($cfg['ssl_verify'] ?? true);
+
   // 3) WSAA login (token+sign)
   try {
-    $ta = ArcaWsaa::login($wsaaWsdl, $wsn, $certPath, $keyPath, $keyPass);
+    $ta = ArcaWsaa::login($wsaaWsdl, $wsn, $certPath, $keyPath, $keyPass, $sslVerify);
   } catch (Throwable $e) {
     json_error("ARCA WSAA: no pude obtener Ticket de Acceso", ['error' => $e->getMessage()]);
   }
 
   // 4) WSFE emitir CAE
   try {
-    $wsfe = new ArcaWsfe($wsfeWsdl);
+    $wsfe = new ArcaWsfe($wsfeWsdl, $sslVerify);
 
     $auth = [
       'Token' => $ta['token'],
@@ -120,6 +117,32 @@ function pagos_factura_arca(): void
     $impTotal = round($importe, 2);
     $impNeto  = $impTotal;
 
+    $det = [
+      'Concepto'    => $concepto,
+      'DocTipo'     => $doc_tipo,
+      'DocNro'      => $doc_nro,
+      'CbteDesde'   => $cbte_nro,
+      'CbteHasta'   => $cbte_nro,
+      'CbteFch'     => $fecha_cbte,
+
+      'ImpTotal'    => $impTotal,
+      'ImpTotConc'  => 0.0,
+      'ImpNeto'     => $impNeto,
+      'ImpOpEx'     => 0.0,
+      'ImpIVA'      => 0.0,
+      'ImpTrib'     => 0.0,
+
+      'MonId'       => $moneda,
+      'MonCotiz'    => $cotiz,
+    ];
+
+    // ✅ CLAVE: si Concepto=2 (Servicios) o 3, ARCA suele requerir estas fechas
+    if (in_array($concepto, [2, 3], true)) {
+      $det['FchServDesde'] = $fecha_cbte;
+      $det['FchServHasta'] = $fecha_cbte;
+      $det['FchVtoPago']   = $fecha_cbte;
+    }
+
     $feCAEReq = [
       'FeCabReq' => [
         'CantReg' => 1,
@@ -127,29 +150,7 @@ function pagos_factura_arca(): void
         'CbteTipo'=> $cbte_tipo,
       ],
       'FeDetReq' => [
-        'FECAEDetRequest' => [
-          [
-            'Concepto'    => $concepto,
-            'DocTipo'     => $doc_tipo,
-            'DocNro'      => $doc_nro,
-            'CbteDesde'   => $cbte_nro,
-            'CbteHasta'   => $cbte_nro,
-            'CbteFch'     => $fecha_cbte,
-
-            'ImpTotal'    => $impTotal,
-            'ImpTotConc'  => 0.0,
-            'ImpNeto'     => $impNeto,
-            'ImpOpEx'     => 0.0,
-            'ImpIVA'      => 0.0,
-            'ImpTrib'     => 0.0,
-
-            'MonId'       => $moneda,
-            'MonCotiz'    => $cotiz,
-
-            // Para servicios a veces se requieren FchServDesde/Hasta/VtoPago.
-            // Si te lo pide ARCA, lo agregamos. Por default lo dejamos vacío.
-          ]
-        ],
+        'FECAEDetRequest' => [ $det ],
       ],
     ];
 
@@ -157,16 +158,15 @@ function pagos_factura_arca(): void
 
     $cab = $res['FeCabResp'] ?? [];
     $detWrap = $res['FeDetResp'] ?? [];
-    $det = $detWrap['FECAEDetResponse'][0] ?? $detWrap['FECAEDetResponse'] ?? null;
+    $detResp = $detWrap['FECAEDetResponse'][0] ?? $detWrap['FECAEDetResponse'] ?? null;
 
-    if (!$det) {
+    if (!$detResp) {
       json_error("WSFE: respuesta sin detalle (FECAEDetResponse)");
     }
 
-    $resultado = (string)($det['Resultado'] ?? '');
+    $resultado = (string)($detResp['Resultado'] ?? '');
     if ($resultado !== 'A') {
-      // Observaciones
-      $obs = $det['Observaciones'] ?? null;
+      $obs = $detResp['Observaciones'] ?? null;
       $msgObs = '';
       if ($obs) {
         $o = json_decode(json_encode($obs), true);
@@ -180,19 +180,18 @@ function pagos_factura_arca(): void
       }
 
       json_error("ARCA rechazó el comprobante (Resultado=$resultado) $msgObs", [
-        'wsfe' => ['cab' => $cab, 'det' => $det],
+        'wsfe' => ['cab' => $cab, 'det' => $detResp],
       ]);
     }
 
-    $cae = (string)($det['CAE'] ?? '');
-    $cae_vto = (string)($det['CAEFchVto'] ?? '');
+    $cae = (string)($detResp['CAE'] ?? '');
+    $cae_vto = (string)($detResp['CAEFchVto'] ?? '');
 
     if ($cae === '' || $cae_vto === '') {
-      json_error("WSFE: CAE o Vto CAE vacío", ['wsfe' => ['det' => $det]]);
+      json_error("WSFE: CAE o Vto CAE vacío", ['wsfe' => ['det' => $detResp]]);
     }
 
-    // 5) QR oficial (URL)
-    // Especificación QR: :contentReference[oaicite:5]{index=5}
+    // 5) QR oficial
     $qrPayload = [
       'ver' => 1,
       'fecha' => $dt->format('Y-m-d'),
@@ -213,7 +212,6 @@ function pagos_factura_arca(): void
     $qrB64 = base64_encode($qrJson ?: '{}');
     $qrUrl = 'https://www.afip.gob.ar/fe/qr/?p=' . $qrB64;
 
-    // Respuesta al frontend
     json_ok([
       'exito' => true,
       'factura' => [
@@ -237,7 +235,6 @@ function pagos_factura_arca(): void
 
         'qr_url' => $qrUrl,
 
-        // datos útiles para tu PDF
         'id_pago' => $id_pago,
         'id_sistema' => (int)$p['id_sistema'],
         'cliente' => (string)($p['cliente'] ?? ''),

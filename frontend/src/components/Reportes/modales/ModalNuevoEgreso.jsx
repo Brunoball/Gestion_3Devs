@@ -352,7 +352,6 @@ export default function ModalNuevoEgreso({
           </div>
 
           <div className="mit-actions">
-           <div className="mit-help down-left">* Campos obligatorios</div>
             <button
               type="button"
               className="mit-btn mit-btn--ghost"

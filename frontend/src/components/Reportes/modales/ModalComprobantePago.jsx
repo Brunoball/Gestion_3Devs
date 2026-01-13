@@ -224,7 +224,7 @@ export default function ModalComprobantePago({
 
                     <div className="cmp-drop__text">
                       <b>{file ? "Archivo seleccionado" : "Seleccioná un archivo"}</b>
-                      <span>{file ? "Podés cambiarlo cuando quieras" : "Click para adjuntar comprobante"}</span>
+                      <span>{file ? "" : ""}</span>
                     </div>
 
                     <div className="cmp-drop__btn">
@@ -323,10 +323,6 @@ export default function ModalComprobantePago({
             >
               <FontAwesomeIcon icon={faFloppyDisk} /> {loading ? "Guardando..." : "Guardar"}
             </button>
-          </div>
-
-          <div className="mit-help">
-            Podés <b>subir</b> un nuevo comprobante o <b>eliminar</b> el actual.
           </div>
         </form>
       </div>

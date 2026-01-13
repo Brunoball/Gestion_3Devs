@@ -315,7 +315,7 @@ export default function ModalEditarTrabajador({
             </button>
           </div>
 
-          <div className="mit-help">* Campos obligatorios</div>
+          <div className="mit-help"></div>
         </form>
       </div>
     </div>

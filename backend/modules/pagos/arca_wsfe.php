@@ -2,23 +2,26 @@
 // backend/modules/pagos/arca_wsfe.php
 declare(strict_types=1);
 
-/**
- * WSFEv1 (Factura Electrónica v1)
- * Docs: :contentReference[oaicite:4]{index=4}
- */
-
 final class ArcaWsfe
 {
   private SoapClient $client;
 
-  public function __construct(string $wsfeWsdl)
+  public function __construct(string $wsfeWsdl, bool $sslVerify = true)
   {
+    $ctx = stream_context_create([
+      'ssl' => [
+        'verify_peer' => $sslVerify,
+        'verify_peer_name' => $sslVerify,
+      ],
+    ]);
+
     $this->client = new SoapClient($wsfeWsdl, [
-      'soap_version' => SOAP_1_2,
+      'soap_version' => SOAP_1_1,
       'exceptions' => true,
       'trace' => false,
       'cache_wsdl' => WSDL_CACHE_NONE,
       'connection_timeout' => 30,
+      'stream_context' => $ctx,
     ]);
   }
 
@@ -31,13 +34,11 @@ final class ArcaWsfe
       'CbteTipo' => $cbteTipo,
     ]);
 
-    // Normalización
     $r = $resp->FECompUltimoAutorizadoResult ?? null;
     if (!$r) throw new RuntimeException("WSFE sin FECompUltimoAutorizadoResult");
 
-    if (isset($r->Errors) && $r->Errors) {
-      $msg = self::formatErrors($r->Errors);
-      throw new RuntimeException("WSFE Error (FECompUltimoAutorizado): $msg");
+    if (!empty($r->Errors)) {
+      throw new RuntimeException("WSFE Error (FECompUltimoAutorizado): " . self::formatErrors($r->Errors));
     }
 
     return json_decode(json_encode($r), true) ?: [];
@@ -54,9 +55,8 @@ final class ArcaWsfe
     $r = $resp->FECAESolicitarResult ?? null;
     if (!$r) throw new RuntimeException("WSFE sin FECAESolicitarResult");
 
-    if (isset($r->Errors) && $r->Errors) {
-      $msg = self::formatErrors($r->Errors);
-      throw new RuntimeException("WSFE Error (FECAESolicitar): $msg");
+    if (!empty($r->Errors)) {
+      throw new RuntimeException("WSFE Error (FECAESolicitar): " . self::formatErrors($r->Errors));
     }
 
     return json_decode(json_encode($r), true) ?: [];
@@ -66,7 +66,6 @@ final class ArcaWsfe
   {
     $arr = json_decode(json_encode($errors), true) ?: [];
     $items = $arr['Err'] ?? $arr ?? [];
-
     if (isset($items['Code']) || isset($items['Msg'])) $items = [$items];
 
     $out = [];

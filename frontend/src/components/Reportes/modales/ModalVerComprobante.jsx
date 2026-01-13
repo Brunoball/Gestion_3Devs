@@ -153,7 +153,7 @@ export default function ModalVerComprobante({
 
   <div className="mit-help mvc2-help">
     {url
-      ? "Tip: si no se ve bien, probá abrirlo en una pestaña nueva."
+      ? ""
       : "No hay archivo cargado para este registro."}
   </div>
 </div>

@@ -2,42 +2,46 @@
 // backend/modules/pagos/arca_wsaa.php
 declare(strict_types=1);
 
-/**
- * WSAA: genera Ticket de Acceso (TA) para consumir WSFEv1
- * Docs WSAA: :contentReference[oaicite:3]{index=3}
- */
-
 final class ArcaWsaa
 {
   /** @return array{token:string, sign:string, expirationTime:string} */
-  public static function login(string $wsaaWsdl, string $wsn, string $certPath, string $keyPath, string $keyPass = ''): array
-  {
+  public static function login(
+    string $wsaaWsdl,
+    string $wsn,
+    string $certPath,
+    string $keyPath,
+    string $keyPass = '',
+    bool $sslVerify = true
+  ): array {
     if (!file_exists($certPath)) throw new RuntimeException("No existe cert: $certPath");
     if (!file_exists($keyPath)) throw new RuntimeException("No existe key: $keyPath");
 
     $tra = self::buildTRA($wsn);
     $cms = self::signTRA($tra, $certPath, $keyPath, $keyPass);
 
+    $ctx = stream_context_create([
+      'ssl' => [
+        'verify_peer' => $sslVerify,
+        'verify_peer_name' => $sslVerify,
+      ],
+    ]);
+
     $client = new SoapClient($wsaaWsdl, [
-      'soap_version' => SOAP_1_2,
+      'soap_version' => SOAP_1_1,
       'exceptions' => true,
       'trace' => false,
       'cache_wsdl' => WSDL_CACHE_NONE,
       'connection_timeout' => 30,
-      'stream_context' => stream_context_create([
-        'ssl' => [
-          'verify_peer' => true,
-          'verify_peer_name' => true,
-        ],
-      ]),
+      'stream_context' => $ctx,
     ]);
 
-    // WSAA expone loginCms
     $resp = $client->loginCms(['in0' => $cms]);
     $xml = $resp->loginCmsReturn ?? null;
     if (!$xml) throw new RuntimeException("WSAA sin respuesta loginCmsReturn");
 
-    $sx = new SimpleXMLElement($xml);
+    $sx = @new SimpleXMLElement($xml);
+    if (!$sx) throw new RuntimeException("WSAA devolvió XML inválido");
+
     $token = (string)$sx->credentials->token;
     $sign  = (string)$sx->credentials->sign;
     $exp   = (string)$sx->header->expirationTime;
@@ -55,7 +59,7 @@ final class ArcaWsaa
     $genTime = (new DateTime('-5 minutes'))->format('c');
     $expTime = (new DateTime('+12 hours'))->format('c');
 
-    $xml = <<<XML
+    return <<<XML
 <?xml version="1.0" encoding="UTF-8"?>
 <loginTicketRequest version="1.0">
   <header>
@@ -66,18 +70,16 @@ final class ArcaWsaa
   <service>{$wsn}</service>
 </loginTicketRequest>
 XML;
-
-    return $xml;
   }
 
   /**
    * Firma TRA en PKCS#7 (CMS) usando openssl_pkcs7_sign.
-   * Devuelve el CMS base64 (contenido entre BEGIN/END CMS).
+   * Devuelve el CMS base64 (contenido del .p7m sin headers).
    */
   private static function signTRA(string $traXml, string $certPath, string $keyPath, string $keyPass = ''): string
   {
     $tmpDir = sys_get_temp_dir();
-    $in = tempnam($tmpDir, 'tra_') ?: ($tmpDir . '/tra_' . uniqid() . '.xml');
+    $in  = tempnam($tmpDir, 'tra_') ?: ($tmpDir . '/tra_' . uniqid() . '.xml');
     $out = tempnam($tmpDir, 'cms_') ?: ($tmpDir . '/cms_' . uniqid() . '.p7m');
 
     file_put_contents($in, $traXml);
@@ -104,17 +106,14 @@ XML;
     @unlink($in);
     @unlink($out);
 
-    // El archivo viene con headers MIME. Nos quedamos con el bloque base64 del CMS.
-    // Buscamos línea en blanco y tomamos todo lo que sigue.
+    // Tomar cuerpo después del primer doble salto de línea
     $parts = preg_split("/\R\R/", $p7, 2);
     $body = $parts[1] ?? $p7;
 
     $body = trim($body);
     $body = str_replace(["\r", "\n"], "", $body);
-
-    // En algunos entornos aparece con encabezado "-----BEGIN PKCS7-----"
-    $body = preg_replace('/-----BEGIN.*?-----/i', '', $body);
-    $body = preg_replace('/-----END.*?-----/i', '', $body);
+    $body = preg_replace('/-----BEGIN.*?-----/i', '', (string)$body);
+    $body = preg_replace('/-----END.*?-----/i', '', (string)$body);
     $body = trim((string)$body);
 
     if ($body === '') {
