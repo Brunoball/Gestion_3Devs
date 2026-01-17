@@ -253,7 +253,7 @@ export default function ModalNuevoEgreso({
                   <div className="fl-field fl-col-full">
                     <textarea
                       className="fl-input"
-                      style={{ minHeight: 110, resize: "vertical" }}
+                      style={{ resize: "vertical" }}
                       placeholder=" "
                       value={descripcion}
                       onChange={(e) => setDescripcion(toUpperLive(e.target.value))}

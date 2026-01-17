@@ -259,7 +259,7 @@ export default function ModalEditarTrabajador({
                     <label className="fl-label">Rol</label>
                   </div>
 
-                  <div className="fl-field">
+                  <div className="fl-field alias-pago">
                     <input
                       className="fl-input"
                       placeholder=" "

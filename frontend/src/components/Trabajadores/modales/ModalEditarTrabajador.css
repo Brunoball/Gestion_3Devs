@@ -582,3 +582,4 @@
   grid-column: 1 / -1;
 }
 
+.alias-pago{grid-column: -1/2;}

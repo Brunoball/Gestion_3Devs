@@ -2,11 +2,15 @@
 import jsPDF from "jspdf";
 import QRCode from "qrcode";
 
+// ✅ Logo local (ruta que pasaste)
+import defaultLogoSrc from "../../../imagenes/lg_blanco_horizontal.png";
+
 /**
  * Layout calcado al PDF ARCA (A4 pt) con BLOQUE INFERIOR anclado al pie.
- * - Sin imports de imágenes por ruta (evita "Module not found").
  * - Soporta logoDataUrl / arcaLogoDataUrl opcionales (DataURL PNG/JPG).
- * - Bottom: Totales + QR/ARCA + Pág + CAE exactamente en el pie.
+ * - Si NO pasás logoDataUrl, usa el logo local (defaultLogoSrc) y lo convierte a DataURL.
+ * - Bottom: Totales + QR/ARCA + Pág + CAE anclado al pie.
+ * - ✅ Tabla: columnas robustas (NO se pisan)
  */
 
 function s(v) {
@@ -46,15 +50,16 @@ function moneyEs(v) {
   return numEs(v, 2);
 }
 
-function rect(doc, x, y, w, h, lw = 0.8) {
+// ====== DRAW HELPERS (estética ARCA: líneas finas, gris correcto) ======
+function rect(doc, x, y, w, h, lw = 0.55) {
   doc.setLineWidth(lw);
   doc.rect(x, y, w, h);
 }
-function line(doc, x1, y1, x2, y2, lw = 0.6) {
+function line(doc, x1, y1, x2, y2, lw = 0.45) {
   doc.setLineWidth(lw);
   doc.line(x1, y1, x2, y2);
 }
-function fillRect(doc, x, y, w, h, gray = 0.9) {
+function fillRect(doc, x, y, w, h, gray = 0.84) {
   const g = Math.max(0, Math.min(1, gray));
   doc.setFillColor(Math.round(g * 255));
   doc.rect(x, y, w, h, "F");
@@ -92,6 +97,23 @@ function wrapByWidth(doc, str, maxW) {
   }
   if (cur) lines.push(cur);
   return lines;
+}
+
+// ====== IMG -> DATAURL (para usar logo local por ruta) ======
+async function toDataUrlFromSrc(src) {
+  if (!src) return null;
+  try {
+    const res = await fetch(src);
+    const blob = await res.blob();
+    return await new Promise((resolve) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result || ""));
+      fr.onerror = () => resolve(null);
+      fr.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
 }
 
 function computeItems(fact, data) {
@@ -176,9 +198,9 @@ function getPeriodo(fact, data) {
 }
 
 /**
- * Dibuja el bloque inferior igual al ARCA:
+ * Bloque inferior ARCA-like:
  * - Caja Totales arriba del pie
- * - Pie con QR+ARCA+Pág+CAE
+ * - Pie con QR+ARCA + regleta (Pág/CAE/Vto) + disclaimer + código courier
  * Todo ANCLADO AL FONDO de la hoja.
  */
 async function drawBottomAnchored(doc, ctx, layout) {
@@ -191,31 +213,31 @@ async function drawBottomAnchored(doc, ctx, layout) {
   const totalReal = Number(fact?.importe ?? data?.monto ?? data?.importe ?? 0);
   const total = forceTestAmount ? Number(testAmount) : totalReal;
 
-  // ---- MEDIDAS bottom (ajustadas al PDF real)
-  const footerH = 145; // alto del bloque de QR/ARCA/CAE
+  // ---- MEDIDAS bottom
+  const footerH = 145;
   const gap = 18;
-  const totH = 78;     // alto caja totales (en el PDF es bastante finita)
-  const footY = H - B - footerH;                 // ANCLA
-  const totY = footY - gap - totH;               // caja totales arriba del footer
+  const totH = 78;
+  const footY = H - B - footerH; // ANCLA
+  const totY = footY - gap - totH;
 
   // Caja Totales
-  rect(doc, B, totY, innerW, totH, 0.9);
+  rect(doc, B, totY, innerW, totH, 0.55);
 
-  const right = B + innerW - 12;
-  set(doc, "helvetica", "bold", 10);
+  const padR = 14;
+  const xVal = B + innerW - padR;
+  const xLbl = xVal - 132;
 
-  // En el PDF las 3 líneas están bien pegadas arriba
-  text(doc, "Subtotal: $", right - 150, totY + 24, { align: "right" });
-  text(doc, moneyEs(total), right, totY + 24, { align: "right" });
+  set(doc, "helvetica", "bold", 9);
+  text(doc, "Subtotal: $", xLbl, totY + 24, { align: "right" });
+  text(doc, moneyEs(total), xVal, totY + 24, { align: "right" });
 
-  text(doc, "Importe Otros Tributos: $", right - 150, totY + 44, { align: "right" });
-  text(doc, moneyEs(0), right, totY + 44, { align: "right" });
+  text(doc, "Importe Otros Tributos: $", xLbl, totY + 44, { align: "right" });
+  text(doc, moneyEs(0), xVal, totY + 44, { align: "right" });
 
-  text(doc, "Importe Total: $", right - 150, totY + 64, { align: "right" });
-  text(doc, moneyEs(total), right, totY + 64, { align: "right" });
+  text(doc, "Importe Total: $", xLbl, totY + 64, { align: "right" });
+  text(doc, moneyEs(total), xVal, totY + 64, { align: "right" });
 
-  // ---- Footer content (QR / ARCA / Pág / CAE)
-  // QR
+  // ---- Footer content (QR / ARCA / Regleta / CAE)
   const qrSize = 92;
   const qrX = B + 10;
   const qrY = footY + 20;
@@ -228,8 +250,10 @@ async function drawBottomAnchored(doc, ctx, layout) {
       });
       doc.addImage(qrDataUrl, "PNG", qrX, qrY, qrSize, qrSize);
     } catch {
-      // no rompe
+      rect(doc, qrX, qrY, qrSize, qrSize, 0.4);
     }
+  } else {
+    rect(doc, qrX, qrY, qrSize, qrSize, 0.4);
   }
 
   // ARCA (logo o texto) a la derecha del QR
@@ -254,8 +278,8 @@ async function drawBottomAnchored(doc, ctx, layout) {
   set(doc, "helvetica", "bold", 10);
   text(doc, "Comprobante Autorizado", arcaX, footY + 94);
 
-  // Disclaimer (itálica, como tu PDF)
-  set(doc, "helvetica", "italic", 7.3);
+  // Disclaimer (itálica)
+  set(doc, "helvetica", "italic", 6.7);
   text(
     doc,
     "Esta Agencia no se responsabiliza por los datos ingresados en el detalle de la operación",
@@ -263,27 +287,33 @@ async function drawBottomAnchored(doc, ctx, layout) {
     footY + 110
   );
 
-  // Centro: Pág. 1/1 (alineado más arriba como en el PDF)
+  // ✅ Regleta: Pág en una línea + CAE y Vto en 2 líneas (uno abajo del otro)
+  const statusY = footY + 58;
+  const lineGap = 12; // separación vertical entre líneas
+
+  // Pág (queda arriba)
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Pág. 1/1", W / 2, footY + 52, { align: "center" });
+  text(doc, "Pág. 1/1", W / 2 - 40, statusY, { align: "center" });
 
-  // Derecha: CAE
-  const caeRight = W - B - 10;
-  set(doc, "helvetica", "bold", 10);
-  text(doc, "CAE N°:", caeRight - 205, footY + 48, { align: "right" });
-  set(doc, "helvetica", "normal", 10);
-  text(doc, meta.cae || "—", caeRight, footY + 48, { align: "right" });
+  // CAE (línea 1)
+  const caeY = statusY + lineGap;
+  set(doc, "helvetica", "bold", 9);
+  text(doc, "CAE N°:", W / 2 + 10, caeY, { align: "left" });
+  set(doc, "helvetica", "normal", 9);
+  text(doc, meta.cae || "—", W / 2 + 55, caeY, { align: "left" });
 
-  set(doc, "helvetica", "bold", 10);
-  text(doc, "Fecha de Vto. de CAE:", caeRight - 205, footY + 68, { align: "right" });
-  set(doc, "helvetica", "normal", 10);
-  text(doc, meta.caeVto || "—", caeRight, footY + 68, { align: "right" });
+  // Vto (línea 2, debajo)
+  const vtoY = caeY + lineGap;
+  set(doc, "helvetica", "bold", 9);
+  text(doc, "Fecha de Vto. de CAE:", W / 2 + 10, vtoY, { align: "left" });
+  set(doc, "helvetica", "normal", 9);
+  text(doc, meta.caeVto || "—", W / 2 + 135, vtoY, { align: "left" });
 
-  // Abajo del todo (como el “código”/número largo)
-  // En tu referencia se ve el número largo (CAE) abajo a la derecha en courier.
-  const code = meta.cae && meta.cae.length >= 8
-    ? meta.cae
-    : `7${padLeft(meta.ptoVta, 5)}${padLeft(meta.cbteNro, 8)}36`;
+  // Abajo del todo (número largo) en courier
+  const code =
+    meta.cae && meta.cae.length >= 8
+      ? meta.cae
+      : `7${padLeft(meta.ptoVta, 5)}${padLeft(meta.cbteNro, 8)}36`;
 
   set(doc, "courier", "normal", 9);
   text(doc, code, W - B - 10, H - B - 6, { align: "right" });
@@ -292,23 +322,23 @@ async function drawBottomAnchored(doc, ctx, layout) {
 }
 
 async function drawPage(doc, pageName, ctx) {
-  const { fact, data, forceTestAmount, testAmount, logoDataUrl } = ctx;
+  const { fact, data, forceTestAmount, testAmount, logoDataUrl, arcaLogoDataUrl } = ctx;
 
-  const W = doc.internal.pageSize.getWidth();  // ~595.28
+  const W = doc.internal.pageSize.getWidth(); // ~595.28
   const H = doc.internal.pageSize.getHeight(); // ~841.89
 
-  // ====== Base (como el PDF) ======
-  const B = 18;
+  // ====== Base ======
+  const B = 10;
   const innerW = W - 2 * B;
 
   // Marco exterior
-  rect(doc, B, B, innerW, H - 2 * B, 1);
+  rect(doc, B, B, innerW, H - 2 * B, 0.75);
 
   // Banda ORIGINAL/DUPLICADO/TRIPLICADO
   const bandH = 28;
   set(doc, "helvetica", "bold", 14);
   text(doc, pageName.toUpperCase(), W / 2, B + 19, { align: "center" });
-  line(doc, B, B + bandH, W - B, B + bandH, 0.8);
+  line(doc, B, B + bandH, W - B, B + bandH, 0.55);
 
   const meta = getMeta(fact);
   const em = getEmisor(fact, data);
@@ -318,42 +348,55 @@ async function drawPage(doc, pageName, ctx) {
   // ===== Header grande =====
   const headerY = B + bandH;
   const headerH = 132;
-  rect(doc, B, headerY, innerW, headerH, 0.9);
+  rect(doc, B, headerY, innerW, headerH, 0.55);
 
   const splitX = B + innerW * 0.52;
-  line(doc, splitX, headerY, splitX, headerY + headerH, 0.8);
+// --- Caja central C + COD (como ya tenés)
+const boxW = 50;
+const boxH = 50;
+const boxX = splitX - boxW / 2;
+const boxY = headerY + 0;
 
-  // Caja central C + COD
-  const boxW = 70;
-  const boxH = 70;
-  const boxX = splitX - boxW / 2;
-  const boxY = headerY + 14;
-  rect(doc, boxX, boxY, boxW, boxH, 0.9);
+// ✅ Línea vertical PARTIDA: deja un hueco para que NO cruce el COD.011
+const gap = 1.2; // margen extra para que no toque el borde de la caja
+line(doc, splitX, headerY, splitX, boxY - gap, 0.55);                // tramo arriba
+line(doc, splitX, boxY + boxH + gap, splitX, headerY + headerH, 0.55); // tramo abajo
 
-  set(doc, "helvetica", "bold", 30);
-  text(doc, meta.letra, boxX + boxW / 2, boxY + 38, { align: "center" });
-  set(doc, "helvetica", "bold", 9);
-  text(doc, `COD. ${meta.cod}`, boxX + boxW / 2, boxY + 57, { align: "center" });
+// ✅ Dibujá la caja encima (queda prolijo)
+rect(doc, boxX, boxY, boxW, boxH, 0.55);
 
-  // IZQUIERDA: logo + emisor
-  const leftX = B + 12;
-  const leftTop = headerY + 18;
 
-  if (logoDataUrl) {
-    try {
-      doc.addImage(logoDataUrl, "PNG", leftX, leftTop - 6, 150, 46);
-    } catch {
-      set(doc, "helvetica", "bold", 22);
-      text(doc, "3 DEVS", leftX + 5, leftTop + 18);
-      set(doc, "helvetica", "normal", 10);
-      text(doc, "SOLUTIONS", leftX + 60, leftTop + 35);
-    }
-  } else {
+set(doc, "helvetica", "bold", 30);
+text(doc, meta.letra, boxX + boxW / 2, boxY + 26, { align: "center" });
+
+set(doc, "helvetica", "bold", 9);
+text(doc, `COD. ${meta.cod}`, boxX + boxW / 2, boxY + 34, { align: "center" });
+
+
+// IZQUIERDA: logo + emisor (más chico y más arriba)
+const leftX = B + 12;
+
+// ✅ Ajuste fino para que quede como el "bien"
+const logoW = 125;
+const logoH = 36;
+const logoY = headerY + 6; // ✅ pegado arriba
+
+if (logoDataUrl) {
+  try {
+    doc.addImage(logoDataUrl, "PNG", leftX, logoY, logoW, logoH);
+  } catch {
     set(doc, "helvetica", "bold", 22);
-    text(doc, "3 DEVS", leftX + 5, leftTop + 18);
+    text(doc, "3 DEVS", leftX + 5, headerY + 26);
     set(doc, "helvetica", "normal", 10);
-    text(doc, "SOLUTIONS", leftX + 60, leftTop + 35);
+    text(doc, "SOLUTIONS", leftX + 60, headerY + 40);
   }
+} else {
+  set(doc, "helvetica", "bold", 22);
+  text(doc, "3 DEVS", leftX + 5, headerY + 26);
+  set(doc, "helvetica", "normal", 10);
+  text(doc, "SOLUTIONS", leftX + 60, headerY + 40);
+}
+
 
   const lx = leftX;
   const ly = headerY + 72;
@@ -374,41 +417,41 @@ async function drawPage(doc, pageName, ctx) {
   text(doc, clampToWidth(doc, em.condIva, splitX - lx - 12), lx + 130, ly + 48);
 
   // DERECHA: FACTURA + datos
-  const rx = splitX + 14;
+  const rx = splitX + 1;
   set(doc, "helvetica", "bold", 20);
-  text(doc, "FACTURA", rx + 92, headerY + 48);
+  text(doc, "FACTURA", rx + 30, headerY + 48);
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Punto de Venta:", rx + 80, headerY + 70);
-  text(doc, "Comp. Nro:", rx + 245, headerY + 70);
+  text(doc, "Punto de Venta:", rx + 40, headerY + 65);
+  text(doc, "Comp. Nro:", rx + 168, headerY + 65);
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, meta.ptoVta || "00000", rx + 182, headerY + 70, { align: "left" });
-  text(doc, meta.cbteNro || "00000000", rx + 318, headerY + 70, { align: "left" });
+  text(doc, meta.ptoVta || "00000", rx + 232, headerY + 65, { align: "left" });
+  text(doc, meta.cbteNro || "00000000", rx + 112, headerY + 65, { align: "left" });
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Fecha de Emisión:", rx + 80, headerY + 92);
-  text(doc, meta.fechaEmision || "—", rx + 185, headerY + 92);
+  text(doc, "Fecha de Emisión:", rx + 40, headerY + 80);
+  text(doc, meta.fechaEmision || "—", rx + 185, headerY + 80);
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "CUIT:", rx + 80, headerY + 114);
+  text(doc, "CUIT:", rx + 40, headerY + 108);
   set(doc, "helvetica", "normal", 9);
-  text(doc, s(em.cuit), rx + 120, headerY + 114);
+  text(doc, s(em.cuit), rx + 185, headerY + 114);
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Ingresos Brutos:", rx + 80, headerY + 128);
+  text(doc, "Ingresos Brutos:", rx + 40, headerY + 118);
   set(doc, "helvetica", "normal", 9);
   text(doc, s(em.iibb), rx + 182, headerY + 128);
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Fecha de Inicio de Actividades:", rx + 80, headerY + 142);
+  text(doc, "Fecha de Inicio de Actividades:", rx + 40, headerY + 128);
   set(doc, "helvetica", "normal", 9);
   text(doc, ymdToHuman(em.inicioAct), rx + 265, headerY + 142);
 
   // ===== Fila período =====
   const periodY = headerY + headerH;
   const periodH = 30;
-  rect(doc, B, periodY, innerW, periodH, 0.9);
+  rect(doc, B, periodY, innerW, periodH, 0.55);
 
   set(doc, "helvetica", "bold", 10);
   text(doc, "Período Facturado Desde:", B + 10, periodY + 20);
@@ -428,7 +471,7 @@ async function drawPage(doc, pageName, ctx) {
   // ===== Caja receptor =====
   const recY = periodY + periodH;
   const recH = 78;
-  rect(doc, B, recY, innerW, recH, 0.9);
+  rect(doc, B, recY, innerW, recH, 0.55);
 
   const recLx = B + 10;
   set(doc, "helvetica", "bold", 9);
@@ -467,50 +510,100 @@ async function drawPage(doc, pageName, ctx) {
 
   // ===== BLOQUE INFERIOR ANCLADO (totales + footer) =====
   const layout = { W, H, B, innerW };
-  const bottom = await drawBottomAnchored(doc, ctx, layout);
+  const bottom = await drawBottomAnchored(doc, { fact, data, forceTestAmount, testAmount, arcaLogoDataUrl }, layout);
 
   // ===== Tabla items (altura automática para no pisar totales) =====
   const tblY = recY + recH + 14;
 
-  // dejamos un gap antes de totales
   const gapBeforeTotals = 18;
   const tblBottomLimit = bottom.totY - gapBeforeTotals;
-  const tblH = Math.max(140, tblBottomLimit - tblY); // mínimo para que no explote
+  const tblH = Math.max(140, tblBottomLimit - tblY);
 
-  rect(doc, B, tblY, innerW, tblH, 0.9);
+  rect(doc, B, tblY, innerW, tblH, 0.55);
 
   // Header tabla gris
   const headerRowH = 22;
-  fillRect(doc, B, tblY, innerW, headerRowH, 0.87);
-  rect(doc, B, tblY, innerW, headerRowH, 0.9);
+  fillRect(doc, B, tblY, innerW, headerRowH, 0.84);
+  rect(doc, B, tblY, innerW, headerRowH, 0.55);
 
-  // columnas (como el PDF)
-  const xCodigo = B + 8;
-  const xProd = B + 74;
-  const xCant = B + 300;
-  const xUM = B + 374;
-  const xPU = B + 452;
-  const xBonif = B + 510;
-  const xImpBon = B + 572;
-  const xSubt = B + innerW - 10;
+  // =========================
+// ✅ COLUMNAS ARCA (8) ROBUSTAS (NO SE PISAN)
+// Código | Producto/Servicio | Cantidad | U. Medida | Precio Unit. | % Bonif | Imp. Bonif. | Subtotal
+// =========================
+const left = B;
+const right = B + innerW;
 
-  // separadores header
-  line(doc, xProd - 8, tblY, xProd - 8, tblY + headerRowH, 0.6);
-  line(doc, xCant - 8, tblY, xCant - 8, tblY + headerRowH, 0.6);
-  line(doc, xUM - 8, tblY, xUM - 8, tblY + headerRowH, 0.6);
-  line(doc, xPU - 8, tblY, xPU - 8, tblY + headerRowH, 0.6);
-  line(doc, xBonif - 8, tblY, xBonif - 8, tblY + headerRowH, 0.6);
-  line(doc, xImpBon - 8, tblY, xImpBon - 8, tblY + headerRowH, 0.6);
+// anchos mínimos (prioridad al bloque derecho)
+const wCodigo = 50;
+const wCant = 70;
+const wUM = 50;
+const wPU = 60;
+const wBonif = 40;
+const wImpBon = 80;
+const wSubt = 52;
 
-  set(doc, "helvetica", "bold", 9);
-  text(doc, "Código", xCodigo, tblY + 15);
-  text(doc, "Producto / Servicio", xProd, tblY + 15);
-  text(doc, "Cantidad", xCant, tblY + 15, { align: "right" });
-  text(doc, "U. Medida", xUM, tblY + 15, { align: "right" });
-  text(doc, "Precio Unit.", xPU, tblY + 15, { align: "right" });
-  text(doc, "% Bonif", xBonif, tblY + 15, { align: "right" });
-  text(doc, "Imp. Bonif.", xImpBon, tblY + 15, { align: "right" });
-  text(doc, "Subtotal", xSubt, tblY + 15, { align: "right" });
+// ancho mínimo de descripción
+const minProd = 10;
+
+// descripción se queda con el sobrante
+const wProd = Math.max(
+  minProd,
+  innerW - (
+    wCodigo +
+    wCant +
+    wUM +
+    wPU +
+    wBonif +
+    wImpBon +
+    wSubt
+  )
+);
+
+// límites x
+const x0 = left;
+const x1 = x0 + wCodigo;
+const x2 = x1 + wProd;
+const x3 = x2 + wCant;
+const x4 = x3 + wUM;
+const x5 = x4 + wPU;
+const x6 = x5 + wBonif;
+const x7 = x6 + wImpBon;
+const x8 = right;
+
+const padL = 8;
+const padR = 8;
+
+// texto (izq)
+const xCodigo = x0 + padL;
+const xProd = x1 + padL;
+
+// números (der)
+const xCant = x3 - padR;
+const xUM = x4 - padR;
+const xPU = x5 - padR;
+const xBonif = x6 - padR;
+const xImpBon = x7 - padR;
+const xSubt = x8 - padR;
+
+// separadores verticales (toda la tabla)
+line(doc, x1, tblY, x1, tblY + tblH, 0.45);
+line(doc, x2, tblY, x2, tblY + tblH, 0.45);
+line(doc, x3, tblY, x3, tblY + tblH, 0.45);
+line(doc, x4, tblY, x4, tblY + tblH, 0.45);
+line(doc, x5, tblY, x5, tblY + tblH, 0.45);
+line(doc, x6, tblY, x6, tblY + tblH, 0.45);
+line(doc, x7, tblY, x7, tblY + tblH, 0.45);
+
+// Header
+set(doc, "helvetica", "bold", 8.6);
+text(doc, "Código", xCodigo, tblY + 15);
+text(doc, "Producto / Servicio", xProd, tblY + 15);
+text(doc, "Cantidad", xCant, tblY + 15, { align: "right" });
+text(doc, "U. Medida", xUM, tblY + 15, { align: "right" });
+text(doc, "Precio Unit.", xPU, tblY + 15, { align: "right" });
+text(doc, "% Bonif", xBonif, tblY + 15, { align: "right" });
+text(doc, "Imp. Bonif.", xImpBon, tblY + 15, { align: "right" });
+text(doc, "Subtotal", xSubt, tblY + 15, { align: "right" });
 
   // Items
   const totalReal = Number(fact?.importe ?? data?.monto ?? data?.importe ?? 0);
@@ -521,15 +614,17 @@ async function drawPage(doc, pageName, ctx) {
   set(doc, "helvetica", "normal", 9);
 
   let y = tblY + headerRowH + 18;
-  const maxBodyH = tblY + tblH - 12;
+  const maxBodyY = tblY + tblH - 12;
 
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
-    const descMaxW = xCant - xProd - 10;
-    const descLines = wrapByWidth(doc, it.descripcion, descMaxW).slice(0, 3);
+
+    // wrap dentro de su columna real
+    const descMaxW = (x2 - padR) - xProd;
+    const descLines = wrapByWidth(doc, it.descripcion, Math.max(20, descMaxW)).slice(0, 3);
     const blockH = Math.max(14, descLines.length * 12);
 
-    if (y + blockH > maxBodyH) break;
+    if (y + blockH > maxBodyY) break;
 
     text(doc, s(it.codigo || "1"), xCodigo, y);
 
@@ -555,14 +650,43 @@ export async function buildArcaInvoicePdf({
   testAmount = 1000,
   logoDataUrl = null,
   arcaLogoDataUrl = null,
-}) {
+} = {}) {
+  // ✅ si no te pasan logoDataUrl, levantamos el logo local por ruta y lo convertimos
+  let finalLogo = logoDataUrl;
+  if (!finalLogo) {
+    finalLogo = await toDataUrlFromSrc(defaultLogoSrc);
+  }
+
   const doc = new jsPDF({ unit: "pt", format: "a4" });
 
-  await drawPage(doc, "ORIGINAL", { fact, data, forceTestAmount, testAmount, logoDataUrl, arcaLogoDataUrl });
+  await drawPage(doc, "ORIGINAL", {
+    fact,
+    data,
+    forceTestAmount,
+    testAmount,
+    logoDataUrl: finalLogo,
+    arcaLogoDataUrl,
+  });
+
   doc.addPage();
-  await drawPage(doc, "DUPLICADO", { fact, data, forceTestAmount, testAmount, logoDataUrl, arcaLogoDataUrl });
+  await drawPage(doc, "DUPLICADO", {
+    fact,
+    data,
+    forceTestAmount,
+    testAmount,
+    logoDataUrl: finalLogo,
+    arcaLogoDataUrl,
+  });
+
   doc.addPage();
-  await drawPage(doc, "TRIPLICADO", { fact, data, forceTestAmount, testAmount, logoDataUrl, arcaLogoDataUrl });
+  await drawPage(doc, "TRIPLICADO", {
+    fact,
+    data,
+    forceTestAmount,
+    testAmount,
+    logoDataUrl: finalLogo,
+    arcaLogoDataUrl,
+  });
 
   return doc;
 }
@@ -574,7 +698,7 @@ export async function saveArcaInvoicePdf({
   testAmount = 1000,
   logoDataUrl = null,
   arcaLogoDataUrl = null,
-}) {
+} = {}) {
   const doc = await buildArcaInvoicePdf({
     fact,
     data,

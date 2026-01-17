@@ -1,3 +1,5 @@
+/* src/components/Mantenimiento/Mantenimiento.css */
+
 /* =========================================================
    ROOT — Paleta AZUL (solo variables --blue-inst-)
    (Pegalo solo si NO lo tenés ya en tu CSS global)
@@ -44,10 +46,11 @@
   *{animation:none !important; transition:none !important;}
 }
 
-/* =========================================
-   MANTENIMIENTO — estilo tipo Categorías
-   (NO tocamos el fondo global, solo la card)
-========================================= */
+/* =========================================================
+   MANTENIMIENTO — (si querés usar estilos "mnt-*")
+   Nota: tu JSX actual usa Gelemts-* y TP-*,
+   esto queda como estilos alternativos si los necesitás.
+========================================================= */
 
 .mnt-wrap{
   width: 100%;
@@ -348,9 +351,10 @@
   outline:none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue-inst-primary) 35%, transparent);
 }
-/* =========================================
-   HEADER AZUL (Título + Acciones)
-========================================= */
+
+/* =========================================================
+   HEADER AZUL (Título + Acciones) — para mnt-*
+========================================================= */
 
 .mnt-header{
   background: linear-gradient(
@@ -432,6 +436,7 @@
     justify-content: center;
   }
 }
+
 .mnt-icon-btn{
   width: 38px;
   height: 38px;
@@ -469,10 +474,10 @@
   gap: 12px;
   flex-wrap: wrap;
 }
-/* Motion reduce */
-@media (prefers-reduced-motion: reduce){
-  *{animation:none !important; transition:none !important;}
-}
+
+/* =========================================================
+   Gelemts-* (los que usa tu JSX actual)
+========================================================= */
 
 /* ====== Layout ====== */
 .Gelemts-Wrap{
@@ -533,8 +538,6 @@
   color: #fff;
 }
 
-
-
 /* ====== Alert ====== */
 .Gelemts-Alert{
   margin: 0 20px;
@@ -546,7 +549,7 @@
   box-shadow: var(--blue-inst-shadow-sm);
 }
 
-/* ====== Lista ====== */
+/* ====== Lista (si alguna vez la usás) ====== */
 .Gelemts-List{
   width:100%;
   display:flex;
@@ -685,19 +688,20 @@
   font-size:.95rem;
   cursor:pointer;
 
-  border:1px solid transparent;
+  border:1px solid var(--blue-inst-primary);
   transition: var(--blue-inst-transition);
   box-shadow: var(--blue-inst-shadow-md);
-  background: var(--blue-inst-gray-200);
-  color: var(--blue-inst-gray-700);
+  background: #fff;
+  color: var(--blue-inst-primary);
 }
 .Gelemts-Btn:hover{
   transform: translateY(-2px);
   box-shadow: var(--blue-inst-shadow-lg);
 }
 .Gelemts-Btn--primary{
-  background: linear-gradient(135deg, var(--blue-inst-primary), var(--blue-inst-accent));
+  background: var(--blue-inst-primary);
   color:#fff;
+  border: 1px solid #fff;
 }
 
 /* ====== Mobile ====== */
@@ -735,8 +739,9 @@
   outline:none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue-inst-primary) 35%, transparent);
 }
+
 /* =========================================================
-   TABLA (idéntica a Trabajadores)
+   TP-* GridTable (idéntica a Trabajadores)
 ========================================================= */
 
 .TP-GridTableWrap{
@@ -906,4 +911,70 @@
   padding: 20px;
   text-align: center;
   color: #6b7a90;
+}
+
+/* =========================================================
+   ✅ MANTENIMIENTO — modo "pantalla completa"
+   (quita efecto isla / modal en ESTA SECCIÓN)
+   ========================================================= */
+
+/* contenedor general: sin max-width, sin padding “de card” */
+.ini_contenedor-principal .Gelemts-Wrap{
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 0;           /* antes: 20px */
+}
+
+/* la “card” deja de ser card */
+.ini_contenedor-principal .Gelemts-Card{
+  width: 100%;
+  min-height: 100vh;    /* ocupa toda la pantalla */
+  border-radius: 0;     /* ✅ adiós isla */
+  box-shadow: none;     /* ✅ sin sombra flotante */
+  border: 0;            /* ✅ sin borde */
+  overflow: visible;
+
+  /* ✅ sin animación de “aparecer modal” */
+  opacity: 1;
+  transform: none;
+  animation: none;
+  background: transparent; /* o #fff si querés fondo blanco fijo */
+  display: flex;
+  justify-content: space-between;
+}
+
+/* quita la barrita superior decorativa */
+.ini_contenedor-principal .Gelemts-Card::before{
+  display: none;
+}
+
+/* header: que sea “de página”, no de modal */
+.ini_contenedor-principal .Gelemts-Header{
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+  padding: 24px 20px;
+}
+
+/* alert sin “card look” */
+.ini_contenedor-principal .Gelemts-Alert{
+  margin: 12px 20px 0;
+}
+
+/* tabla: que respire como sección */
+.ini_contenedor-principal .TP-GridTableWrap{
+  padding: 14px 20px;
+}
+
+/* body de la grilla: crece en pantalla (evita scroll doble) */
+.ini_contenedor-principal .TP-GridBody{
+  max-height: calc(100vh - 240px); /* ajustá según tu header/footer */
+}
+
+/* footer pegado a los bordes */
+.ini_contenedor-principal .Gelemts-FooterActions{
+  padding: 0 20px 12px;
+  margin-top: 0;
+  background: transparent; /* o #fff */
 }

@@ -103,3 +103,39 @@
 
 .mnt-modalText{ margin: 0; font-size: 14px; }
 .mnt-modalSubtext{ margin: 0; opacity: .75; font-size: 13px; }
+/* ===== Field con prefijo (USD) ===== */
+.fl-field--prefix{
+  position: relative;
+}
+
+.fl-field--prefix .fl-prefix{
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-weight: 800;
+  opacity: .85;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* corre el input */
+.fl-field--prefix .fl-input{
+  padding-left: 56px !important; /* mismo espacio que el prefijo */
+}
+
+/* corre el label para que NO pise el prefijo */
+.fl-field--prefix .fl-label{
+  left: 56px !important;
+}
+
+/* cuando flota (focus o con valor), mantenelo alineado */
+.fl-field--prefix .fl-input:focus + .fl-label,
+.fl-field--prefix .fl-input:not(:placeholder-shown) + .fl-label{
+  left: 56px !important;
+}
+/* textarea más grande por defecto */
+.fl-textarea{
+  min-height: 120px !important;   /* subilo a 220px si querés */
+  resize: vertical;    /* o 'none' si no querés que lo redimensionen */
+}

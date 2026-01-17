@@ -304,35 +304,24 @@ export default function ModalCrearPlan({ open, onClose, onConfirm, loading }) {
 
                 <div className="fl-grid">
                   {/* MONTO USD (solo números) */}
-                  <div className="fl-col-full">
-                    <div className="fl-field" style={{ position: "relative" }}>
-                      <span
-                        style={{
-                          position: "absolute",
-                          left: 12,
-                          top: "50%",
-                          transform: "translateY(-50%)",
-                          fontWeight: 800,
-                          opacity: 0.8,
-                          pointerEvents: "none",
-                        }}
-                      >
-                        USD
-                      </span>
+<div className="fl-col-full">
+  <div className="fl-field fl-field--prefix">
+    <span className="fl-prefix">USD</span>
 
-                      <input
-                        className="fl-input"
-                        placeholder=" "
-                        value={form.monto}
-                        onChange={onMontoChange}
-                        inputMode="decimal"
-                        disabled={loading}
-                        style={{ paddingLeft: 56 }}
-                        autoComplete="off"
-                      />
-                      <label className="fl-label">Monto (USD) *</label>
-                    </div>
-                  </div>
+    <input
+      className="fl-input"
+      placeholder=" "
+      value={form.monto}
+      onChange={onMontoChange}
+      inputMode="decimal"
+      disabled={loading}
+      autoComplete="off"
+    />
+
+    <label className="fl-label">Monto (USD) *</label>
+  </div>
+</div>
+
 
                   {/* EQUIVALENTE ARS */}
                   <div className="fl-col-full">
