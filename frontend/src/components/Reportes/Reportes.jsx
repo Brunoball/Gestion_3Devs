@@ -761,6 +761,7 @@ export default function Reportes() {
         key: "sistema_nombre",
         label: "Sistema",
         fr: "1.6fr",
+        center: true, // ✅ centrado
         render: (r) => {
           if (r?.sistema_nombre) return r.sistema_nombre;
           const parts = String(r?.concepto || "").split(" - ");

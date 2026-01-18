@@ -64,3 +64,231 @@
   color: var(--mi-text, #0f172a);
   opacity: .92;
 }
+/* =========================
+   BODY con padding + scroll
+========================= */
+.mit-modal__body{
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--mi-bg-soft, #f1f5f9);
+}
+
+.mit-modal__content{
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 18px;
+}
+
+/* =========================
+   ALERT / CARD resumen
+========================= */
+.arca-alert{
+  background: #fff;
+  border: 1px solid var(--mi-border, #e2e8f0);
+  border-radius: 14px;
+  padding: 14px 14px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, .06);
+}
+
+.arca-alert__title{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--mi-border, #e2e8f0);
+  color: var(--mi-text, #0f172a);
+}
+
+.arca-alert--error{
+  border-color: rgba(211, 47, 47, .45);
+  background: rgba(211, 47, 47, .06);
+  color: #7f1d1d;
+  margin-bottom: 12px;
+  font-weight: 800;
+}
+
+.arca-alert--info{
+  margin: 0;
+}
+
+/* =========================
+   Resumen (rows)
+========================= */
+.arca-resumen{
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+  line-height: 1.55;
+}
+
+.arca-row{
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, .02);
+  border: 1px solid rgba(226, 232, 240, .9);
+}
+
+.arca-row b{
+  color: var(--mi-text, #0f172a);
+}
+
+.arca-row span{
+  color: var(--mi-text, #0f172a);
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.arca-pill{
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-style: normal;
+  font-weight: 900;
+  font-size: .78rem;
+  background: rgba(245, 158, 11, .14);
+  border: 1px solid rgba(245, 158, 11, .25);
+  color: #92400e;
+  margin-left: 6px;
+}
+
+/* =========================
+   Confirm checkbox “lindo”
+========================= */
+
+
+.arca-confirm input{
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+
+.arca-confirm label{
+  color: var(--mi-text, #0f172a);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.arca-mini{
+  margin-top: 8px;
+  font-size: .82rem;
+  color: var(--mi-muted, #475569);
+}
+
+/* =========================
+   Responsive
+========================= */
+@media (max-width: 720px){
+  .arca-row{
+    grid-template-columns: 1fr;
+  }
+}
+/* ===== Resumen en 2 columnas ===== */
+.arca-resumen--2col{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* En mobile se apila */
+@media (max-width: 720px){
+  .arca-resumen--2col{
+    grid-template-columns: 1fr;
+  }
+}
+/* =========================
+   Checkbox circular ARCA
+========================= */
+.arca-confirm{
+  margin-top: 14px;
+}
+
+.arca-check{
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(46, 92, 191, .08);
+  border: 1px solid rgba(46, 92, 191, .22);
+  transition: background .2s ease, border-color .2s ease;
+}
+
+.arca-check:hover{
+  background: rgba(46, 92, 191, .12);
+}
+
+.arca-check input{
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* círculo */
+.arca-check__circle{
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--mi-primary, #1D428A);
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  transition: background .2s ease, box-shadow .2s ease, border-color .2s ease;
+  background: #fff;
+}
+
+/* tilde */
+.arca-check__circle::after{
+  content: "✓";
+  font-size: 14px;
+  font-weight: 900;
+  color: #fff;
+  transform: scale(0);
+  transition: transform .15s ease;
+}
+
+/* texto */
+.arca-check__text{
+  font-size: .95rem;
+  font-weight: 700;
+  color: var(--mi-text, #0f172a);
+  line-height: 1.4;
+}
+
+/* checked */
+.arca-check input:checked + .arca-check__circle{
+  background: var(--mi-primary, #1D428A);
+  box-shadow: 0 0 0 4px rgba(29, 66, 138, .18);
+}
+
+.arca-check input:checked + .arca-check__circle::after{
+  transform: scale(1);
+}
+
+/* disabled */
+.arca-check input:disabled + .arca-check__circle{
+  opacity: .6;
+}
+
+.arca-check input:disabled ~ .arca-check__text{
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+/* mobile */
+@media (max-width: 720px){
+  .arca-check{
+    align-items: flex-start;
+  }
+}

@@ -14,7 +14,8 @@ const DOC_TIPOS = [
 function ymdToHuman(ymd) {
   if (!ymd) return "";
   const s = String(ymd);
-  if (s.length === 8 && /^\d{8}$/.test(s)) return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
+  if (s.length === 8 && /^\d{8}$/.test(s))
+    return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
   if (s.length >= 10 && s.includes("-")) {
     const [y, m, d] = s.slice(0, 10).split("-");
     return `${d}/${m}/${y}`;
@@ -30,11 +31,6 @@ function moneyARS(v) {
   } catch {
     return `$${n.toFixed(2)}`;
   }
-}
-
-function padLeft(n, len) {
-  const s = String(n ?? "");
-  return s.padStart(len, "0");
 }
 
 export default function ModalFacturaArcaResumen({
@@ -57,9 +53,8 @@ export default function ModalFacturaArcaResumen({
   forceTestAmount = false,
   testAmount = 1000,
 }) {
-  // ✅ hooks arriba
   const [loading, setLoading] = useState(false);
-  const [loadingPdf, setLoadingPdf] = useState(false); // ✅ nuevo: loader solo PDF
+  const [loadingPdf, setLoadingPdf] = useState(false);
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState(false);
 
@@ -109,7 +104,6 @@ export default function ModalFacturaArcaResumen({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // ✅ Convierte cualquier cosa a texto (string, array, object, etc.)
   const toText = useCallback((v) => {
     if (v == null) return "";
     if (typeof v === "string") return v;
@@ -125,7 +119,6 @@ export default function ModalFacturaArcaResumen({
     }
   }, []);
 
-  // ✅ fetch robusto
   const fetchJSON = useCallback(
     async (url, opts) => {
       const res = await fetch(url, opts);
@@ -151,7 +144,8 @@ export default function ModalFacturaArcaResumen({
 
         const preview = (raw || "").slice(0, 300).replace(/\s+/g, " ").trim();
         throw new Error(
-          `HTTP ${res.status} ${res.statusText || ""}`.trim() + (preview ? ` • Resp: ${preview}` : "")
+          `HTTP ${res.status} ${res.statusText || ""}`.trim() +
+            (preview ? ` • Resp: ${preview}` : "")
         );
       }
 
@@ -162,7 +156,9 @@ export default function ModalFacturaArcaResumen({
 
       if (j == null) {
         const preview = (raw || "").slice(0, 300).replace(/\s+/g, " ").trim();
-        throw new Error(preview ? `Respuesta inválida (no JSON): ${preview}` : "Respuesta inválida (no JSON)");
+        throw new Error(
+          preview ? `Respuesta inválida (no JSON): ${preview}` : "Respuesta inválida (no JSON)"
+        );
       }
 
       return j;
@@ -199,39 +195,31 @@ export default function ModalFacturaArcaResumen({
     return { ok: true, id_pago, docN, pvN };
   }, [data, docNro, ptoVta, docTipo]);
 
-  // ✅ NUEVO: genera SOLO el PDF (sin emitir en ARCA)
   const exportarSoloPDF = useCallback(async () => {
     setError("");
     const v = validar();
     if (!v.ok) return setError(v.msg);
 
-    // opcional: pedís confirmar para exportar también (recomendado)
     if (!confirm) return setError("Tenés que confirmar el resumen antes de exportar el PDF.");
 
     setLoadingPdf(true);
     try {
-      // Armamos un "fact" mock para que el builder tenga TODO lo necesario
       const now = new Date();
       const y = now.getFullYear();
       const m = String(now.getMonth() + 1).padStart(2, "0");
       const d = String(now.getDate()).padStart(2, "0");
 
       const factMock = {
-        // mínimos para el builder
         pto_vta: v.pvN,
-        cbte_tipo: Number(cbteTipo),     // 11
-        cbte_nro: 1,                     // mock (si querés incremental, lo guardás en backend/localStorage)
-        fecha_cbte: `${y}${m}${d}`,       // yyyymmdd
+        cbte_tipo: Number(cbteTipo),
+        cbte_nro: 1,
+        fecha_cbte: `${y}${m}${d}`,
         importe: forceTestAmount ? Number(testAmount) : Number(monto),
 
-        // CAE fake para que el pie quede igual visualmente
         cae: "00000000000000",
         cae_vto: `${y}${m}${d}`,
-
-        // QR: si no hay url real, el builder no rompe. Podés poner una dummy:
         qr_url: "",
 
-        // extras opcionales que el builder intenta mostrar
         emisor_nombre: data?.emisor_nombre || "3DEVS SOLUTIONS",
         emisor_domicilio: data?.emisor_domicilio || "",
         cuit_emisor: data?.cuit_emisor || "",
@@ -241,16 +229,12 @@ export default function ModalFacturaArcaResumen({
         receptor_domicilio: data?.cliente_domicilio || "",
         doc_tipo: Number(docTipo),
         doc_nro: v.docN,
-
-        // ítems: si querés forzar algo acá, podés pasar factMock.items
-        // items: [{ descripcion: nombreSistema, cantidad: 1, unidad: "unidades", precio: Number(monto), bonif_pct: 0, subtotal: Number(monto) }],
       };
 
       await saveArcaInvoicePdf({
         fact: factMock,
         data: {
           ...data,
-          // por si el builder usa data.monto/importe
           monto: forceTestAmount ? Number(testAmount) : Number(monto),
           importe: forceTestAmount ? Number(testAmount) : Number(monto),
           labelCliente: nombreCliente,
@@ -303,7 +287,6 @@ export default function ModalFacturaArcaResumen({
 
       const fact = resp?.factura || resp;
 
-      // ✅ PDF profesional (3 páginas)
       await saveArcaInvoicePdf({
         fact,
         data,
@@ -362,64 +345,116 @@ export default function ModalFacturaArcaResumen({
           </div>
 
           <button className="mi-modal__close" onClick={cerrar} aria-label="Cerrar" type="button">
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
 
+        {/* ✅ BODY: contenido con padding/scroll + footer fijo abajo */}
         <div className="mit-modal__body">
-          {error && (
-            <div className="arca-alert arca-alert--error" role="alert">
-              {error}
-            </div>
-          )}
-
-          <div className="arca-alert arca-alert--info" style={{ marginBottom: 14 }}>
-            <strong>Resumen de lo que se va a facturar</strong>
-
-            <div style={{ marginTop: 8, lineHeight: 1.55 }}>
-              <div><b>Pago:</b> {resumen.pago}</div>
-              <div><b>Cliente:</b> {resumen.cliente}</div>
-              <div><b>Sistema:</b> {resumen.sistema}</div>
-              <div>
-                <b>Monto:</b> {resumen.montoTxt}{" "}
-                {forceTestAmount ? (
-                  <span className="arca-mini" style={{ marginLeft: 8 }}>
-                    (modo prueba)
-                  </span>
-                ) : null}
+          <div className="mit-modal__content">
+            {error && (
+              <div className="arca-alert arca-alert--error" role="alert">
+                {error}
               </div>
-              {resumen.fechaISO ? (
-                <div><b>Fecha pago:</b> {ymdToHuman(resumen.fechaISO)}</div>
-              ) : null}
-              <div><b>Comprobante:</b> {resumen.comprobante}</div>
-              <div><b>Receptor:</b> {resumen.receptorTxt}</div>
-              <div><b>Punto de venta:</b> {resumen.pvTxt}</div>
-            </div>
+            )}
 
-            <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center" }}>
-              <input
-                ref={firstRef}
-                id="arca_confirm"
-                type="checkbox"
-                checked={confirm}
-                onChange={(e) => setConfirm(e.target.checked)}
-                disabled={loading || loadingPdf}
-                style={{ width: 18, height: 18 }}
-              />
-              <label htmlFor="arca_confirm" style={{ cursor: (loading || loadingPdf) ? "default" : "pointer" }}>
-                Confirmo que el <b>DNI/CUIT del receptor</b> y el <b>monto</b> son correctos.
-              </label>
-            </div>
+<div className="arca-alert arca-alert--info">
+  <div className="arca-alert__title">
+    <strong>Resumen de lo que se va a facturar</strong>
+  </div>
 
-            <div className="arca-mini" style={{ marginTop: 6 }}>
-              * El PDF se genera con 3 copias: <b>ORIGINAL / DUPLICADO / TRIPLICADO</b>.
-            </div>
+  {/* ===== GRID 2 COLUMNAS ===== */}
+  <div className="arca-resumen arca-resumen--2col">
+    {/* Fila 1 */}
+    <div className="arca-row">
+      <b>Pago:</b>
+      <span>{resumen.pago}</span>
+    </div>
+    <div className="arca-row">
+      <b>Cliente:</b>
+      <span>{resumen.cliente}</span>
+    </div>
+
+    {/* Fila 2 */}
+    <div className="arca-row">
+      <b>Sistema:</b>
+      <span>{resumen.sistema}</span>
+    </div>
+    <div className="arca-row">
+      <b>Monto:</b>
+      <span>
+        {resumen.montoTxt}
+        {forceTestAmount && (
+          <em className="arca-pill">(modo prueba)</em>
+        )}
+      </span>
+    </div>
+
+    {/* Fila 3 */}
+    {resumen.fechaISO ? (
+      <div className="arca-row">
+        <b>Fecha pago:</b>
+        <span>{ymdToHuman(resumen.fechaISO)}</span>
+      </div>
+    ) : (
+      <div />
+    )}
+
+    <div className="arca-row">
+      <b>Comprobante:</b>
+      <span>{resumen.comprobante}</span>
+    </div>
+
+    {/* Fila 4 */}
+    <div className="arca-row">
+      <b>Receptor:</b>
+      <span>{resumen.receptorTxt}</span>
+    </div>
+    <div className="arca-row">
+      <b>Punto de venta:</b>
+      <span>{resumen.pvTxt}</span>
+    </div>
+  </div>
+
+<div className="arca-confirm">
+  <label className="arca-check">
+    <input
+      ref={firstRef}
+      type="checkbox"
+      checked={confirm}
+      onChange={(e) => setConfirm(e.target.checked)}
+      disabled={loading || loadingPdf}
+    />
+    <span className="arca-check__circle" />
+    <span className="arca-check__text">
+      Confirmo que el <b>DNI/CUIT del receptor</b> y el <b>monto</b> son correctos.
+    </span>
+  </label>
+</div>
+
+
+  <div className="arca-mini">
+    * El PDF se genera con 3 copias: <b>ORIGINAL / DUPLICADO / TRIPLICADO</b>.
+  </div>
+</div>
+
           </div>
 
-          <div className="mit-actions" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {/* ✅ FOOTER fijo abajo */}
+          <div className="mit-actions">
+            <div className="mit-help">* Campos obligatorios</div>
+
             <button
               type="button"
               className="mit-btn mit-btn--ghost"
@@ -429,7 +464,6 @@ export default function ModalFacturaArcaResumen({
               Volver
             </button>
 
-            {/* ✅ NUEVO BOTÓN: Solo PDF */}
             <button
               type="button"
               className="mit-btn mit-btn--ghost"
@@ -440,7 +474,6 @@ export default function ModalFacturaArcaResumen({
               {loadingPdf ? "Generando PDF..." : "Solo PDF (sin emitir)"}
             </button>
 
-            {/* Botón existente */}
             <button
               type="button"
               className="mit-btn mit-btn--solid"
@@ -457,8 +490,6 @@ export default function ModalFacturaArcaResumen({
               )}
             </button>
           </div>
-
-          <div className="mit-help">* Campos obligatorios</div>
         </div>
       </div>
     </div>
