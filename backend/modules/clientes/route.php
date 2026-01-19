@@ -2,7 +2,7 @@
 // backend/modules/clientes/route.php
 declare(strict_types=1);
 
-require_once __DIR__ . '/clientes.php'; // carga helpers + repos + handlers
+require_once __DIR__ . '/clientes.php'; // helpers + handlers + requires
 
 function route_clientes(string $action): bool
 {
@@ -34,6 +34,10 @@ function route_clientes(string $action): bool
 
     // ✅ PLANES DE MANTENIMIENTO
     case 'planes_mantenimiento_list': planes_mantenimiento_listar(); return true;
+
+    // ✅ NUEVO: FACTURACIÓN
+    case 'facturacion_get':    clientes_facturacion_get_op(); return true;
+    case 'facturacion_upsert': clientes_facturacion_upsert_op(); return true;
 
     default:
       http_response_code(200);

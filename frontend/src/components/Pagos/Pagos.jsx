@@ -223,6 +223,7 @@ const Row = memo(
     onDeleteClick,
     onTeamClick,
     onArcaClick,
+    arcaLoadingId,
   }) => {
     const item = data[index];
 
@@ -237,6 +238,8 @@ const Row = memo(
     }
 
     const isPagado = activeTab === "pagado";
+    const idPago = getIdPago(item);
+    const arcaBusy = Boolean(idPago && arcaLoadingId === idPago);
 
     return (
       <div style={style} className="gpagos-virtual-row">
@@ -280,8 +283,9 @@ const Row = memo(
                   e.stopPropagation();
                   onArcaClick?.(item);
                 }}
-                title="Factura ARCA"
+                title={arcaBusy ? "Cargando datos..." : "Factura ARCA"}
                 type="button"
+                disabled={arcaBusy}
               >
                 <FontAwesomeIcon icon={faFileInvoiceDollar} />
               </button>
@@ -308,7 +312,8 @@ const Row = memo(
   (prev, next) =>
     prev.index === next.index &&
     prev.data === next.data &&
-    prev.activeTab === next.activeTab
+    prev.activeTab === next.activeTab &&
+    prev.arcaLoadingId === next.arcaLoadingId
 );
 
 function Pagos() {
@@ -335,6 +340,7 @@ function Pagos() {
 
   // ===== UI =====
   const [loading, setLoading] = useState({ pagos: false, listas: false });
+  const [arcaLoadingId, setArcaLoadingId] = useState(null); // ✅ NUEVO: loading puntual de ARCA
 
   // ===== Toasts =====
   const [toast, setToast] = useState({
@@ -357,6 +363,36 @@ function Pagos() {
 
   const closeToast = useCallback(() => {
     setToast((t) => ({ ...t, show: false }));
+  }, []);
+
+  // ===== fetch JSON robusto =====
+  const fetchJSON = useCallback(async (url, opts) => {
+    const res = await fetch(url, opts);
+    const text = await res.text();
+
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const parsed = JSON.parse(text);
+        msg = parsed?.mensaje || parsed?.error || msg;
+      } catch {}
+      throw new Error(msg);
+    }
+
+    const trimmed = (text || "").trim();
+    if (trimmed.startsWith("<")) {
+      throw new Error("Backend devolvió HTML (error PHP).");
+    }
+
+    try {
+      const data = JSON.parse(trimmed || "{}");
+      if (data && typeof data === "object" && data?.exito === false) {
+        throw new Error(data?.mensaje || "Error en el servidor");
+      }
+      return data;
+    } catch {
+      throw new Error("JSON inválido.");
+    }
   }, []);
 
   // ✅ MODAL PAGO
@@ -402,13 +438,73 @@ function Pagos() {
   // ✅ MODAL ARCA
   const [modalArca, setModalArca] = useState(null);
   const closeModalArca = useCallback(() => setModalArca(null), []);
+
+  const fetchClienteFacturacion = useCallback(
+    async (id_pago, anio, mes) => {
+      const url = `${API}?action=${ACTION_PAGOS}&op=cliente_facturacion`;
+
+      const resp = await fetchJSON(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          id_pago: Number(id_pago),
+          // ✅ los mando igual (aunque hoy tu SQL no los usa),
+          // porque tu error anterior venía de un dispatcher que pedía anio.
+          anio: Number(anio),
+          mes: String(mes),
+        }),
+      });
+
+      return resp?.cliente_facturacion ?? null;
+    },
+    [fetchJSON]
+  );
+
+
   const openModalArca = useCallback(
-    (row) => {
+    async (row) => {
       const id_sistema = getIdSistema(row);
       const id_pago = getIdPago(row);
       if (!id_sistema || !id_pago) return;
-      if (!selectedYear || !selectedMonth) return;
 
+      if (!selectedYear || !selectedMonth) {
+        showToast("error", "Seleccioná año y mes antes de facturar.", 2600);
+        return;
+      }
+
+      // ✅ loading puntual en este pago
+      setArcaLoadingId(id_pago);
+
+      let cliente_facturacion = null;
+      try {
+        cliente_facturacion = await fetchClienteFacturacion(
+          id_pago,
+          selectedYear,
+          selectedMonth
+        );
+        // si vino vacío, avisamos (pero abrimos igual)
+        if (!cliente_facturacion) {
+          showToast(
+            "warning",
+            "No se encontró info de facturación en la DB para este pago. Se abrirá igual.",
+            3200
+          );
+        }
+      } catch (e) {
+        console.error(e);
+        showToast(
+          "error",
+          `No pude traer datos de facturación (${e.message || "error"}). Se abrirá igual.`,
+          3400
+        );
+      } finally {
+        setArcaLoadingId(null);
+      }
+
+      // ✅ abrimos modal con la info ya adentro
       setModalArca({
         open: true,
         id_sistema,
@@ -420,9 +516,15 @@ function Pagos() {
         monto: row?.monto ?? null,
         fecha_pago: row?.fecha_pago ?? null,
         medio_pago: row?.medio_pago ?? null,
+        cliente_facturacion, // ✅ CLAVE
       });
     },
-    [selectedYear, selectedMonth]
+    [
+      selectedYear,
+      selectedMonth,
+      showToast,
+      fetchClienteFacturacion,
+    ]
   );
 
   // ===== Virtual / infinite =====
@@ -437,35 +539,6 @@ function Pagos() {
     listas: null,
     cacheDuration: 30 * 60 * 1000,
   });
-
-  const fetchJSON = useCallback(async (url, opts) => {
-    const res = await fetch(url, opts);
-    const text = await res.text();
-
-    if (!res.ok) {
-      let msg = `HTTP ${res.status}`;
-      try {
-        const parsed = JSON.parse(text);
-        msg = parsed?.mensaje || parsed?.error || msg;
-      } catch {}
-      throw new Error(msg);
-    }
-
-    const trimmed = (text || "").trim();
-    if (trimmed.startsWith("<")) {
-      throw new Error("Backend devolvió HTML (error PHP).");
-    }
-
-    try {
-      const data = JSON.parse(trimmed || "{}");
-      if (data && typeof data === "object" && data?.exito === false) {
-        throw new Error(data?.mensaje || "Error en el servidor");
-      }
-      return data;
-    } catch {
-      throw new Error("JSON inválido.");
-    }
-  }, []);
 
   const cacheKey = useCallback((anio, mes) => `${anio || ""}|${mes || ""}`, []);
 
@@ -548,19 +621,15 @@ function Pagos() {
           .filter((n) => Number.isFinite(n))
           .sort((a, b) => b - a);
 
-        // ✅ SIEMPRE incluimos el año actual aunque no haya pagos
         const finalYears = [
           current,
           ...aniosNorm.filter((y) => y !== current),
         ];
 
         setYears(finalYears);
-
-        // ✅ año siempre actual
         setSelectedYear(String(current));
       } catch (e) {
         console.error(e);
-        // ✅ fallback ultra seguro
         const current = new Date().getFullYear();
         setYears([current]);
         setSelectedYear(String(current));
@@ -597,8 +666,6 @@ function Pagos() {
           mes
         )}`;
 
-        // ✅ Siempre pedimos ambos: pagados y deudores.
-        // Aunque pagados venga vacío, deudores viene bien.
         const [pagados, deudores] = await Promise.all([
           fetchJSON(`${API}?action=${ACTION_PAGOS}&estado=pagado${qp}`, {
             method: "GET",
@@ -671,7 +738,7 @@ function Pagos() {
     [selectedMedioPago, searchTerm]
   );
 
-  // ✅ si NO hay pagados pero SÍ hay deudores, te paso automáticamente a “deudores”
+  // ✅ si NO hay pagados pero SÍ hay deudores, auto “deudores”
   useEffect(() => {
     if (!filtrosCompletos) return;
     if (loading.pagos) return;
@@ -846,6 +913,7 @@ function Pagos() {
       recargarListado();
     } catch (e) {
       console.error(e);
+      showToast("error", e.message || "Error al eliminar pago.", 3200);
     } finally {
       setLoading((p) => ({ ...p, pagos: false }));
     }
@@ -917,6 +985,7 @@ function Pagos() {
                         }}
                         type="button"
                         title="Factura ARCA"
+                        disabled={Boolean(arcaLoadingId && arcaLoadingId === getIdPago(row))}
                       >
                         <FontAwesomeIcon icon={faFileInvoiceDollar} />
                         <span>ARCA</span>
@@ -991,6 +1060,7 @@ function Pagos() {
                 onDeleteClick={onDeleteClick}
                 onTeamClick={onTeamClick}
                 onArcaClick={onArcaClick}
+                arcaLoadingId={arcaLoadingId}
               />
             );
           }}
@@ -1012,6 +1082,7 @@ function Pagos() {
     loadMoreItems,
     listKey,
     isClient,
+    arcaLoadingId,
   ]);
 
   return (
@@ -1054,7 +1125,7 @@ function Pagos() {
           onClose={closeModalArca}
           apiBase={API}
           action={ACTION_PAGOS}
-          data={modalArca}
+          data={modalArca} // ✅ ACÁ VIAJA cliente_facturacion YA LISTO
           onDone={() => {
             closeModalArca();
             recargarListado();
@@ -1107,11 +1178,7 @@ function Pagos() {
                   id="anio"
                   value={selectedYear}
                   onChange={(e) => {
-                    // ✅ si querés “siempre actual”, igual lo dejamos editable
                     setSelectedYear(e.target.value);
-
-                    // si querés conservar mes al cambiar año, sacá esta línea:
-                    // setSelectedMonth("");
                     setSelectedMedioPago("");
                     setSearchTerm("");
                   }}

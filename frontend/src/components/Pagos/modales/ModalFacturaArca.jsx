@@ -3,8 +3,6 @@ import React, { useMemo, useState, useCallback, useEffect, useRef } from "react"
 import { FaCheck } from "react-icons/fa";
 import "./ModalFacturaArca.css";
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
-
-// ✅ Modal resumen (emite + PDF)
 import ModalFacturaArcaResumen from "./ModalFacturaArcaResumen";
 
 const DOC_TIPOS = [
@@ -12,17 +10,11 @@ const DOC_TIPOS = [
   { id: 96, label: "DNI (96)" },
 ];
 
-// Por ahora “perfecto” para C (11)
 const CBTE_TIPOS = [{ id: 11, label: "Factura C (11)" }];
 
-/** ✅ MODO PRUEBA: fuerza el monto a $1000
- *  - Úsalo SOLO para pruebas.
- *  - Cuando termines: poné FORCE_TEST_AMOUNT=false
- */
 const FORCE_TEST_AMOUNT = true;
 const TEST_AMOUNT = 1000;
 
-// ✅ PV fijo (default)
 const DEFAULT_PTO_VTA = 2;
 
 function moneyARS(v) {
@@ -44,18 +36,18 @@ export default function ModalFacturaArca({
   onFacturada,
   onDone,
 }) {
-  // ✅ Hooks SIEMPRE ARRIBA
   const [docTipo, setDocTipo] = useState(80);
   const [docNro, setDocNro] = useState("");
   const [cbteTipo, setCbteTipo] = useState(11);
 
-  // ✅ PV fijo: siempre 2 (no se edita)
-  const [ptoVta, setPtoVta] = useState(String(DEFAULT_PTO_VTA));
+  const [ptoVta] = useState(String(DEFAULT_PTO_VTA));
 
   const [error, setError] = useState("");
-
-  // ✅ abrir/cerrar resumen
   const [openResumen, setOpenResumen] = useState(false);
+
+  // ✅ cliente facturación (DB)
+  const [clienteFact, setClienteFact] = useState(null);
+  const [loadingCliente, setLoadingCliente] = useState(false);
 
   const firstRef = useRef(null);
 
@@ -64,7 +56,6 @@ export default function ModalFacturaArca({
     [data]
   );
 
-  // ====== Datos del pago seleccionado ======
   const idPago = data?.id_pago || data?.id || "—";
   const nombreCliente = data?.labelCliente || data?.cliente || "—";
   const nombreSistema = data?.labelSistema || data?.sistema || "—";
@@ -72,22 +63,102 @@ export default function ModalFacturaArca({
   const montoReal = Number(data?.monto ?? data?.importe ?? 0);
   const monto = FORCE_TEST_AMOUNT ? Number(TEST_AMOUNT) : montoReal;
 
+  // ✅ fetch helper local robusto
+  const fetchJSON = useCallback(async (url, opts) => {
+    const res = await fetch(url, opts);
+    const raw = await res.text();
+    const trimmed = (raw || "").trim();
+
+    if (trimmed.startsWith("<")) {
+      throw new Error("Backend devolvió HTML (error PHP).");
+    }
+
+    let j = null;
+    try {
+      j = trimmed ? JSON.parse(trimmed) : null;
+    } catch {
+      j = null;
+    }
+
+    const pickErr = () =>
+      j?.mensaje || j?.error || j?.message || j?.detail || "";
+
+    if (!res.ok) {
+      const msg = pickErr();
+      throw new Error(msg || `HTTP ${res.status}`);
+    }
+
+    if (j && typeof j === "object" && j.exito === false) {
+      throw new Error(pickErr() || "Error servidor (exito=false)");
+    }
+
+    if (j == null) throw new Error("Respuesta inválida (no JSON)");
+    return j;
+  }, []);
+
+  // ✅ al abrir: reset + precarga
   useEffect(() => {
     if (!open) return;
 
     setError("");
     setOpenResumen(false);
 
-    // reset inputs
+    // defaults
     setDocTipo(80);
     setCbteTipo(11);
     setDocNro("");
+    setClienteFact(null);
 
-    // ✅ PV fijo siempre 2
-    setPtoVta(String(DEFAULT_PTO_VTA));
+    // ✅ SI VIENE desde Pagos.jsx, lo usamos y NO pedimos al backend
+    const cfFromParent = data?.cliente_facturacion;
 
-    setTimeout(() => firstRef.current?.focus?.(), 0);
-  }, [open]);
+    if (cfFromParent !== undefined) {
+      // ojo: puede ser null (no hay datos cargados) o un objeto
+      setClienteFact(cfFromParent || null);
+
+      if (cfFromParent?.doc_tipo) setDocTipo(Number(cfFromParent.doc_tipo));
+      if (cfFromParent?.doc_nro)
+        setDocNro(String(cfFromParent.doc_nro).replace(/\D/g, ""));
+
+      setTimeout(() => firstRef.current?.focus?.(), 0);
+      return;
+    }
+
+    // ✅ si NO viene, recién ahí intentamos traerlo
+    const id_pago_real = data?.id_pago;
+    if (!id_pago_real) {
+      setTimeout(() => firstRef.current?.focus?.(), 0);
+      return;
+    }
+
+    (async () => {
+      setLoadingCliente(true);
+      try {
+        const url = `${apiBase}?action=${action}&op=cliente_facturacion`;
+        const resp = await fetchJSON(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({
+            id_pago: Number(id_pago_real),
+            // por compatibilidad (si tu backend lo pide en algún momento)
+            anio: Number(data?.anio || 0),
+            mes: String(data?.mes || ""),
+          }),
+        });
+
+        const cf = resp?.cliente_facturacion ?? null;
+        setClienteFact(cf);
+
+        if (cf?.doc_tipo) setDocTipo(Number(cf.doc_tipo));
+        if (cf?.doc_nro) setDocNro(String(cf.doc_nro).replace(/\D/g, ""));
+      } catch (e) {
+        console.warn("cliente_facturacion:", e?.message || e);
+      } finally {
+        setLoadingCliente(false);
+        setTimeout(() => firstRef.current?.focus?.(), 0);
+      }
+    })();
+  }, [open, apiBase, action, data, fetchJSON]);
 
   useEffect(() => {
     if (!open) return;
@@ -99,8 +170,6 @@ export default function ModalFacturaArca({
   const validarInputs = useCallback(() => {
     const doc = String(docNro || "").replace(/\D/g, "");
     const id_pago = data?.id_pago;
-
-    const pv = String(DEFAULT_PTO_VTA);
 
     if (!id_pago) return { ok: false, msg: "Falta id_pago." };
     if (!doc) return { ok: false, msg: "Ingresá el número de documento (solo números)." };
@@ -117,7 +186,7 @@ export default function ModalFacturaArca({
     }
 
     const docN = Number(doc);
-    const pvN = Number(pv);
+    const pvN = Number(DEFAULT_PTO_VTA);
 
     if (!Number.isFinite(docN) || docN <= 0) return { ok: false, msg: "Documento inválido." };
     if (!Number.isFinite(pvN) || pvN <= 0) return { ok: false, msg: "Punto de venta inválido." };
@@ -129,8 +198,6 @@ export default function ModalFacturaArca({
     setError("");
     const v = validarInputs();
     if (!v.ok) return setError(v.msg);
-
-    setPtoVta(String(DEFAULT_PTO_VTA));
     setOpenResumen(true);
   };
 
@@ -159,15 +226,7 @@ export default function ModalFacturaArca({
             </div>
 
             <button className="mi-modal__close" onClick={cerrar} aria-label="Cerrar" type="button">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="22"
-                height="22"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
@@ -181,6 +240,12 @@ export default function ModalFacturaArca({
                   {error}
                 </div>
               )}
+
+              {loadingCliente ? (
+                <div className="arca-alert arca-alert--info" role="status">
+                  Cargando datos de facturación del cliente...
+                </div>
+              ) : null}
 
               <div className="mi-grid">
                 <article className="mi-card">
@@ -270,6 +335,16 @@ export default function ModalFacturaArca({
                       <label className="fl-label">Punto de venta *</label>
                     </div>
                   </div>
+
+                  {clienteFact ? (
+                    <div className="arca-mini" style={{ marginTop: 10 }}>
+                      <b>DB:</b> {clienteFact.razon_social || "—"} • {clienteFact.cond_iva || "—"}
+                    </div>
+                  ) : (
+                    <div className="arca-mini" style={{ marginTop: 10 }}>
+                      <b>DB:</b> (sin datos de facturación cargados)
+                    </div>
+                  )}
                 </article>
 
                 <article className="mi-card mi-card--full">
@@ -306,7 +381,10 @@ export default function ModalFacturaArca({
         onCloseAll={() => onClose?.()}
         apiBase={apiBase}
         action={action}
-        data={data}
+        data={{
+          ...data,
+          cliente_facturacion: clienteFact,
+        }}
         docTipo={docTipo}
         docNro={docNro}
         cbteTipo={cbteTipo}

@@ -11,25 +11,16 @@ import AgregarSistemaModal from "./modales/AgregarSistemaModal";
 import EliminarClienteModal from "./modales/EliminarClienteModal";
 import QuitarTrabajadorModal from "./modales/QuitarTrabajadorModal";
 import EliminarSistemaModal from "./modales/EliminarSistemaModal";
-
-// ✅ NUEVO: modal presupuesto
 import GenerarPresupuestoModal from "./modales/GenerarPresupuestoModal";
 
-// ✅ mismos globales que Previas (estructura/fondo)
-import "../Global/roots.css";
+// ✅ NUEVO: Modal Datos Facturación
+import DatosFacturacionModal from "./modales/DatosFacturacionModal";
 
-// ✅ iconos
-import { FaPen, FaTrashAlt, FaCubes, FaSave, FaTimes } from "react-icons/fa";
+import "../Global/roots.css";
+import { FaPen, FaTrashAlt, FaCubes, FaSave, FaTimes, FaFileInvoice } from "react-icons/fa";
 
 const API = `${BASE_URL}/api.php?action=clientes`;
 
-/**
- * ✅ Toast robusto, estilo Pagos/Reportes:
- * - show boolean
- * - key incremental para "re-disparar" el mismo mensaje
- * - SOLO toasts de ÉXITO para acciones: agregar / editar / eliminar / asignar / quitar
- * - errores: podés dejarlos (yo los dejo) para no quedarte ciego al fallar backend
- */
 export default function Clientes() {
   const navigate = useNavigate();
 
@@ -82,8 +73,12 @@ export default function Clientes() {
   const [sysDelSistema, setSysDelSistema] = useState(null);
   const [sysDelLoading, setSysDelLoading] = useState(false);
 
-  // ✅ NUEVO: modal presupuesto
+  // ✅ modal presupuesto
   const [presOpen, setPresOpen] = useState(false);
+
+  // ✅ NUEVO: modal datos facturación
+  const [factOpen, setFactOpen] = useState(false);
+  const [factCliente, setFactCliente] = useState(null);
 
   // formularios clientes
   const [nuevoCliente, setNuevoCliente] = useState({ nombre: "", notas: "" });
@@ -91,9 +86,9 @@ export default function Clientes() {
   const [editCliente, setEditCliente] = useState({ nombre: "", notas: "" });
 
   // sistemas por cliente
-  const [sistemas, setSistemas] = useState({}); // { [id_cliente]: [] }
-  const [nuevoSistema, setNuevoSistema] = useState({}); // { [id_cliente]: form }
-  const [editSistema, setEditSistema] = useState({}); // { [id_sistema]: form }
+  const [sistemas, setSistemas] = useState({});
+  const [nuevoSistema, setNuevoSistema] = useState({});
+  const [editSistema, setEditSistema] = useState({});
   const [editSistemaId, setEditSistemaId] = useState(null);
 
   // trabajadores globales + asignación por sistema
@@ -116,13 +111,12 @@ export default function Clientes() {
   }, [modalClienteId, sistemas]);
 
   // =========================
-  // Fetch robusto (evita reventar si viene HTML/errores)
+  // Fetch robusto
   // =========================
   const fetchJSON = useCallback(async (url, opts) => {
     const res = await fetch(url, opts);
     const text = await res.text();
 
-    // si vino html (warning php)
     const trimmed = (text || "").trim();
     if (trimmed.startsWith("<")) {
       throw new Error("Backend devolvió HTML (error PHP). Revisá logs.");
@@ -149,7 +143,6 @@ export default function Clientes() {
       const data = await fetchJSON(`${API}&op=list`, { method: "GET" });
       setClientes(Array.isArray(data?.clientes) ? data.clientes : []);
     } catch (e) {
-      // (si querés SOLO éxito, podés comentar esto)
       showToast("error", e.message || "No se pudieron cargar los clientes");
     } finally {
       setCargando(false);
@@ -219,7 +212,6 @@ export default function Clientes() {
           body: JSON.stringify({ id_sistema, id_trabajador }),
         });
 
-        // ✅ ÉXITO
         showToast("exito", data?.mensaje || "Trabajador asignado");
         setSelectTrabajador((p) => ({ ...p, [id_sistema]: "" }));
         await cargarAsignadosSistema(id_sistema);
@@ -229,10 +221,6 @@ export default function Clientes() {
     },
     [API, fetchJSON, selectTrabajador, showToast, cargarAsignadosSistema]
   );
-
-  /* =========================
-     MODALES: QUITAR / ELIMINAR SISTEMA
-  ========================= */
 
   const abrirQuitarTrabajador = useCallback((sistema, trabajador) => {
     setQtSistema(sistema);
@@ -255,7 +243,6 @@ export default function Clientes() {
           body: JSON.stringify({ id_sistema, id_trabajador }),
         });
 
-        // ✅ ÉXITO
         showToast("exito", data?.mensaje || "Trabajador quitado");
         await cargarAsignadosSistema(id_sistema);
 
@@ -291,7 +278,6 @@ export default function Clientes() {
           body: JSON.stringify({ id_sistema }),
         });
 
-        // ✅ ÉXITO
         showToast("exito", data?.mensaje || "Sistema eliminado");
 
         if (modalClienteId) await cargarSistemasCliente(modalClienteId);
@@ -308,6 +294,12 @@ export default function Clientes() {
     },
     [fetchJSON, showToast, modalClienteId, cargarSistemasCliente]
   );
+
+  // ✅ NUEVO: Abrir modal de facturación
+  const abrirDatosFacturacion = useCallback((cliente) => {
+    setFactCliente(cliente);
+    setFactOpen(true);
+  }, []);
 
   useEffect(() => {
     cargarClientes();
@@ -330,7 +322,6 @@ export default function Clientes() {
         body: JSON.stringify({ nombre, notas: (nuevoCliente.notas || "").trim() }),
       });
 
-      // ✅ ÉXITO
       showToast("exito", data?.mensaje || "Cliente creado");
       setNuevoCliente({ nombre: "", notas: "" });
       await cargarClientes();
@@ -362,7 +353,6 @@ export default function Clientes() {
         }),
       });
 
-      // ✅ ÉXITO
       showToast("exito", data?.mensaje || "Cliente actualizado");
       setEditClienteId(null);
       await cargarClientes();
@@ -371,7 +361,6 @@ export default function Clientes() {
     }
   }, [editClienteId, editCliente, fetchJSON, showToast, cargarClientes]);
 
-  // ✅ ahora sin window.confirm, lo maneja el modal
   const abrirEliminarCliente = useCallback((c) => {
     setDelCliente(c);
     setDelOpen(true);
@@ -390,7 +379,6 @@ export default function Clientes() {
           body: JSON.stringify({ id_cliente }),
         });
 
-        // ✅ ÉXITO
         showToast("exito", data?.mensaje || "Cliente eliminado");
 
         if (modalClienteId === id_cliente) cerrarModal();
@@ -481,7 +469,6 @@ export default function Clientes() {
           body: JSON.stringify(payload),
         });
 
-        // ✅ ÉXITO
         showToast("exito", data?.mensaje || "Sistema agregado");
 
         setNuevoSistema((prev) => ({
@@ -556,7 +543,6 @@ export default function Clientes() {
           body: JSON.stringify(payload),
         });
 
-        // ✅ ÉXITO
         showToast("exito", data?.mensaje || "Sistema actualizado");
         setEditSistemaId(null);
         await cargarSistemasCliente(id_cliente);
@@ -656,7 +642,7 @@ export default function Clientes() {
                 title="Generar presupuesto en PDF"
                 aria-label="Generar presupuesto"
               >
-                 Generar presupuesto
+                Generar presupuesto
               </button>
             </div>
           </div>
@@ -745,6 +731,17 @@ export default function Clientes() {
                         title="Eliminar"
                       >
                         <FaTrashAlt />
+                      </button>
+
+                      {/* ✅ NUEVO BOTÓN: DATOS DE FACTURACIÓN */}
+                      <button
+                        className="icon-btn outline"
+                        onClick={() => abrirDatosFacturacion(c)}
+                        type="button"
+                        aria-label="Datos de facturación"
+                        title="Datos de facturación"
+                      >
+                        <FaFileInvoice />
                       </button>
 
                       <button
@@ -1113,12 +1110,21 @@ export default function Clientes() {
           submitting={addSubmitting}
         />
 
-        {/* ✅ NUEVO: MODAL GENERAR PRESUPUESTO */}
+        {/* ✅ MODAL GENERAR PRESUPUESTO */}
         <GenerarPresupuestoModal
           open={presOpen}
           onClose={() => setPresOpen(false)}
-          // ✅ si el modal quiere disparar toasts, lo conectamos al showToast
           onToast={(tipo, msg) => showToast(tipo, msg)}
+        />
+
+        {/* ✅ NUEVO: MODAL DATOS FACTURACIÓN */}
+        <DatosFacturacionModal
+          open={factOpen}
+          onClose={() => setFactOpen(false)}
+          cliente={factCliente}
+          apiFetch={fetchJSON}
+          apiBase={API}
+          onToast={showToast}
         />
       </div>
     </div>

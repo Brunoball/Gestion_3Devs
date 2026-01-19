@@ -1,0 +1,110 @@
+.dfm-overlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  z-index: 9999;
+}
+
+.dfm-modal{
+  width: min(780px, 96vw);
+  background: #0b1220;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.55);
+  overflow: hidden;
+}
+
+.dfm-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: 12px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+.dfm-title{
+  font-size: 18px;
+  font-weight: 800;
+  color: #eaf0ff;
+}
+
+.dfm-sub{
+  margin-top: 4px;
+  font-size: 13px;
+  color: rgba(234,240,255,.75);
+}
+
+.dfm-x{
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
+  color: #fff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.dfm-loading{
+  padding: 18px;
+  color: rgba(255,255,255,.85);
+}
+
+.dfm-body{
+  padding: 16px;
+}
+
+.dfm-grid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.dfm-span2{ grid-column: span 2; }
+
+.dfm-field label{
+  display:block;
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: rgba(234,240,255,.75);
+}
+
+.dfm-field input,
+.dfm-field select{
+  width:100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.12);
+  outline: none;
+  background: rgba(255,255,255,.06);
+  color: #fff;
+}
+
+.dfm-foot{
+  display:flex;
+  justify-content:flex-end;
+  gap: 10px;
+  padding: 14px 16px;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+
+.dfm-btn{
+  border-radius: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  border: 1px solid rgba(255,255,255,.12);
+}
+
+.dfm-btn-sec{
+  background: rgba(255,255,255,.06);
+  color: #fff;
+}
+
+.dfm-btn-main{
+  background: #0b5ed7;
+  border-color: rgba(255,255,255,.0);
+  color: #fff;
+}

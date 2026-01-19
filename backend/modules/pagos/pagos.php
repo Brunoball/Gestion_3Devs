@@ -12,6 +12,9 @@ declare(strict_types=1);
  * - clientes (id_cliente, nombre, notas, activo)
  * - sistemas_trabajadores (id_sistema, id_trabajador, rol_en_sistema, fecha_asignacion)
  * - trabajadores (id, nombre, apellido, email, rol, alias_pago, activo, fecha_alta)
+ *
+ * ✅ NUEVO:
+ * - clientes_facturacion (id_cliente, doc_tipo, doc_nro, razon_social, domicilio, cond_iva, cond_venta, created_at)
  */
 
 if (!function_exists('json_ok')) {
@@ -124,6 +127,68 @@ require_once __DIR__ . '/equipo_sistema.php';
 require_once __DIR__ . '/arca_factura.php';
 
 /* =========================================================
+   ✅ NUEVO: DATOS FACTURACIÓN POR id_pago
+========================================================= */
+function pagos_cliente_facturacion(): void
+{
+  global $pdo;
+
+  require_method('POST');
+  $in = read_json_body();
+
+  $id_pago = isset($in['id_pago']) && is_numeric($in['id_pago']) ? (int)$in['id_pago'] : 0;
+  if ($id_pago <= 0) json_error("Falta id_pago válido");
+
+  try {
+    $sql = "
+      SELECT
+        cf.id_cliente,
+        cf.doc_tipo,
+        cf.doc_nro,
+        cf.razon_social,
+        cf.domicilio,
+        cf.cond_iva,
+        cf.cond_venta
+      FROM pagos p
+      INNER JOIN clientes_sistemas cs ON cs.id_sistema = p.id_sistema
+      INNER JOIN clientes_facturacion cf ON cf.id_cliente = cs.id_cliente
+      WHERE p.id_pago = :id_pago
+      LIMIT 1
+    ";
+
+    $st = $pdo->prepare($sql);
+    $st->execute([':id_pago' => $id_pago]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+
+    if (!$row) {
+      json_ok([
+        'exito' => true,
+        'cliente_facturacion' => null,
+        'mensaje' => 'Cliente sin datos de facturación cargados.'
+      ]);
+    }
+
+    $doc_tipo = isset($row['doc_tipo']) ? (int)$row['doc_tipo'] : 80;
+    $doc_nro  = preg_replace('/\D+/', '', (string)($row['doc_nro'] ?? ''));
+
+    json_ok([
+      'exito' => true,
+      'cliente_facturacion' => [
+        'id_cliente'   => (int)($row['id_cliente'] ?? 0),
+        'doc_tipo'     => $doc_tipo,
+        'doc_nro'      => $doc_nro,
+        'razon_social' => (string)($row['razon_social'] ?? ''),
+        'domicilio'    => (string)($row['domicilio'] ?? ''),
+        'cond_iva'     => (string)($row['cond_iva'] ?? 'IVA Sujeto Exento'),
+        'cond_venta'   => (string)($row['cond_venta'] ?? 'Contado / Transferencia Bancaria'),
+      ],
+    ]);
+  } catch (Throwable $e) {
+    json_error("Error DB al obtener datos de facturación", ['error' => $e->getMessage()]);
+  }
+}
+
+/* =========================================================
    ✅ LISTAR AÑOS
 ========================================================= */
 function pagos_listar_anios(): void
@@ -215,11 +280,7 @@ function pagos_listar_pagados(): void
 }
 
 /* =========================================================
-   ✅ LISTAR DEUDORES POR MES/AÑO (FIX DEFINITIVO REAL)
-   - Usa inicio_real robusto (soporta NULL / '0000-00-00' / '0000-00-00 00:00:00' / strings)
-   - NO muestra sistemas que arrancan DESPUÉS del período consultado
-   - Compara contra FIN de mes (último día)
-   - cs.estado compatible: 'activo' o 1
+   ✅ LISTAR DEUDORES POR MES/AÑO
 ========================================================= */
 function pagos_listar_deudores(): void
 {
@@ -246,7 +307,6 @@ function pagos_listar_deudores(): void
       cs.created_at,
       c.nombre AS cliente,
 
-      /* ✅ inicio_real robusto (igual que tu query que sí funcionó) */
       DATE(
         CASE
           WHEN STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d') IS NULL
@@ -272,11 +332,7 @@ function pagos_listar_deudores(): void
      AND YEAR(p.fecha_pago) = :anio
 
     WHERE p.id_pago IS NULL
-
-      /* ✅ estado compatible */
       AND (cs.estado = 'activo' OR cs.estado = 1)
-
-      /* ✅ clave: inicio_real debe ser <= fin del mes consultado */
       AND DATE(
         CASE
           WHEN STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d') IS NULL
@@ -322,10 +378,6 @@ function pagos_listar_deudores(): void
       'mes'        => $mesParam,
       'anio'       => $anio,
       'estado_sistema' => $r['sistema_estado'] ?? null,
-
-      /* ✅ dejalo 1 día para debug si querés */
-      // 'inicio_real' => $r['inicio_real'] ?? null,
-      // 'period_end' => $periodEndStr,
     ];
   }
 
@@ -333,7 +385,7 @@ function pagos_listar_deudores(): void
 }
 
 /* =========================================================
-   ✅ DETALLE SISTEMA (FIX: inicio_real robusto)
+   ✅ DETALLE SISTEMA
 ========================================================= */
 function pagos_detalle_sistema(): void
 {
@@ -355,7 +407,6 @@ function pagos_detalle_sistema(): void
       cs.fecha_inicio,
       cs.created_at  AS sistema_created_at,
 
-      /* ✅ inicio_real robusto (igual al deudores) */
       DATE(
         CASE
           WHEN STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d') IS NULL
@@ -417,10 +468,8 @@ function pagos_detalle_sistema(): void
     $pagosPorAnio[$y] = $arr;
   }
 
-  // ✅ usar inicio_real SIEMPRE (evita que te aparezca "enero 2026" cuando arrancó en mayo)
   $inicioStr = $row['inicio_real'] ?? null;
   if (!$inicioStr) {
-    // fallback extremo (no debería pasar)
     $fi = (string)($row['fecha_inicio'] ?? '');
     $ca = (string)($row['sistema_created_at'] ?? '');
     $inicioStr = substr(($fi !== '' ? $fi : $ca), 0, 10);
@@ -603,3 +652,58 @@ function pagos_eliminar_pago(): void
   }
 }
 
+/* =========================================================
+   ✅ DISPATCHER FINAL (NO ROMPE, SOLO FIXEA NOMBRE)
+========================================================= */
+
+try {
+  $op     = (string)($_GET['op'] ?? '');
+  $estado = (string)($_GET['estado'] ?? '');
+
+  // ✅ 1) OPs
+  if ($op === 'cliente_facturacion') {
+    pagos_cliente_facturacion();
+  }
+
+  if ($op === 'equipo_sistema') {
+    // ✅ FIX: la función real es pagos_equipo_sistema()
+    pagos_equipo_sistema();
+  }
+
+  if ($op === 'eliminar_pago') {
+    pagos_eliminar_pago();
+  }
+
+  if ($op === 'registrar_pago') {
+    pagos_registrar_pago();
+  }
+
+  if ($op === 'detalle_sistema') {
+    pagos_detalle_sistema();
+  }
+
+  if ($op === 'anios') {
+    pagos_listar_anios();
+  }
+
+  if ($op === 'factura_arca') {
+    pagos_factura_arca();
+  }
+
+  // ✅ 2) Listados por estado
+  if ($estado === 'pagado') {
+    pagos_listar_pagados();
+  }
+
+  if ($estado === 'deudor' || $estado === 'deudores') {
+    pagos_listar_deudores();
+  }
+
+  json_error("Operación no válida", [
+    'op' => $op,
+    'estado' => $estado,
+  ]);
+
+} catch (Throwable $e) {
+  json_error("Error inesperado en pagos.php", ['error' => $e->getMessage()]);
+}
