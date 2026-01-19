@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+
+/* 🔹 Importa la estética base */
+import "../../Trabajadores/modales/ModalEditarTrabajador.css";
 import "./DatosFacturacionModal.css";
 
-// defaults según tu tabla
+/* Defaults */
 const DEFAULTS = {
-  doc_tipo: 80, // CUIT
+  doc_tipo: 80,
   doc_nro: "",
   razon_social: "",
   domicilio: "",
@@ -20,43 +23,42 @@ export default function DatosFacturacionModal({
   open,
   onClose,
   cliente,
-  apiFetch,        // (url, opts) => data  (usa tu fetchJSON)
-  apiBase,         // `${BASE_URL}/api.php?action=clientes`
-  onToast,         // (tipo, msg)
+  apiFetch,
+  apiBase,
+  onToast,
 }) {
   const boxRef = useRef(null);
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-
   const [form, setForm] = useState(DEFAULTS);
 
-  const id_cliente = useMemo(() => Number(cliente?.id_cliente || 0), [cliente]);
+  const id_cliente = useMemo(
+    () => Number(cliente?.id_cliente || 0),
+    [cliente]
+  );
 
-  // cerrar con ESC + trap simple
+  /* ESC + focus */
   useEffect(() => {
     if (!open) return;
 
-    const onKey = (e) => {
-      if (e.key === "Escape") onClose?.();
-    };
+    const onKey = (e) => e.key === "Escape" && onClose?.();
     window.addEventListener("keydown", onKey);
 
-    // focus
     setTimeout(() => {
       try {
-        boxRef.current?.querySelector("input,select,textarea,button")?.focus();
+        boxRef.current?.querySelector("input,select,button")?.focus();
       } catch {}
     }, 50);
 
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // cargar datos del cliente (si existen)
+  /* Cargar datos */
   useEffect(() => {
     if (!open || !id_cliente) return;
-
     let alive = true;
+
     (async () => {
       setLoading(true);
       try {
@@ -67,23 +69,19 @@ export default function DatosFacturacionModal({
 
         const f = data?.facturacion || null;
 
-        // Si no existe registro, quedás con defaults
-        const next = {
-          doc_tipo: Number(f?.doc_tipo ?? DEFAULTS.doc_tipo),
-          doc_nro: String(f?.doc_nro ?? DEFAULTS.doc_nro),
-          razon_social: String(f?.razon_social ?? (cliente?.nombre || "")),
-          domicilio: String(f?.domicilio ?? DEFAULTS.domicilio),
-          cond_iva: String(f?.cond_iva ?? DEFAULTS.cond_iva),
-          cond_venta: String(f?.cond_venta ?? DEFAULTS.cond_venta),
-        };
-
-        if (alive) setForm(next);
-      } catch (e) {
-        // si el backend responde "no existe", no lo tratamos como error fuerte
-        const msg = String(e?.message || "");
-        if (!msg.toLowerCase().includes("no existe")) {
-          onToast?.("error", msg || "No se pudieron cargar los datos");
+        if (alive) {
+          setForm({
+            doc_tipo: Number(f?.doc_tipo ?? DEFAULTS.doc_tipo),
+            doc_nro: String(f?.doc_nro ?? ""),
+            razon_social: String(
+              f?.razon_social ?? cliente?.nombre ?? ""
+            ),
+            domicilio: String(f?.domicilio ?? ""),
+            cond_iva: String(f?.cond_iva ?? DEFAULTS.cond_iva),
+            cond_venta: String(f?.cond_venta ?? DEFAULTS.cond_venta),
+          });
         }
+      } catch (e) {
         if (alive) {
           setForm({
             ...DEFAULTS,
@@ -91,44 +89,41 @@ export default function DatosFacturacionModal({
           });
         }
       } finally {
-        if (alive) setLoading(false);
+        alive && setLoading(false);
       }
     })();
 
-    return () => {
-      alive = false;
-    };
-  }, [open, id_cliente, apiBase, apiFetch, onToast, cliente]);
+    return () => (alive = false);
+  }, [open, id_cliente, apiFetch, apiBase, cliente]);
 
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
-  // doc_nro solo números
-  const onDocNro = (v) => {
-    const clean = String(v || "").replace(/[^\d]/g, "");
-    set("doc_nro", clean);
-  };
+  const onDocNro = (v) =>
+    set("doc_nro", String(v || "").replace(/[^\d]/g, ""));
 
-  const guardar = async () => {
-    if (!id_cliente) return;
+  const cerrar = () => !saving && onClose?.();
 
-    // validaciones mínimas
-    const doc_nro = String(form.doc_nro || "").trim();
-    const razon_social = String(form.razon_social || "").trim();
-    const domicilio = String(form.domicilio || "").trim();
+  const guardar = async (e) => {
+    e.preventDefault();
 
-    if (!razon_social) return onToast?.("advertencia", "Razón social obligatoria");
-    if (!doc_nro) return onToast?.("advertencia", "Documento (número) obligatorio");
+    const doc_nro = form.doc_nro.trim();
+    const razon_social = form.razon_social.trim();
+
+    if (!razon_social)
+      return onToast?.("advertencia", "Razón social obligatoria");
+    if (!doc_nro)
+      return onToast?.("advertencia", "Documento obligatorio");
 
     setSaving(true);
     try {
       const payload = {
         id_cliente,
-        doc_tipo: Number(form.doc_tipo || 80),
+        doc_tipo: Number(form.doc_tipo),
         doc_nro: Number(doc_nro),
         razon_social,
-        domicilio,
-        cond_iva: String(form.cond_iva || DEFAULTS.cond_iva).trim(),
-        cond_venta: String(form.cond_venta || DEFAULTS.cond_venta).trim(),
+        domicilio: form.domicilio.trim(),
+        cond_iva: form.cond_iva.trim(),
+        cond_venta: form.cond_venta.trim(),
       };
 
       const data = await apiFetch(`${apiBase}&op=facturacion_upsert`, {
@@ -137,10 +132,10 @@ export default function DatosFacturacionModal({
         body: JSON.stringify(payload),
       });
 
-      onToast?.("exito", data?.mensaje || "Datos de facturación guardados");
-      onClose?.();
+      onToast?.("exito", data?.mensaje || "Datos guardados");
+      cerrar();
     } catch (e) {
-      onToast?.("error", e?.message || "No se pudieron guardar los datos");
+      onToast?.("error", e?.message || "Error al guardar");
     } finally {
       setSaving(false);
     }
@@ -149,100 +144,146 @@ export default function DatosFacturacionModal({
   if (!open) return null;
 
   return (
-    <div className="dfm-overlay" onMouseDown={onClose}>
+    <div
+      className="mi-modal__overlay"
+      onClick={(e) =>
+        e.target.classList.contains("mi-modal__overlay") && cerrar()
+      }
+    >
       <div
-        className="dfm-modal"
         ref={boxRef}
-        onMouseDown={(e) => e.stopPropagation()}
+        className="mi-modal__container dfm-mi__container"
         role="dialog"
         aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
       >
-        <div className="dfm-head">
-          <div>
-            <div className="dfm-title">Datos de facturación</div>
-            <div className="dfm-sub">
+        {/* HEADER */}
+        <div className="mi-modal__header">
+          <div className="mi-modal__head-left">
+            <h2 className="mi-modal__title">Datos de facturación</h2>
+            <p className="mi-modal__subtitle">
               Cliente: <b>{cliente?.nombre || "-"}</b>
-            </div>
+            </p>
           </div>
 
-          <button className="dfm-x" type="button" onClick={onClose} aria-label="Cerrar">
+          <button className="mi-modal__close" onClick={cerrar}>
             ✕
           </button>
         </div>
 
-        {loading ? (
-          <div className="dfm-loading">Cargando...</div>
-        ) : (
-          <div className="dfm-body">
-            <div className="dfm-grid">
-              <div className="dfm-field">
-                <label>Tipo doc</label>
-                <select value={form.doc_tipo} onChange={(e) => set("doc_tipo", Number(e.target.value))}>
-                  {DOC_TIPOS.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+        {/* BODY */}
+        <form className="mit-modal__body" onSubmit={guardar}>
+          <div className="mi-tabpanel">
+            {loading ? (
+              <div className="dfm-mi__loading">Cargando...</div>
+            ) : (
+              <div className="mi-grid">
+                <article className="mi-card mi-card--full">
+                  <h3 className="mi-card__title">Datos fiscales</h3>
 
-              <div className="dfm-field">
-                <label>Nro doc</label>
-                <input
-                  value={form.doc_nro}
-                  onChange={(e) => onDocNro(e.target.value)}
-                  inputMode="numeric"
-                  placeholder="Solo números"
-                />
-              </div>
+                  <div className="dfm-onegrid">
+                    <div className="fl-field">
+                      <select
+                        className="fl-input fl-select"
+                        value={form.doc_tipo}
+                        onChange={(e) =>
+                          set("doc_tipo", Number(e.target.value))
+                        }
+                        disabled={saving}
+                      >
+                        {DOC_TIPOS.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.label}
+                          </option>
+                        ))}
+                      </select>
+                      <label className="fl-label">Tipo doc</label>
+                    </div>
 
-              <div className="dfm-field dfm-span2">
-                <label>Razón social</label>
-                <input
-                  value={form.razon_social}
-                  onChange={(e) => set("razon_social", e.target.value)}
-                  placeholder="Ej: 3DEVS SOLUTIONS SRL"
-                />
-              </div>
+                    <div className="fl-field">
+                      <input
+                        className="fl-input"
+                        placeholder=" "
+                        value={form.doc_nro}
+                        onChange={(e) => onDocNro(e.target.value)}
+                        disabled={saving}
+                      />
+                      <label className="fl-label">Nro doc *</label>
+                    </div>
 
-              <div className="dfm-field dfm-span2">
-                <label>Domicilio</label>
-                <input
-                  value={form.domicilio}
-                  onChange={(e) => set("domicilio", e.target.value)}
-                  placeholder="Ej: Calle 123, Ciudad, Provincia"
-                />
-              </div>
+                    <div className="fl-field dfm-span2">
+                      <input
+                        className="fl-input"
+                        placeholder=" "
+                        value={form.razon_social}
+                        onChange={(e) =>
+                          set("razon_social", e.target.value.toUpperCase())
+                        }
+                        disabled={saving}
+                      />
+                      <label className="fl-label">Razón social *</label>
+                    </div>
 
-              <div className="dfm-field">
-                <label>Condición IVA</label>
-                <input
-                  value={form.cond_iva}
-                  onChange={(e) => set("cond_iva", e.target.value)}
-                  placeholder="IVA Sujeto Exento"
-                />
-              </div>
+                    <div className="fl-field dfm-span2">
+                      <input
+                        className="fl-input"
+                        placeholder=" "
+                        value={form.domicilio}
+                        onChange={(e) => set("domicilio", e.target.value)}
+                        disabled={saving}
+                      />
+                      <label className="fl-label">Domicilio</label>
+                    </div>
 
-              <div className="dfm-field">
-                <label>Condición de venta</label>
-                <input
-                  value={form.cond_venta}
-                  onChange={(e) => set("cond_venta", e.target.value)}
-                  placeholder="Contado / Transferencia Bancaria"
-                />
+                    <div className="fl-field">
+                      <input
+                        className="fl-input"
+                        placeholder=" "
+                        value={form.cond_iva}
+                        onChange={(e) => set("cond_iva", e.target.value)}
+                        disabled={saving}
+                      />
+                      <label className="fl-label">Condición IVA</label>
+                    </div>
+
+                    <div className="fl-field">
+                      <input
+                        className="fl-input"
+                        placeholder=" "
+                        value={form.cond_venta}
+                        onChange={(e) => set("cond_venta", e.target.value)}
+                        disabled={saving}
+                      />
+                      <label className="fl-label">Condición de venta</label>
+                    </div>
+                  </div>
+                </article>
               </div>
-            </div>
+            )}
           </div>
-        )}
 
-        <div className="dfm-foot">
-          <button className="dfm-btn dfm-btn-sec" type="button" onClick={onClose} disabled={saving}>
-            Cancelar
-          </button>
-          <button className="dfm-btn dfm-btn-main" type="button" onClick={guardar} disabled={saving || loading}>
-            {saving ? "Guardando..." : "Guardar"}
-          </button>
-        </div>
+          {/* FOOTER */}
+          <div className="mit-actions">
+            <div className="mit-help">* Campos obligatorios</div>
+
+            <button
+              type="button"
+              className="mit-btn mit-btn--ghost"
+              onClick={cerrar}
+              disabled={saving}
+            >
+              Cancelar
+            </button>
+
+            <button
+              type="submit"
+              className="mit-btn mit-btn--solid"
+              disabled={saving || loading}
+            >
+              {saving ? "Guardando..." : "Guardar"}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

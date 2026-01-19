@@ -1,110 +1,59 @@
-.dfm-overlay{
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 18px;
-  z-index: 9999;
+/* DatosFacturacionModal.css */
+
+/* Si querés forzar ancho un poco menor que el de trabajador */
+.dfm-mi__container{
+  width: min(860px, 92vw);
 }
 
-.dfm-modal{
-  width: min(780px, 96vw);
-  background: #0b1220;
-  border: 1px solid rgba(255,255,255,.10);
-  border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0,0,0,.55);
-  overflow: hidden;
+/* Loading dentro del tabpanel */
+.dfm-mi__loading{
+  padding: 14px 2px;
+  font-weight: 700;
+  color: var(--mi-muted, #475569);
 }
 
-.dfm-head{
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap: 12px;
-  padding: 16px 16px 12px;
-  border-bottom: 1px solid rgba(255,255,255,.08);
+/* Texto ayuda/hint */
+.dfm-mi__hint{
+  margin-top: 10px;
+  font-size: .82rem;
+  color: var(--mi-muted, #475569);
 }
 
-.dfm-title{
-  font-size: 18px;
-  font-weight: 800;
-  color: #eaf0ff;
+/* Nota */
+.dfm-mi__note{
+  font-size: .92rem;
+  color: var(--mi-muted, #475569);
+  background: rgba(46,92,191,.06);
+  border: 1px solid rgba(46,92,191,.16);
+  border-radius: 14px;
+  padding: 12px;
 }
 
-.dfm-sub{
-  margin-top: 4px;
-  font-size: 13px;
-  color: rgba(234,240,255,.75);
+/* En pantallas chicas: que el modal respire un poco más */
+@media (max-width: 520px){
+  .dfm-mi__container{
+    width: min(960px, 94vw);
+  }
 }
-
-.dfm-x{
-  border: 1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.06);
-  color: #fff;
-  border-radius: 10px;
-  padding: 8px 10px;
-  cursor: pointer;
-}
-
-.dfm-loading{
-  padding: 18px;
-  color: rgba(255,255,255,.85);
-}
-
-.dfm-body{
-  padding: 16px;
-}
-
-.dfm-grid{
-  display:grid;
+/* grid interno dentro de UNA sola card */
+.dfm-onegrid{
+  display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: 14px;
+  min-width: 0;
 }
 
-.dfm-span2{ grid-column: span 2; }
-
-.dfm-field label{
-  display:block;
-  font-size: 12px;
-  margin-bottom: 6px;
-  color: rgba(234,240,255,.75);
+/* los que ocupan todo el ancho */
+.dfm-span2{
+  grid-column: 1 / -1;
 }
 
-.dfm-field input,
-.dfm-field select{
-  width:100%;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,.12);
-  outline: none;
-  background: rgba(255,255,255,.06);
-  color: #fff;
-}
-
-.dfm-foot{
-  display:flex;
-  justify-content:flex-end;
-  gap: 10px;
-  padding: 14px 16px;
-  border-top: 1px solid rgba(255,255,255,.08);
-}
-
-.dfm-btn{
-  border-radius: 12px;
-  padding: 10px 14px;
-  cursor: pointer;
-  border: 1px solid rgba(255,255,255,.12);
-}
-
-.dfm-btn-sec{
-  background: rgba(255,255,255,.06);
-  color: #fff;
-}
-
-.dfm-btn-main{
-  background: #0b5ed7;
-  border-color: rgba(255,255,255,.0);
-  color: #fff;
+/* responsive: 1 columna */
+@media (max-width: 900px){
+  .dfm-onegrid{
+    grid-template-columns: 1fr;
+  }
+  .dfm-span2{
+    grid-column: auto;
+  }
 }
