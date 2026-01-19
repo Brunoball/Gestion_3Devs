@@ -12,8 +12,9 @@ const DOC_TIPOS = [
 
 const CBTE_TIPOS = [{ id: 11, label: "Factura C (11)" }];
 
-const FORCE_TEST_AMOUNT = true;
-const TEST_AMOUNT = 1000;
+// ✅ PRODUCCIÓN: no usar monto de prueba
+const FORCE_TEST_AMOUNT = false;
+const TEST_AMOUNT = null;
 
 const DEFAULT_PTO_VTA = 2;
 
@@ -25,6 +26,62 @@ function moneyARS(v) {
   } catch {
     return `$${n.toFixed(2)}`;
   }
+}
+
+// yyyy-mm-dd -> yyyymmdd
+function dateToYMD8(iso) {
+  const s = String(iso || "").trim();
+  if (!s) return "";
+  if (/^\d{8}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s.replaceAll("-", "");
+  return "";
+}
+
+function todayISO() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function monthFirstLastISO(anio, mesText) {
+  const y = Number(anio);
+  if (!Number.isFinite(y) || y <= 0) {
+    const t = todayISO();
+    return { desde: t, hasta: t };
+  }
+
+  const map = {
+    enero: 1,
+    febrero: 2,
+    marzo: 3,
+    abril: 4,
+    mayo: 5,
+    junio: 6,
+    julio: 7,
+    agosto: 8,
+    septiembre: 9,
+    setiembre: 9,
+    octubre: 10,
+    noviembre: 11,
+    diciembre: 12,
+  };
+
+  const mm = map[String(mesText || "").toLowerCase().trim()];
+  if (!mm) {
+    const t = todayISO();
+    return { desde: t, hasta: t };
+  }
+
+  const last = new Date(y, mm, 0);
+
+  const fISO = `${y}-${String(mm).padStart(2, "0")}-01`;
+  const lISO = `${y}-${String(mm).padStart(2, "0")}-${String(
+    last.getDate()
+  ).padStart(2, "0")}`;
+
+  return { desde: fISO, hasta: lISO };
 }
 
 export default function ModalFacturaArca({
@@ -49,10 +106,21 @@ export default function ModalFacturaArca({
   const [clienteFact, setClienteFact] = useState(null);
   const [loadingCliente, setLoadingCliente] = useState(false);
 
+  // ✅ fechas período
+  const [periodoDesde, setPeriodoDesde] = useState("");
+  const [periodoHasta, setPeriodoHasta] = useState("");
+  const [vtoPago, setVtoPago] = useState("");
+
   const firstRef = useRef(null);
 
+  // ✅ refs para abrir calendario al click en cualquier parte
+  const refDesde = useRef(null);
+  const refHasta = useRef(null);
+  const refVto = useRef(null);
+
   const titulo = useMemo(
-    () => `${data?.labelCliente || "Cliente"} • ${data?.labelSistema || "Sistema"}`,
+    () =>
+      `${data?.labelCliente || "Cliente"} • ${data?.labelSistema || "Sistema"}`,
     [data]
   );
 
@@ -60,8 +128,33 @@ export default function ModalFacturaArca({
   const nombreCliente = data?.labelCliente || data?.cliente || "—";
   const nombreSistema = data?.labelSistema || data?.sistema || "—";
 
-  const montoReal = Number(data?.monto ?? data?.importe ?? 0);
-  const monto = FORCE_TEST_AMOUNT ? Number(TEST_AMOUNT) : montoReal;
+  // ✅ monto REAL (sin modo prueba)
+  const monto = useMemo(() => {
+    const raw = data?.monto ?? data?.importe ?? 0;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  }, [data]);
+
+  // ✅ helper: intentar abrir el date picker nativo
+  const openNativePicker = (inputEl) => {
+    if (!inputEl) return;
+    // Muchos navegadores abren al focus+click; showPicker() está en Chrome/Edge modernos
+    try {
+      if (typeof inputEl.showPicker === "function") {
+        inputEl.showPicker();
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    inputEl.focus();
+    // click adicional ayuda en algunos casos
+    try {
+      inputEl.click();
+    } catch {
+      // ignore
+    }
+  };
 
   // ✅ fetch helper local robusto
   const fetchJSON = useCallback(async (url, opts) => {
@@ -109,11 +202,16 @@ export default function ModalFacturaArca({
     setDocNro("");
     setClienteFact(null);
 
+    // ✅ default de fechas: mes seleccionado (data.anio + data.mes), si existe
+    const { desde, hasta } = monthFirstLastISO(data?.anio, data?.mes);
+    setPeriodoDesde(desde);
+    setPeriodoHasta(hasta);
+    setVtoPago(hasta);
+
     // ✅ SI VIENE desde Pagos.jsx, lo usamos y NO pedimos al backend
     const cfFromParent = data?.cliente_facturacion;
 
     if (cfFromParent !== undefined) {
-      // ojo: puede ser null (no hay datos cargados) o un objeto
       setClienteFact(cfFromParent || null);
 
       if (cfFromParent?.doc_tipo) setDocTipo(Number(cfFromParent.doc_tipo));
@@ -137,10 +235,12 @@ export default function ModalFacturaArca({
         const url = `${apiBase}?action=${action}&op=cliente_facturacion`;
         const resp = await fetchJSON(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
           body: JSON.stringify({
             id_pago: Number(id_pago_real),
-            // por compatibilidad (si tu backend lo pide en algún momento)
             anio: Number(data?.anio || 0),
             mes: String(data?.mes || ""),
           }),
@@ -172,7 +272,11 @@ export default function ModalFacturaArca({
     const id_pago = data?.id_pago;
 
     if (!id_pago) return { ok: false, msg: "Falta id_pago." };
-    if (!doc) return { ok: false, msg: "Ingresá el número de documento (solo números)." };
+    if (!doc)
+      return {
+        ok: false,
+        msg: "Ingresá el número de documento (solo números).",
+      };
 
     if (Number(docTipo) === 96) {
       if (!(doc.length === 7 || doc.length === 8)) {
@@ -188,11 +292,44 @@ export default function ModalFacturaArca({
     const docN = Number(doc);
     const pvN = Number(DEFAULT_PTO_VTA);
 
-    if (!Number.isFinite(docN) || docN <= 0) return { ok: false, msg: "Documento inválido." };
-    if (!Number.isFinite(pvN) || pvN <= 0) return { ok: false, msg: "Punto de venta inválido." };
+    if (!Number.isFinite(docN) || docN <= 0)
+      return { ok: false, msg: "Documento inválido." };
+    if (!Number.isFinite(pvN) || pvN <= 0)
+      return { ok: false, msg: "Punto de venta inválido." };
 
-    return { ok: true, id_pago, docN, pvN };
-  }, [data, docNro, docTipo]);
+    // ✅ validar monto real > 0 (para evitar facturas en 0)
+    if (!Number.isFinite(monto) || monto <= 0) {
+      return {
+        ok: false,
+        msg: "El monto del pago es inválido o está en 0. Verificá el registro del pago.",
+      };
+    }
+
+    // ✅ validar fechas
+    const d = dateToYMD8(periodoDesde);
+    const h = dateToYMD8(periodoHasta);
+    const v = dateToYMD8(vtoPago);
+
+    if (!d) return { ok: false, msg: "Elegí Período Desde (fecha válida)." };
+    if (!h) return { ok: false, msg: "Elegí Período Hasta (fecha válida)." };
+    if (!v)
+      return { ok: false, msg: "Elegí Vto. para el pago (fecha válida)." };
+    if (h < d)
+      return {
+        ok: false,
+        msg: "Período Hasta no puede ser menor que Desde.",
+      };
+
+    return {
+      ok: true,
+      id_pago,
+      docN,
+      pvN,
+      periodo_desde: d,
+      periodo_hasta: h,
+      vto_pago: v,
+    };
+  }, [data, docNro, docTipo, periodoDesde, periodoHasta, vtoPago, monto]);
 
   const irAResumen = () => {
     setError("");
@@ -209,7 +346,9 @@ export default function ModalFacturaArca({
     <>
       <div
         className="mi-modal__overlay"
-        onClick={(e) => e.target.classList.contains("mi-modal__overlay") && cerrar()}
+        onClick={(e) =>
+          e.target.classList.contains("mi-modal__overlay") && cerrar()
+        }
       >
         <div
           className="mi-modal__container"
@@ -225,8 +364,21 @@ export default function ModalFacturaArca({
               </p>
             </div>
 
-            <button className="mi-modal__close" onClick={cerrar} aria-label="Cerrar" type="button">
-              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <button
+              className="mi-modal__close"
+              onClick={cerrar}
+              aria-label="Cerrar"
+              type="button"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
@@ -262,14 +414,7 @@ export default function ModalFacturaArca({
                     </div>
                     <div className="arca-kv__row">
                       <span className="arca-kv__k">Monto</span>
-                      <span className="arca-kv__v">
-                        {moneyARS(monto)}{" "}
-                        {FORCE_TEST_AMOUNT ? (
-                          <span className="arca-mini" style={{ marginLeft: 8 }}>
-                            (modo prueba)
-                          </span>
-                        ) : null}
-                      </span>
+                      <span className="arca-kv__v">{moneyARS(monto)}</span>
                     </div>
                     <div className="arca-kv__row">
                       <span className="arca-kv__k">Punto de venta</span>
@@ -331,14 +476,20 @@ export default function ModalFacturaArca({
                     </div>
 
                     <div className="fl-field fl-col-full">
-                      <input className="fl-input" value={DEFAULT_PTO_VTA} disabled readOnly />
+                      <input
+                        className="fl-input"
+                        value={DEFAULT_PTO_VTA}
+                        disabled
+                        readOnly
+                      />
                       <label className="fl-label">Punto de venta *</label>
                     </div>
                   </div>
 
                   {clienteFact ? (
                     <div className="arca-mini" style={{ marginTop: 10 }}>
-                      <b>DB:</b> {clienteFact.razon_social || "—"} • {clienteFact.cond_iva || "—"}
+                      {clienteFact.razon_social || "—"} •{" "}
+                      {clienteFact.cond_iva || "—"}
                     </div>
                   ) : (
                     <div className="arca-mini" style={{ marginTop: 10 }}>
@@ -347,17 +498,122 @@ export default function ModalFacturaArca({
                   )}
                 </article>
 
+                {/* ✅ período: clic en cualquier parte abre calendario */}
                 <article className="mi-card mi-card--full">
-                  <h3 className="mi-card__title">Acción</h3>
-                  <div className="arca-help">
-                    Continuar → confirmás → emitir → PDF profesional (ORIGINAL/DUPLICADO/TRIPLICADO)
+                  <h3 className="mi-card__title">Período / Vencimiento</h3>
+
+                  <div className="fl-grid">
+                    <div
+                      className="fl-field"
+                      onMouseDown={(e) => {
+                        // evita seleccionar texto y asegura apertura rápida
+                        e.preventDefault();
+                        openNativePicker(refDesde.current);
+                      }}
+                      onClick={() => openNativePicker(refDesde.current)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openNativePicker(refDesde.current);
+                        }
+                      }}
+                    >
+                      <input
+                        ref={refDesde}
+                        className="fl-input"
+                        type="date"
+                        value={periodoDesde}
+                        onChange={(e) => {
+                          setPeriodoDesde(e.target.value);
+                          setError("");
+                        }}
+                        onClick={(e) => {
+                          // si hicieron click directo en el input también abre
+                          e.stopPropagation();
+                          openNativePicker(e.currentTarget);
+                        }}
+                      />
+                      <label className="fl-label">Período desde *</label>
+                    </div>
+
+                    <div
+                      className="fl-field"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        openNativePicker(refHasta.current);
+                      }}
+                      onClick={() => openNativePicker(refHasta.current)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openNativePicker(refHasta.current);
+                        }
+                      }}
+                    >
+                      <input
+                        ref={refHasta}
+                        className="fl-input"
+                        type="date"
+                        value={periodoHasta}
+                        onChange={(e) => {
+                          setPeriodoHasta(e.target.value);
+                          setError("");
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openNativePicker(e.currentTarget);
+                        }}
+                      />
+                      <label className="fl-label">Período hasta *</label>
+                    </div>
+
+                    <div
+                      className="fl-field"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        openNativePicker(refVto.current);
+                      }}
+                      onClick={() => openNativePicker(refVto.current)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openNativePicker(refVto.current);
+                        }
+                      }}
+                    >
+                      <input
+                        ref={refVto}
+                        className="fl-input"
+                        type="date"
+                        value={vtoPago}
+                        onChange={(e) => {
+                          setVtoPago(e.target.value);
+                          setError("");
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openNativePicker(e.currentTarget);
+                        }}
+                      />
+                      <label className="fl-label">Vto. para el pago *</label>
+                    </div>
                   </div>
                 </article>
               </div>
             </div>
 
             <div className="mit-actions">
-              <button type="button" className="mit-btn mit-btn--ghost" onClick={cerrar}>
+              <button
+                type="button"
+                className="mit-btn mit-btn--ghost"
+                onClick={cerrar}
+              >
                 Cancelar
               </button>
 
@@ -384,6 +640,16 @@ export default function ModalFacturaArca({
         data={{
           ...data,
           cliente_facturacion: clienteFact,
+
+          // ✅ viaja al PDF y al backend (YYYYMMDD)
+          periodo_desde: dateToYMD8(periodoDesde),
+          periodo_hasta: dateToYMD8(periodoHasta),
+          vto_pago: dateToYMD8(vtoPago),
+
+          // opcional: conservar iso
+          periodo_desde_iso: periodoDesde,
+          periodo_hasta_iso: periodoHasta,
+          vto_pago_iso: vtoPago,
         }}
         docTipo={docTipo}
         docNro={docNro}

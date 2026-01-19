@@ -12,6 +12,7 @@ import defaultLogoSrc from "../../../imagenes/logo_factura.jpeg";
  * - PV fijo 0002
  * - Ajustes: caja derecha con más aire, IIBB = CUIT, logo un poco más grande
  * - ✅ FIX: Razón Social del receptor PRIORIZA DB (cliente_facturacion.razon_social)
+ * - ✅ NUEVO: Período + VtoPago desde data (lo que elijas en el modal)
  */
 
 // =====================
@@ -205,13 +206,12 @@ function getMeta(fact) {
 }
 
 function getEmisor() {
-  // ✅ IIBB = mismo número que CUIT
   return {
     razon: FIX.emisor_nombre,
     domComercial: FIX.emisor_domicilio,
     cuit: FIX.cuit_emisor,
     condIva: FIX.cond_iva_emisor,
-    iibb: FIX.cuit_emisor,
+    iibb: FIX.cuit_emisor, // ✅ IIBB = CUIT
     inicioAct: FIX.inicio_actividades,
   };
 }
@@ -220,7 +220,6 @@ function getEmisor() {
  * ✅ FIX IMPORTANTE:
  * Prioriza datos de DB en:
  *   data.cliente_facturacion = { doc_tipo, doc_nro, razon_social, domicilio, cond_iva, cond_venta }
- * y NO deja que fact.receptor_nombre (ej "IPET 50") pise la razón social real.
  */
 function getReceptor(fact, data) {
   const cf = data?.cliente_facturacion || null;
@@ -228,10 +227,8 @@ function getReceptor(fact, data) {
   const docTipo = Number(fact?.doc_tipo ?? cf?.doc_tipo ?? data?.doc_tipo ?? 0) || 0;
   const docNro = s(fact?.doc_nro ?? cf?.doc_nro ?? data?.doc_nro ?? "").replace(/\D/g, "");
 
-  // En el PDF el campo dice "CUIT:", pero si cargaste DNI lo mostramos igual
   const nroParaCaja = docNro || s(fact?.receptor_cuit || data?.receptor_cuit || "");
 
-  // ✅ ACÁ está el arreglo: DB primero
   const razonDB = s(cf?.razon_social || "").trim();
 
   return {
@@ -262,13 +259,50 @@ function getReceptor(fact, data) {
   };
 }
 
+/**
+ * ✅ NUEVO (tolerante):
+ * - Prioriza lo que elegiste en el modal: data.periodo_desde / data.periodo_hasta / data.vto_pago
+ * - Si no, cae a campos del backend: fact.FchServDesde/Hasta/VtoPago (si algún día los mandás de vuelta)
+ */
 function getPeriodo(fact, data) {
-  const desde = ymdToHuman(fact?.periodo_desde || data?.periodo_desde || "");
-  const hasta = ymdToHuman(fact?.periodo_hasta || data?.periodo_hasta || "");
-  const vtoPago = ymdToHuman(
-    fact?.vto_pago || data?.vto_pago || fact?.fecha_vto_pago || ""
+  const pick = (...vals) => {
+    for (const v of vals) {
+      const t = s(v).trim();
+      if (t) return t;
+    }
+    return "";
+  };
+
+  const desdeRaw = pick(
+    data?.periodo_desde,
+    data?.periodo_desde_iso,
+    fact?.periodo_desde,
+    fact?.FchServDesde,
+    fact?.fch_serv_desde
   );
-  return { desde, hasta, vtoPago };
+
+  const hastaRaw = pick(
+    data?.periodo_hasta,
+    data?.periodo_hasta_iso,
+    fact?.periodo_hasta,
+    fact?.FchServHasta,
+    fact?.fch_serv_hasta
+  );
+
+  const vtoRaw = pick(
+    data?.vto_pago,
+    data?.vto_pago_iso,
+    fact?.vto_pago,
+    fact?.FchVtoPago,
+    fact?.fch_vto_pago,
+    fact?.fecha_vto_pago
+  );
+
+  return {
+    desde: ymdToHuman(desdeRaw),
+    hasta: ymdToHuman(hastaRaw),
+    vtoPago: ymdToHuman(vtoRaw),
+  };
 }
 
 // =====================
@@ -433,9 +467,7 @@ async function drawPage(doc, pageName, ctx) {
     try {
       const isJpeg = String(logoDataUrl).startsWith("data:image/jpeg");
       doc.addImage(logoDataUrl, isJpeg ? "JPEG" : "PNG", leftX, logoY, logoW, logoH);
-    } catch {
-      // si falla, no dibujamos nada
-    }
+    } catch {}
   }
 
   // Emisor fijo

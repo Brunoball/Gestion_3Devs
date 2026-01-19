@@ -264,8 +264,6 @@ export default function DatosFacturacionModal({
 
           {/* FOOTER */}
           <div className="mit-actions">
-            <div className="mit-help">* Campos obligatorios</div>
-
             <button
               type="button"
               className="mit-btn mit-btn--ghost"

@@ -5,18 +5,6 @@ declare(strict_types=1);
 require_once __DIR__ . '/arca_wsaa.php';
 require_once __DIR__ . '/arca_wsfe.php';
 
-/**
- * POST /api.php?action=pagos&op=factura_arca
- * Body JSON:
- * {
- *   "id_pago": 123,
- *   "doc_tipo": 80|96,
- *   "doc_nro": 2030...,
- *   "cbte_tipo": 11,
- *   "pto_vta": 1
- * }
- */
-
 function pagos_factura_arca(): void
 {
   global $pdo;
@@ -30,14 +18,34 @@ function pagos_factura_arca(): void
   $cbte_tipo = isset($in['cbte_tipo']) && is_numeric($in['cbte_tipo']) ? (int)$in['cbte_tipo'] : 0;
   $pto_vta   = isset($in['pto_vta']) && is_numeric($in['pto_vta']) ? (int)$in['pto_vta'] : 0;
 
+  // ✅ NUEVO: fechas período desde el modal (YYYYMMDD)
+  $periodo_desde = isset($in['periodo_desde']) ? preg_replace('/\D+/', '', (string)$in['periodo_desde']) : '';
+  $periodo_hasta = isset($in['periodo_hasta']) ? preg_replace('/\D+/', '', (string)$in['periodo_hasta']) : '';
+  $vto_pago      = isset($in['vto_pago'])      ? preg_replace('/\D+/', '', (string)$in['vto_pago'])      : '';
+
   if ($id_pago <= 0) json_error("Falta id_pago");
   if (!in_array($doc_tipo, [80, 96], true)) json_error("doc_tipo inválido (80=CUIT, 96=DNI)");
   if ($doc_nro <= 0) json_error("doc_nro inválido");
   if ($pto_vta <= 0) json_error("pto_vta inválido (obligatorio)");
 
-  // Por ahora dejamos “perfecto” para Factura C (11)
+  // Por ahora fijo a Factura C
   if ($cbte_tipo !== 11) {
     json_error("Por ahora, este endpoint está configurado para FACTURA C (11).");
+  }
+
+  // ✅ Validación simple de fechas si vienen
+  // (No las hago obligatorias para no romper nada; pero si vienen, deben ser válidas)
+  $isYmd8 = static function (string $s): bool {
+    return (bool)preg_match('/^\d{8}$/', $s);
+  };
+
+  if ($periodo_desde !== '' && !$isYmd8($periodo_desde)) json_error("periodo_desde inválido (debe ser YYYYMMDD)");
+  if ($periodo_hasta !== '' && !$isYmd8($periodo_hasta)) json_error("periodo_hasta inválido (debe ser YYYYMMDD)");
+  if ($vto_pago      !== '' && !$isYmd8($vto_pago))      json_error("vto_pago inválido (debe ser YYYYMMDD)");
+
+  // si vienen desde/hasta, validar orden
+  if ($isYmd8($periodo_desde) && $isYmd8($periodo_hasta) && $periodo_hasta < $periodo_desde) {
+    json_error("Período inválido: periodo_hasta no puede ser menor que periodo_desde");
   }
 
   // 1) Buscar el pago
@@ -64,7 +72,8 @@ function pagos_factura_arca(): void
   // 2) Config ARCA
   $cfg = require __DIR__ . '/arca_config.php';
 
-  $mode = $cfg['mode'] ?? 'homo';
+  $mode = (string)($cfg['mode'] ?? 'homo');
+  $mode = strtolower(trim($mode));
   if (!in_array($mode, ['homo', 'prod'], true)) $mode = 'homo';
 
   $cuit = (int)($cfg['cuit'] ?? 0);
@@ -75,26 +84,68 @@ function pagos_factura_arca(): void
   $keyPass  = (string)($cfg['key_pass'] ?? '');
   $wsn      = (string)($cfg['wsn'] ?? 'wsfe');
 
-  $wsaaWsdl = (string)($cfg['wsaa'][$mode] ?? '');
-  $wsfeWsdl = (string)($cfg['wsfe'][$mode] ?? '');
-  if ($wsaaWsdl === '' || $wsfeWsdl === '') json_error("Config ARCA inválida: endpoints wsaa/wsfe faltan");
-
+  // defaults
   $concepto = (int)($cfg['defaults']['concepto'] ?? 2);
   $moneda   = (string)($cfg['defaults']['moneda'] ?? 'PES');
   $cotiz    = (float)($cfg['defaults']['cotiz'] ?? 1.0);
 
-  $sslVerify = (bool)($cfg['ssl_verify'] ?? true);
+  // SSL / CA / logs
+  $caFile    = (string)($cfg['ca_file'] ?? '');
+  $fallback  = (bool)($cfg['ssl_fallback_if_fail'] ?? false);
+  $debugLog  = (bool)($cfg['debug_log'] ?? false);
+
+  // verify flags (opcionales en tu config)
+  $sslVerifyWsaa = (bool)($cfg['wsaa_ssl_verify'] ?? true);
+  $sslVerifyWsfe = (bool)($cfg['wsfe_ssl_verify'] ?? true);
+
+  // ✅ WSAA remoto
+  $wsaaWsdl = (string)($cfg['wsaa'][$mode] ?? '');
+
+  // ✅ WSFE: WSDL local + endpoint remoto
+  $wsfeWsdl     = (string)($cfg['wsfe'][$mode . '_wsdl'] ?? '');
+  $wsfeEndpoint = (string)($cfg['wsfe'][$mode . '_endpoint'] ?? '');
+
+  // Validaciones mínimas de archivos/paths
+  if ($wsaaWsdl === '' || $wsfeWsdl === '' || $wsfeEndpoint === '') {
+    json_error("Config ARCA inválida: endpoints wsaa/wsfe faltan (mode=$mode)");
+  }
+  if (!file_exists($certPath)) json_error("No existe cert_path: $certPath");
+  if (!file_exists($keyPath))  json_error("No existe key_path: $keyPath");
+  if (!file_exists($wsfeWsdl)) json_error("No existe WSFE WSDL local: $wsfeWsdl");
+
+  // ✅ LOG útil (solo si debug)
+  if ($debugLog) {
+    error_log("[ARCA] mode=$mode cuit=$cuit pto_vta=$pto_vta cbte_tipo=$cbte_tipo doc_tipo=$doc_tipo doc_nro=$doc_nro imp=$importe");
+    error_log("[ARCA] WSAA wsdl=$wsaaWsdl (sslVerify=" . ($sslVerifyWsaa ? '1' : '0') . ")");
+    error_log("[ARCA] WSFE wsdl(local)=$wsfeWsdl endpoint=$wsfeEndpoint (sslVerify=" . ($sslVerifyWsfe ? '1' : '0') . ")");
+    if ($caFile !== '') error_log("[ARCA] CA file=$caFile");
+
+    // ✅ log de fechas del modal (si vienen)
+    if ($periodo_desde || $periodo_hasta || $vto_pago) {
+      error_log("[ARCA] fechas modal: desde=$periodo_desde hasta=$periodo_hasta vto_pago=$vto_pago");
+    }
+  }
 
   // 3) WSAA login (token+sign)
   try {
-    $ta = ArcaWsaa::login($wsaaWsdl, $wsn, $certPath, $keyPath, $keyPass, $sslVerify);
+    $ta = ArcaWsaa::login(
+      $wsaaWsdl,
+      $wsn,
+      $certPath,
+      $keyPath,
+      $keyPass,
+      $sslVerifyWsaa,
+      $caFile,
+      $fallback,
+      $debugLog
+    );
   } catch (Throwable $e) {
-    json_error("ARCA WSAA: no pude obtener Ticket de Acceso", ['error' => $e->getMessage()]);
+    json_error("ARCA WSAA: no pude obtener Ticket de Acceso. Detalle: " . $e->getMessage());
   }
 
   // 4) WSFE emitir CAE
   try {
-    $wsfe = new ArcaWsfe($wsfeWsdl, $sslVerify);
+    $wsfe = new ArcaWsfe($wsfeWsdl, $wsfeEndpoint, $sslVerifyWsfe, $caFile, $debugLog);
 
     $auth = [
       'Token' => $ta['token'],
@@ -102,18 +153,17 @@ function pagos_factura_arca(): void
       'Cuit'  => $cuit,
     ];
 
-    // Último comprobante autorizado para numerar
+    // último comprobante
     $ult = $wsfe->FECompUltimoAutorizado($auth, $pto_vta, $cbte_tipo);
     $lastNro = (int)($ult['CbteNro'] ?? 0);
     $cbte_nro = $lastNro + 1;
 
-    // Fecha comprobante (AAAAMMDD)
+    // fecha comprobante
     $fecha = (string)($p['fecha_pago'] ?? date('Y-m-d'));
     $fecha = substr($fecha, 0, 10);
     $dt = DateTime::createFromFormat('Y-m-d', $fecha) ?: new DateTime();
     $fecha_cbte = $dt->format('Ymd');
 
-    // Factura C sin IVA detallado:
     $impTotal = round($importe, 2);
     $impNeto  = $impTotal;
 
@@ -136,38 +186,45 @@ function pagos_factura_arca(): void
       'MonCotiz'    => $cotiz,
     ];
 
-    // ✅ CLAVE: si Concepto=2 (Servicios) o 3, ARCA suele requerir estas fechas
+    // ✅ Servicios (concepto 2 o 3): usar fechas del MODAL si vienen, sino fallback a fecha_cbte
     if (in_array($concepto, [2, 3], true)) {
-      $det['FchServDesde'] = $fecha_cbte;
-      $det['FchServHasta'] = $fecha_cbte;
-      $det['FchVtoPago']   = $fecha_cbte;
+      $fDesde = $isYmd8($periodo_desde) ? $periodo_desde : $fecha_cbte;
+      $fHasta = $isYmd8($periodo_hasta) ? $periodo_hasta : $fecha_cbte;
+      $fVto   = $isYmd8($vto_pago)      ? $vto_pago      : $fecha_cbte;
+
+      // Seguridad extra: si por alguna razón quedaron invertidas, corregimos a fecha_cbte
+      if ($fHasta < $fDesde) {
+        $fDesde = $fecha_cbte;
+        $fHasta = $fecha_cbte;
+      }
+
+      $det['FchServDesde'] = $fDesde;
+      $det['FchServHasta'] = $fHasta;
+      $det['FchVtoPago']   = $fVto;
     }
 
     $feCAEReq = [
       'FeCabReq' => [
-        'CantReg' => 1,
-        'PtoVta'  => $pto_vta,
-        'CbteTipo'=> $cbte_tipo,
+        'CantReg'  => 1,
+        'PtoVta'   => $pto_vta,
+        'CbteTipo' => $cbte_tipo,
       ],
       'FeDetReq' => [
-        'FECAEDetRequest' => [ $det ],
+        'FECAEDetRequest' => [$det],
       ],
     ];
 
     $res = $wsfe->FECAESolicitar($auth, $feCAEReq);
 
-    $cab = $res['FeCabResp'] ?? [];
     $detWrap = $res['FeDetResp'] ?? [];
     $detResp = $detWrap['FECAEDetResponse'][0] ?? $detWrap['FECAEDetResponse'] ?? null;
-
-    if (!$detResp) {
-      json_error("WSFE: respuesta sin detalle (FECAEDetResponse)");
-    }
+    if (!$detResp) json_error("WSFE: respuesta sin detalle (FECAEDetResponse)");
 
     $resultado = (string)($detResp['Resultado'] ?? '');
     if ($resultado !== 'A') {
       $obs = $detResp['Observaciones'] ?? null;
       $msgObs = '';
+
       if ($obs) {
         $o = json_decode(json_encode($obs), true);
         $items = $o['Obs'] ?? $o ?? [];
@@ -179,19 +236,14 @@ function pagos_factura_arca(): void
         $msgObs = implode(' | ', array_filter($tmp));
       }
 
-      json_error("ARCA rechazó el comprobante (Resultado=$resultado) $msgObs", [
-        'wsfe' => ['cab' => $cab, 'det' => $detResp],
-      ]);
+      json_error("ARCA rechazó el comprobante (Resultado=$resultado) $msgObs");
     }
 
     $cae = (string)($detResp['CAE'] ?? '');
     $cae_vto = (string)($detResp['CAEFchVto'] ?? '');
+    if ($cae === '' || $cae_vto === '') json_error("WSFE: CAE o Vto CAE vacío");
 
-    if ($cae === '' || $cae_vto === '') {
-      json_error("WSFE: CAE o Vto CAE vacío", ['wsfe' => ['det' => $detResp]]);
-    }
-
-    // 5) QR oficial
+    // QR AFIP/ARCA
     $qrPayload = [
       'ver' => 1,
       'fecha' => $dt->format('Y-m-d'),
@@ -217,33 +269,31 @@ function pagos_factura_arca(): void
       'factura' => [
         'modo' => $mode,
         'cuit_emisor' => $cuit,
-
         'pto_vta' => $pto_vta,
         'cbte_tipo' => $cbte_tipo,
         'cbte_nro' => $cbte_nro,
         'fecha_cbte' => $fecha_cbte,
-
         'cae' => $cae,
         'cae_vto' => $cae_vto,
-
         'doc_tipo' => $doc_tipo,
         'doc_nro' => $doc_nro,
-
         'importe' => $impTotal,
         'moneda' => $moneda,
         'cotiz' => $cotiz,
-
         'qr_url' => $qrUrl,
-
         'id_pago' => $id_pago,
         'id_sistema' => (int)$p['id_sistema'],
         'cliente' => (string)($p['cliente'] ?? ''),
         'sistema' => (string)($p['sistema'] ?? ''),
         'sistema_desc' => (string)($p['sistema_desc'] ?? ''),
+
+        // ✅ DEVUELVO TAMBIÉN EL PERÍODO QUE SE USÓ (útil para PDF)
+        'periodo_desde' => $isYmd8($periodo_desde) ? $periodo_desde : '',
+        'periodo_hasta' => $isYmd8($periodo_hasta) ? $periodo_hasta : '',
+        'vto_pago'      => $isYmd8($vto_pago)      ? $vto_pago      : '',
       ],
     ]);
-
   } catch (Throwable $e) {
-    json_error("ARCA WSFE: no pude emitir CAE", ['error' => $e->getMessage()]);
+    json_error("ARCA WSFE: no pude emitir CAE. Detalle: " . $e->getMessage());
   }
 }
