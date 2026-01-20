@@ -541,15 +541,15 @@ async function drawPage(doc, pageName, ctx) {
   set(doc, "helvetica", "bold", 10);
   text(doc, "Período Facturado Desde:", B + 10, periodY + 20);
   set(doc, "helvetica", "normal", 10);
-  text(doc, per.desde, B + 165, periodY + 20);
+  text(doc, per.desde, B + 145, periodY + 20);
 
   set(doc, "helvetica", "bold", 10);
-  text(doc, "Hasta:", B + 260, periodY + 20);
+  text(doc, "Hasta:", B + 240, periodY + 20);
   set(doc, "helvetica", "normal", 10);
-  text(doc, per.hasta, B + 305, periodY + 20);
+  text(doc, per.hasta, B + 275, periodY + 20);
 
   set(doc, "helvetica", "bold", 10);
-  text(doc, "Fecha de Vto. para el pago:", B + 375, periodY + 20);
+  text(doc, "Fecha de Vto. para el pago:", B + 355, periodY + 20);
   set(doc, "helvetica", "normal", 10);
   text(doc, per.vtoPago, B + 545, periodY + 20, { align: "right" });
 
