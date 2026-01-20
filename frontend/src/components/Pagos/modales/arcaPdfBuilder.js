@@ -533,33 +533,33 @@ async function drawPage(doc, pageName, ctx) {
   text(doc, rc.cuit, recLx + 38, recY + 18);
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Condición frente al IVA:", recLx, recY + 38);
+  text(doc, "Condición frente al IVA:", recLx, recY + 46);
   set(doc, "helvetica", "normal", 9);
-  text(doc, clampToWidth(doc, rc.condIva, 190), recLx + 140, recY + 38);
+  text(doc, clampToWidth(doc, rc.condIva, 190), recLx + 110, recY + 46);
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Condición de venta:", recLx, recY + 58);
+  text(doc, "Condición de venta:", recLx, recY + 62);
   set(doc, "helvetica", "normal", 9);
-  text(doc, clampToWidth(doc, rc.condVenta, 220), recLx + 110, recY + 58);
+  text(doc, clampToWidth(doc, rc.condVenta, 220), recLx + 90, recY + 62);
 
   const recRx = B + innerW * 0.46;
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Apellido y Nombre / Razón Social:", recRx, recY + 18);
+  text(doc, "Apellido y Nombre / Razón Social:", 150, recY + 18);
 
   set(doc, "helvetica", "normal", 9);
   const razonLines = wrapByWidth(doc, rc.razon, innerW - (recRx - B) - 12);
-  text(doc, razonLines[0] || "", recRx + 185, recY + 18);
+  text(doc, razonLines[0] || "", recRx + 30, recY + 18);
   if (razonLines[1]) text(doc, razonLines[1], recRx + 185, recY + 30);
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Domicilio:", recRx + 95, recY + 46);
+  text(doc, "Domicilio:", recRx + 0, recY + 46);
   set(doc, "helvetica", "normal", 9);
-  text(doc, clampToWidth(doc, rc.dom, innerW - (recRx - B) - 12), recRx + 155, recY + 46);
+  text(doc, clampToWidth(doc, rc.dom, innerW - (recRx - B) - 12), recRx + 45, recY + 46);
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Remito:", recRx + 95, recY + 62);
+  text(doc, "Remito:", recRx + 0, recY + 62);
   set(doc, "helvetica", "normal", 9);
-  text(doc, meta.remito, recRx + 140, recY + 62);
+  text(doc, meta.remito, recRx + 45, recY + 62);
 
   // ===== Bottom anclado
   const layout = { W, H, B, innerW };
