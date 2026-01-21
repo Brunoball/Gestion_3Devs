@@ -4,23 +4,35 @@ declare(strict_types=1);
 
 /**
  * Requiere: $pdo (PDO) desde backend/config/db.php
+ *
  * Tablas usadas:
- * - pagos (id_pago, id_sistema, id_mes, id_medio_pago, monto, fecha_pago, created_at)
+ * - pagos (id_pago, id_sistema, id_mes, id_medio_pago, monto, fecha_pago, created_at, comprobante?)
  * - meses (id_mes, mes)
  * - medios_pago (id_medio_pago, nombre, activo)
  * - clientes_sistemas (id_sistema, id_cliente, nombre, descripcion, estado, fecha_inicio, created_at)
  * - clientes (id_cliente, nombre, notas, activo)
- * - sistemas_trabajadores (id_sistema, id_trabajador, rol_en_sistema, fecha_asignacion)
- * - trabajadores (id, nombre, apellido, email, rol, alias_pago, activo, fecha_alta)
+ *
+ * ✅ Facturación:
+ * - clientes_facturacion (id_cliente, doc_tipo, doc_nro, razon_social, domicilio, id_condicion_iva, cond_venta, created_at)
+ * - iva_condiciones (id_condicion_iva, descripcion, ...)
+ *
+ * ✅ ARCA:
+ * - incluye arca_factura.php (pagos_factura_arca)
  *
  * ✅ NUEVO:
- * - clientes_facturacion (id_cliente, doc_tipo, doc_nro, razon_social, domicilio, cond_iva, cond_venta, created_at)
+ * - gestion_3devs.planes_mantenimiento (id, nombre, descripcion, monto, activo, fecha_creacion)
  */
+
+// ✅ No mostrar warnings/notices en salida (si salen, rompen JSON)
+ini_set('display_errors', '0');
+ini_set('html_errors', '0');
+ini_set('log_errors', '1');
+error_reporting(E_ALL);
 
 if (!function_exists('json_ok')) {
   function json_ok($data): void {
+    if (!headers_sent()) header('Content-Type: application/json; charset=utf-8');
     http_response_code(200);
-    header('Content-Type: application/json; charset=utf-8');
     echo json_encode($data, JSON_UNESCAPED_UNICODE);
     exit;
   }
@@ -28,38 +40,46 @@ if (!function_exists('json_ok')) {
 
 if (!function_exists('json_error')) {
   function json_error(string $msg, array $extra = []): void {
+    if (!headers_sent()) header('Content-Type: application/json; charset=utf-8');
     http_response_code(200);
-    header('Content-Type: application/json; charset=utf-8');
     echo json_encode(array_merge(['exito' => false, 'mensaje' => $msg], $extra), JSON_UNESCAPED_UNICODE);
     exit;
   }
 }
 
-function get_int(string $key, int $min = 0, int $max = 999999999): int {
-  $v = $_GET[$key] ?? null;
-  if ($v === null || $v === '') json_error("Falta parámetro: $key");
-  if (!is_numeric($v)) json_error("Parámetro inválido ($key)");
-  $n = (int)$v;
-  if ($n < $min || $n > $max) json_error("Parámetro fuera de rango ($key)");
-  return $n;
-}
-
-function get_str(string $key): string {
-  $v = trim((string)($_GET[$key] ?? ''));
-  if ($v === '') json_error("Falta parámetro: $key");
-  return $v;
-}
-
-function require_method(string $method): void {
-  if (($_SERVER['REQUEST_METHOD'] ?? '') !== $method) {
-    json_error("Método no permitido. Se esperaba $method");
+if (!function_exists('get_int')) {
+  function get_int(string $key, int $min = 0, int $max = 999999999): int {
+    $v = $_GET[$key] ?? null;
+    if ($v === null || $v === '') json_error("Falta parámetro: $key");
+    if (!is_numeric($v)) json_error("Parámetro inválido ($key)");
+    $n = (int)$v;
+    if ($n < $min || $n > $max) json_error("Parámetro fuera de rango ($key)");
+    return $n;
   }
 }
 
-function read_json_body(): array {
-  $raw = file_get_contents('php://input');
-  $data = json_decode($raw ?: '{}', true);
-  return is_array($data) ? $data : [];
+if (!function_exists('get_str')) {
+  function get_str(string $key): string {
+    $v = trim((string)($_GET[$key] ?? ''));
+    if ($v === '') json_error("Falta parámetro: $key");
+    return $v;
+  }
+}
+
+if (!function_exists('require_method')) {
+  function require_method(string $method): void {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== $method) {
+      json_error("Método no permitido. Se esperaba $method");
+    }
+  }
+}
+
+if (!function_exists('read_json_body')) {
+  function read_json_body(): array {
+    $raw = file_get_contents('php://input');
+    $data = json_decode($raw ?: '{}', true);
+    return is_array($data) ? $data : [];
+  }
 }
 
 /**
@@ -125,9 +145,58 @@ function build_obligaciones_por_anio(DateTime $inicio, DateTime $hoy): array {
 ========================================================= */
 require_once __DIR__ . '/equipo_sistema.php';
 require_once __DIR__ . '/arca_factura.php';
+require_once __DIR__ . '/factura_guardar_pdf.php';
 
 /* =========================================================
-   ✅ NUEVO: DATOS FACTURACIÓN POR id_pago
+   ✅ NUEVO: PLANES DE MANTENIMIENTO (DB)
+   GET /api.php?action=pagos&op=planes_mantenimiento
+========================================================= */
+function pagos_planes_mantenimiento(): void
+{
+  global $pdo;
+
+  // GET o POST da igual, pero dejamos GET
+  try {
+    // Si tu tabla está en otro schema, lo dejamos explícito como en tu captura:
+    // gestion_3devs.planes_mantenimiento
+    $sql = "
+      SELECT
+        id,
+        nombre,
+        descripcion,
+        monto,
+        activo
+      FROM gestion_3devs.planes_mantenimiento
+      WHERE activo = 1
+      ORDER BY monto ASC, id ASC
+    ";
+
+    $st = $pdo->query($sql);
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+    $out = [];
+    foreach ($rows as $r) {
+      $out[] = [
+        'id' => (int)($r['id'] ?? 0),
+        'nombre' => (string)($r['nombre'] ?? ''),
+        'descripcion' => (string)($r['descripcion'] ?? ''),
+        // interpretamos monto como USD (el modal arma USD -> ARS)
+        'monto' => isset($r['monto']) ? (float)$r['monto'] : 0.0,
+        'activo' => (int)($r['activo'] ?? 0),
+      ];
+    }
+
+    json_ok([
+      'exito' => true,
+      'planes' => $out,
+    ]);
+  } catch (Throwable $e) {
+    json_error("Error DB al obtener planes de mantenimiento", ['error' => $e->getMessage()]);
+  }
+}
+
+/* =========================================================
+   ✅ DATOS FACTURACIÓN POR id_pago
 ========================================================= */
 function pagos_cliente_facturacion(): void
 {
@@ -147,11 +216,13 @@ function pagos_cliente_facturacion(): void
         cf.doc_nro,
         cf.razon_social,
         cf.domicilio,
-        cf.cond_iva,
+        cf.id_condicion_iva,
+        COALESCE(ic.descripcion, '') AS cond_iva,
         cf.cond_venta
       FROM pagos p
       INNER JOIN clientes_sistemas cs ON cs.id_sistema = p.id_sistema
-      INNER JOIN clientes_facturacion cf ON cf.id_cliente = cs.id_cliente
+      LEFT JOIN clientes_facturacion cf ON cf.id_cliente = cs.id_cliente
+      LEFT JOIN iva_condiciones ic ON ic.id_condicion_iva = cf.id_condicion_iva
       WHERE p.id_pago = :id_pago
       LIMIT 1
     ";
@@ -160,7 +231,8 @@ function pagos_cliente_facturacion(): void
     $st->execute([':id_pago' => $id_pago]);
     $row = $st->fetch(PDO::FETCH_ASSOC);
 
-    if (!$row) {
+    // ✅ Si no hay registro de clientes_facturacion, devolvemos null limpio
+    if (!$row || empty($row['id_cliente'])) {
       json_ok([
         'exito' => true,
         'cliente_facturacion' => null,
@@ -171,20 +243,91 @@ function pagos_cliente_facturacion(): void
     $doc_tipo = isset($row['doc_tipo']) ? (int)$row['doc_tipo'] : 80;
     $doc_nro  = preg_replace('/\D+/', '', (string)($row['doc_nro'] ?? ''));
 
+    $condIvaTxt = trim((string)($row['cond_iva'] ?? ''));
+    if ($condIvaTxt === '') $condIvaTxt = 'IVA Sujeto Exento';
+
     json_ok([
       'exito' => true,
       'cliente_facturacion' => [
-        'id_cliente'   => (int)($row['id_cliente'] ?? 0),
-        'doc_tipo'     => $doc_tipo,
-        'doc_nro'      => $doc_nro,
-        'razon_social' => (string)($row['razon_social'] ?? ''),
-        'domicilio'    => (string)($row['domicilio'] ?? ''),
-        'cond_iva'     => (string)($row['cond_iva'] ?? 'IVA Sujeto Exento'),
-        'cond_venta'   => (string)($row['cond_venta'] ?? 'Contado / Transferencia Bancaria'),
+        'id_cliente'        => (int)($row['id_cliente'] ?? 0),
+        'doc_tipo'          => $doc_tipo,
+        'doc_nro'           => $doc_nro,
+        'razon_social'      => (string)($row['razon_social'] ?? ''),
+        'domicilio'         => (string)($row['domicilio'] ?? ''),
+        'id_condicion_iva'  => isset($row['id_condicion_iva']) ? (int)$row['id_condicion_iva'] : null,
+        'cond_iva'          => $condIvaTxt,
+        'cond_venta'        => (string)($row['cond_venta'] ?? 'Contado / Transferencia Bancaria'),
       ],
     ]);
   } catch (Throwable $e) {
     json_error("Error DB al obtener datos de facturación", ['error' => $e->getMessage()]);
+  }
+}
+
+/* =========================================================
+   ✅ DATOS FACTURACIÓN POR id_sistema (para DEUDORES)
+========================================================= */
+function pagos_cliente_facturacion_sistema(): void
+{
+  global $pdo;
+
+  require_method('POST');
+  $in = read_json_body();
+
+  $id_sistema = isset($in['id_sistema']) && is_numeric($in['id_sistema']) ? (int)$in['id_sistema'] : 0;
+  if ($id_sistema <= 0) json_error("Falta id_sistema válido");
+
+  try {
+    $sql = "
+      SELECT
+        cf.id_cliente,
+        cf.doc_tipo,
+        cf.doc_nro,
+        cf.razon_social,
+        cf.domicilio,
+        cf.id_condicion_iva,
+        COALESCE(ic.descripcion, '') AS cond_iva,
+        cf.cond_venta
+      FROM clientes_sistemas cs
+      LEFT JOIN clientes_facturacion cf ON cf.id_cliente = cs.id_cliente
+      LEFT JOIN iva_condiciones ic ON ic.id_condicion_iva = cf.id_condicion_iva
+      WHERE cs.id_sistema = :id_sistema
+      LIMIT 1
+    ";
+
+    $st = $pdo->prepare($sql);
+    $st->execute([':id_sistema' => $id_sistema]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+
+    if (!$row || empty($row['id_cliente'])) {
+      json_ok([
+        'exito' => true,
+        'cliente_facturacion' => null,
+        'mensaje' => 'Cliente sin datos de facturación cargados.'
+      ]);
+    }
+
+    $doc_tipo = isset($row['doc_tipo']) ? (int)$row['doc_tipo'] : 80;
+    $doc_nro  = preg_replace('/\D+/', '', (string)($row['doc_nro'] ?? ''));
+
+    $condIvaTxt = trim((string)($row['cond_iva'] ?? ''));
+    if ($condIvaTxt === '') $condIvaTxt = 'IVA Sujeto Exento';
+
+    json_ok([
+      'exito' => true,
+      'cliente_facturacion' => [
+        'id_cliente'        => (int)($row['id_cliente'] ?? 0),
+        'doc_tipo'          => $doc_tipo,
+        'doc_nro'           => $doc_nro,
+        'razon_social'      => (string)($row['razon_social'] ?? ''),
+        'domicilio'         => (string)($row['domicilio'] ?? ''),
+        'id_condicion_iva'  => isset($row['id_condicion_iva']) ? (int)$row['id_condicion_iva'] : null,
+        'cond_iva'          => $condIvaTxt,
+        'cond_venta'        => (string)($row['cond_venta'] ?? 'Contado / Transferencia Bancaria'),
+      ],
+    ]);
+  } catch (Throwable $e) {
+    json_error("Error DB al obtener datos de facturación (sistema)", ['error' => $e->getMessage()]);
   }
 }
 
@@ -211,6 +354,7 @@ function pagos_listar_anios(): void
 
 /* =========================================================
    ✅ LISTAR PAGADOS POR MES/AÑO
+   (devuelve ARRAY para no romper frontend)
 ========================================================= */
 function pagos_listar_pagados(): void
 {
@@ -226,25 +370,19 @@ function pagos_listar_pagados(): void
       p.id_sistema,
       p.monto,
       p.fecha_pago,
-
       mp.nombre AS medio_pago,
       m.mes     AS mes_nombre,
-
       cs.nombre AS sistema,
       cs.descripcion AS sistema_descripcion,
       cs.estado AS sistema_estado,
-
       c.nombre  AS cliente
-
     FROM pagos p
     INNER JOIN meses m              ON m.id_mes = p.id_mes
     INNER JOIN medios_pago mp       ON mp.id_medio_pago = p.id_medio_pago
     INNER JOIN clientes_sistemas cs ON cs.id_sistema = p.id_sistema
     INNER JOIN clientes c           ON c.id_cliente = cs.id_cliente
-
     WHERE p.id_mes = :id_mes
       AND YEAR(p.fecha_pago) = :anio
-
     ORDER BY p.fecha_pago DESC, p.id_pago DESC
   ";
 
@@ -281,6 +419,7 @@ function pagos_listar_pagados(): void
 
 /* =========================================================
    ✅ LISTAR DEUDORES POR MES/AÑO
+   (devuelve ARRAY para no romper frontend)
 ========================================================= */
 function pagos_listar_deudores(): void
 {
@@ -306,7 +445,6 @@ function pagos_listar_deudores(): void
       cs.fecha_inicio,
       cs.created_at,
       c.nombre AS cliente,
-
       DATE(
         CASE
           WHEN STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d') IS NULL
@@ -322,15 +460,12 @@ function pagos_listar_deudores(): void
           )
         END
       ) AS inicio_real
-
     FROM clientes_sistemas cs
     INNER JOIN clientes c ON c.id_cliente = cs.id_cliente
-
     LEFT JOIN pagos p
       ON p.id_sistema = cs.id_sistema
      AND p.id_mes = :id_mes
      AND YEAR(p.fecha_pago) = :anio
-
     WHERE p.id_pago IS NULL
       AND (cs.estado = 'activo' OR cs.estado = 1)
       AND DATE(
@@ -348,7 +483,6 @@ function pagos_listar_deudores(): void
           )
         END
       ) <= :period_end
-
     ORDER BY c.nombre ASC, cs.nombre ASC
   ";
 
@@ -369,7 +503,7 @@ function pagos_listar_deudores(): void
     if ($concepto === '') $concepto = '—';
 
     $out[] = [
-      'id_sistema' => (int)$r['id_sistema'],
+      'id_sistema' => (int)($r['id_sistema'] ?? 0),
       'cliente'    => $r['cliente'] ?? '—',
       'concepto'   => $concepto,
       'medio_pago' => '—',
@@ -406,7 +540,6 @@ function pagos_detalle_sistema(): void
       cs.estado      AS sistema_estado,
       cs.fecha_inicio,
       cs.created_at  AS sistema_created_at,
-
       DATE(
         CASE
           WHEN STR_TO_DATE(NULLIF(LEFT(TRIM(cs.fecha_inicio),10),'0000-00-00'), '%Y-%m-%d') IS NULL
@@ -422,11 +555,9 @@ function pagos_detalle_sistema(): void
           )
         END
       ) AS inicio_real,
-
       c.nombre       AS cliente_nombre,
       c.notas        AS cliente_notas,
       c.activo       AS cliente_activo
-
     FROM clientes_sistemas cs
     INNER JOIN clientes c ON c.id_cliente = cs.id_cliente
     WHERE cs.id_sistema = :id
@@ -653,57 +784,30 @@ function pagos_eliminar_pago(): void
 }
 
 /* =========================================================
-   ✅ DISPATCHER FINAL (NO ROMPE, SOLO FIXEA NOMBRE)
+   ✅ Dispatcher SOLO si se llama directo a pagos.php
 ========================================================= */
+if (!defined('PAGOS_ROUTED')) {
+  try {
+    $op     = (string)($_GET['op'] ?? '');
+    $estado = (string)($_GET['estado'] ?? '');
 
-try {
-  $op     = (string)($_GET['op'] ?? '');
-  $estado = (string)($_GET['estado'] ?? '');
+    if ($op === 'cliente_facturacion') pagos_cliente_facturacion();
+    if ($op === 'cliente_facturacion_sistema') pagos_cliente_facturacion_sistema();
+    if ($op === 'equipo_sistema') pagos_equipo_sistema();
+    if ($op === 'eliminar_pago') pagos_eliminar_pago();
+    if ($op === 'registrar_pago') pagos_registrar_pago();
+    if ($op === 'detalle_sistema') pagos_detalle_sistema();
+    if ($op === 'anios') pagos_listar_anios();
+    if ($op === 'factura_arca') pagos_factura_arca();
 
-  // ✅ 1) OPs
-  if ($op === 'cliente_facturacion') {
-    pagos_cliente_facturacion();
+    // ✅ NUEVO
+    if ($op === 'planes_mantenimiento') pagos_planes_mantenimiento();
+
+    if ($estado === 'pagado' || $estado === 'pagados') pagos_listar_pagados();
+    if ($estado === 'deudor' || $estado === 'deudores') pagos_listar_deudores();
+
+    json_error("Operación no válida", ['op' => $op, 'estado' => $estado]);
+  } catch (Throwable $e) {
+    json_error("Error inesperado en pagos.php", ['error' => $e->getMessage()]);
   }
-
-  if ($op === 'equipo_sistema') {
-    // ✅ FIX: la función real es pagos_equipo_sistema()
-    pagos_equipo_sistema();
-  }
-
-  if ($op === 'eliminar_pago') {
-    pagos_eliminar_pago();
-  }
-
-  if ($op === 'registrar_pago') {
-    pagos_registrar_pago();
-  }
-
-  if ($op === 'detalle_sistema') {
-    pagos_detalle_sistema();
-  }
-
-  if ($op === 'anios') {
-    pagos_listar_anios();
-  }
-
-  if ($op === 'factura_arca') {
-    pagos_factura_arca();
-  }
-
-  // ✅ 2) Listados por estado
-  if ($estado === 'pagado') {
-    pagos_listar_pagados();
-  }
-
-  if ($estado === 'deudor' || $estado === 'deudores') {
-    pagos_listar_deudores();
-  }
-
-  json_error("Operación no válida", [
-    'op' => $op,
-    'estado' => $estado,
-  ]);
-
-} catch (Throwable $e) {
-  json_error("Error inesperado en pagos.php", ['error' => $e->getMessage()]);
 }

@@ -10,7 +10,7 @@ const DEFAULTS = {
   doc_nro: "",
   razon_social: "",
   domicilio: "",
-  cond_iva: "IVA Sujeto Exento",
+  id_condicion_iva: "", // ✅ ahora VACIO: no preselecciona
   cond_venta: "Contado / Transferencia Bancaria",
 };
 
@@ -18,6 +18,18 @@ const DOC_TIPOS = [
   { id: 80, label: "CUIT (80)" },
   { id: 96, label: "DNI (96)" },
 ];
+
+// arma URL de listas global desde apiBase (que viene como ...api.php?action=clientes)
+function buildListasUrl(apiBase) {
+  try {
+    // caso común: ".../api.php?action=clientes"
+    return String(apiBase).includes("action=clientes")
+      ? String(apiBase).replace("action=clientes", "action=listas")
+      : `${String(apiBase).split("?")[0]}?action=listas`;
+  } catch {
+    return `${apiBase}`;
+  }
+}
 
 export default function DatosFacturacionModal({
   open,
@@ -33,10 +45,11 @@ export default function DatosFacturacionModal({
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(DEFAULTS);
 
-  const id_cliente = useMemo(
-    () => Number(cliente?.id_cliente || 0),
-    [cliente]
-  );
+  // ✅ opciones IVA desde global/listas
+  const [ivaOps, setIvaOps] = useState([]);
+  const [loadingIva, setLoadingIva] = useState(false);
+
+  const id_cliente = useMemo(() => Number(cliente?.id_cliente || 0), [cliente]);
 
   /* ESC + focus */
   useEffect(() => {
@@ -54,7 +67,29 @@ export default function DatosFacturacionModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  /* Cargar datos */
+  /* ✅ cargar listas IVA (global) */
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+
+    (async () => {
+      setLoadingIva(true);
+      try {
+        const urlListas = buildListasUrl(apiBase);
+        const data = await apiFetch(urlListas, { method: "GET" });
+        const arr = data?.listas?.iva_condiciones || [];
+        if (alive) setIvaOps(Array.isArray(arr) ? arr : []);
+      } catch {
+        if (alive) setIvaOps([]);
+      } finally {
+        alive && setLoadingIva(false);
+      }
+    })();
+
+    return () => (alive = false);
+  }, [open, apiFetch, apiBase]);
+
+  /* Cargar datos facturación */
   useEffect(() => {
     if (!open || !id_cliente) return;
     let alive = true;
@@ -70,18 +105,22 @@ export default function DatosFacturacionModal({
         const f = data?.facturacion || null;
 
         if (alive) {
+          const ivaId = f?.id_condicion_iva;
+
           setForm({
             doc_tipo: Number(f?.doc_tipo ?? DEFAULTS.doc_tipo),
             doc_nro: String(f?.doc_nro ?? ""),
-            razon_social: String(
-              f?.razon_social ?? cliente?.nombre ?? ""
-            ),
+            razon_social: String(f?.razon_social ?? cliente?.nombre ?? ""),
             domicilio: String(f?.domicilio ?? ""),
-            cond_iva: String(f?.cond_iva ?? DEFAULTS.cond_iva),
+            // ✅ si viene en DB, usarlo; si no, dejar vacío
+            id_condicion_iva:
+              ivaId == null || ivaId === ""
+                ? ""
+                : Number(ivaId),
             cond_venta: String(f?.cond_venta ?? DEFAULTS.cond_venta),
           });
         }
-      } catch (e) {
+      } catch {
         if (alive) {
           setForm({
             ...DEFAULTS,
@@ -98,8 +137,7 @@ export default function DatosFacturacionModal({
 
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
-  const onDocNro = (v) =>
-    set("doc_nro", String(v || "").replace(/[^\d]/g, ""));
+  const onDocNro = (v) => set("doc_nro", String(v || "").replace(/[^\d]/g, ""));
 
   const cerrar = () => !saving && onClose?.();
 
@@ -109,10 +147,19 @@ export default function DatosFacturacionModal({
     const doc_nro = form.doc_nro.trim();
     const razon_social = form.razon_social.trim();
 
-    if (!razon_social)
-      return onToast?.("advertencia", "Razón social obligatoria");
-    if (!doc_nro)
-      return onToast?.("advertencia", "Documento obligatorio");
+    if (!razon_social) return onToast?.("advertencia", "Razón social obligatoria");
+    if (!doc_nro) return onToast?.("advertencia", "Documento obligatorio");
+
+    // ✅ ahora es obligatorio elegir condición IVA
+    if (form.id_condicion_iva === "" || form.id_condicion_iva == null) {
+      return onToast?.("advertencia", "Seleccioná una condición IVA");
+    }
+
+    // ✅ validar selección IVA si hay opciones cargadas
+    if (ivaOps.length > 0) {
+      const ok = ivaOps.some((x) => Number(x.id) === Number(form.id_condicion_iva));
+      if (!ok) return onToast?.("advertencia", "Condición IVA inválida");
+    }
 
     setSaving(true);
     try {
@@ -122,7 +169,7 @@ export default function DatosFacturacionModal({
         doc_nro: Number(doc_nro),
         razon_social,
         domicilio: form.domicilio.trim(),
-        cond_iva: form.cond_iva.trim(),
+        id_condicion_iva: Number(form.id_condicion_iva),
         cond_venta: form.cond_venta.trim(),
       };
 
@@ -134,8 +181,8 @@ export default function DatosFacturacionModal({
 
       onToast?.("exito", data?.mensaje || "Datos guardados");
       cerrar();
-    } catch (e) {
-      onToast?.("error", e?.message || "Error al guardar");
+    } catch (e2) {
+      onToast?.("error", e2?.message || "Error al guardar");
     } finally {
       setSaving(false);
     }
@@ -146,9 +193,7 @@ export default function DatosFacturacionModal({
   return (
     <div
       className="mi-modal__overlay"
-      onClick={(e) =>
-        e.target.classList.contains("mi-modal__overlay") && cerrar()
-      }
+      onClick={(e) => e.target.classList.contains("mi-modal__overlay") && cerrar()}
     >
       <div
         ref={boxRef}
@@ -186,9 +231,7 @@ export default function DatosFacturacionModal({
                       <select
                         className="fl-input fl-select"
                         value={form.doc_tipo}
-                        onChange={(e) =>
-                          set("doc_tipo", Number(e.target.value))
-                        }
+                        onChange={(e) => set("doc_tipo", Number(e.target.value))}
                         disabled={saving}
                       >
                         {DOC_TIPOS.map((d) => (
@@ -235,15 +278,30 @@ export default function DatosFacturacionModal({
                       <label className="fl-label">Domicilio</label>
                     </div>
 
+                    {/* ✅ CONDICION IVA: placeholder + solo descripcion */}
                     <div className="fl-field">
-                      <input
-                        className="fl-input"
-                        placeholder=" "
-                        value={form.cond_iva}
-                        onChange={(e) => set("cond_iva", e.target.value)}
-                        disabled={saving}
-                      />
-                      <label className="fl-label">Condición IVA</label>
+                      <select
+                        className="fl-input fl-select"
+                        value={form.id_condicion_iva}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          set("id_condicion_iva", v === "" ? "" : Number(v));
+                        }}
+                        disabled={saving || loadingIva}
+                      >
+                        <option value="">
+                          {loadingIva
+                            ? "Cargando condiciones IVA..."
+                            : "Seleccione condición IVA"}
+                        </option>
+
+                        {ivaOps.map((x) => (
+                          <option key={x.id} value={x.id}>
+                            {x.descripcion}
+                          </option>
+                        ))}
+                      </select>
+                      <label className="fl-label">Condición IVA *</label>
                     </div>
 
                     <div className="fl-field">

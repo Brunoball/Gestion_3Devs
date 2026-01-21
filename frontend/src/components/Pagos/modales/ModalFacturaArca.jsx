@@ -28,6 +28,21 @@ function moneyARS(v) {
   }
 }
 
+function moneyUSD(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "USD 0.00";
+  try {
+    return n.toLocaleString("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  } catch {
+    return `USD ${n.toFixed(2)}`;
+  }
+}
+
 // yyyy-mm-dd -> yyyymmdd
 function dateToYMD8(iso) {
   const s = String(iso || "").trim();
@@ -75,13 +90,37 @@ function monthFirstLastISO(anio, mesText) {
   }
 
   const last = new Date(y, mm, 0);
-
   const fISO = `${y}-${String(mm).padStart(2, "0")}-01`;
   const lISO = `${y}-${String(mm).padStart(2, "0")}-${String(
     last.getDate()
   ).padStart(2, "0")}`;
 
   return { desde: fISO, hasta: lISO };
+}
+
+/* =========================================
+   ✅ Dropdown multi-select (checkboxes)
+========================================= */
+function useOnClickOutside(ref, handler, when = true) {
+  useEffect(() => {
+    if (!when) return;
+    const listener = (event) => {
+      const el = ref?.current;
+      if (!el) return;
+      if (el.contains(event.target)) return;
+      handler?.();
+    };
+    document.addEventListener("mousedown", listener);
+    document.addEventListener("touchstart", listener);
+    return () => {
+      document.removeEventListener("mousedown", listener);
+      document.removeEventListener("touchstart", listener);
+    };
+  }, [ref, handler, when]);
+}
+
+function safeStr(x) {
+  return String(x ?? "").trim();
 }
 
 export default function ModalFacturaArca({
@@ -97,8 +136,6 @@ export default function ModalFacturaArca({
   const [docNro, setDocNro] = useState("");
   const [cbteTipo, setCbteTipo] = useState(11);
 
-  const [ptoVta] = useState(String(DEFAULT_PTO_VTA));
-
   const [error, setError] = useState("");
   const [openResumen, setOpenResumen] = useState(false);
 
@@ -111,6 +148,28 @@ export default function ModalFacturaArca({
   const [periodoHasta, setPeriodoHasta] = useState("");
   const [vtoPago, setVtoPago] = useState("");
 
+  // ✅ USD -> ARS
+  const [usdRate, setUsdRate] = useState(null); // ARS por 1 USD (venta)
+  const [loadingUsd, setLoadingUsd] = useState(false);
+  const [usdErr, setUsdErr] = useState("");
+
+  // ✅ PLANES MANTENIMIENTO (DB)
+  const [planesMant, setPlanesMant] = useState([]); // [{id,nombre,descripcion,monto,activo}]
+  const [loadingPlanes, setLoadingPlanes] = useState(false);
+  const [planesErr, setPlanesErr] = useState("");
+
+  // ✅ selector mantenimiento (multi) -> ids (number)
+  const [mantSel, setMantSel] = useState([]);
+
+  // ✅ dropdown UI
+  const [mantOpen, setMantOpen] = useState(false);
+  const [mantSearch, setMantSearch] = useState("");
+  const mantWrapRef = useRef(null);
+
+  // ✅ desarrollo manual
+  const [devDesc, setDevDesc] = useState("");
+  const [devUsd, setDevUsd] = useState(""); // string input
+
   const firstRef = useRef(null);
 
   // ✅ refs para abrir calendario al click en cualquier parte
@@ -118,27 +177,42 @@ export default function ModalFacturaArca({
   const refHasta = useRef(null);
   const refVto = useRef(null);
 
+  const closeMantDropdown = useCallback(() => setMantOpen(false), []);
+  useOnClickOutside(mantWrapRef, closeMantDropdown, open && mantOpen);
+
   const titulo = useMemo(
     () =>
       `${data?.labelCliente || "Cliente"} • ${data?.labelSistema || "Sistema"}`,
     [data]
   );
 
-  const idPago = data?.id_pago || data?.id || "—";
-  const nombreCliente = data?.labelCliente || data?.cliente || "—";
-  const nombreSistema = data?.labelSistema || data?.sistema || "—";
+  // ✅ claves
+  const idPagoReal = useMemo(
+    () => (data?.id_pago ? Number(data.id_pago) : 0),
+    [data]
+  );
+  const idSistemaReal = useMemo(
+    () => (data?.id_sistema ? Number(data.id_sistema) : 0),
+    [data]
+  );
 
-  // ✅ monto REAL (sin modo prueba)
-  const monto = useMemo(() => {
-    const raw = data?.monto ?? data?.importe ?? 0;
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : 0;
-  }, [data]);
+  const idPagoLabel = useMemo(
+    () => (idPagoReal > 0 ? String(idPagoReal) : "SIN PAGO"),
+    [idPagoReal]
+  );
+
+  const nombreCliente = useMemo(
+    () => data?.labelCliente || data?.cliente || "—",
+    [data]
+  );
+  const nombreSistema = useMemo(
+    () => data?.labelSistema || data?.sistema || "—",
+    [data]
+  );
 
   // ✅ helper: intentar abrir el date picker nativo
-  const openNativePicker = (inputEl) => {
+  const openNativePicker = useCallback((inputEl) => {
     if (!inputEl) return;
-    // Muchos navegadores abren al focus+click; showPicker() está en Chrome/Edge modernos
     try {
       if (typeof inputEl.showPicker === "function") {
         inputEl.showPicker();
@@ -147,16 +221,19 @@ export default function ModalFacturaArca({
     } catch {
       // ignore
     }
-    inputEl.focus();
-    // click adicional ayuda en algunos casos
+    try {
+      inputEl.focus();
+    } catch {
+      // ignore
+    }
     try {
       inputEl.click();
     } catch {
       // ignore
     }
-  };
+  }, []);
 
-  // ✅ fetch helper local robusto
+  // ✅ fetch helper robusto
   const fetchJSON = useCallback(async (url, opts) => {
     const res = await fetch(url, opts);
     const raw = await res.text();
@@ -189,7 +266,159 @@ export default function ModalFacturaArca({
     return j;
   }, []);
 
-  // ✅ al abrir: reset + precarga
+  /* =========================================
+     ✅ DÓLAR OFICIAL (tu endpoint real)
+     GET  api.php?action=dolar_oficial
+     JSON: { ok:true, venta: float, compra: float, fecha: ... }
+  ========================================= */
+  const getUsdOficialVenta = useCallback(async () => {
+    const maybe =
+      Number(data?.usd_rate) ||
+      Number(data?.dolar_oficial_venta) ||
+      Number(data?.dolar_venta);
+
+    if (Number.isFinite(maybe) && maybe > 0) return maybe;
+
+    const url = `${apiBase}?action=dolar_oficial`;
+
+    const j = await fetchJSON(url, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+
+    if (j?.ok !== true) {
+      throw new Error(j?.error || "Dólar oficial: ok=false");
+    }
+
+    const venta = Number(j?.venta);
+    if (!Number.isFinite(venta) || venta <= 0) {
+      throw new Error("Dólar oficial: 'venta' inválida");
+    }
+
+    return venta;
+  }, [apiBase, data, fetchJSON]);
+
+  /* =========================================
+     ✅ PLANES MANTENIMIENTO (DB)
+     GET /api.php?action=pagos&op=planes_mantenimiento
+  ========================================= */
+  const fetchPlanesMantenimiento = useCallback(async () => {
+    const url = `${apiBase}?action=${action}&op=planes_mantenimiento`;
+    const j = await fetchJSON(url, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+
+    const arr = Array.isArray(j?.planes) ? j.planes : [];
+
+    const norm = arr
+      .map((p) => ({
+        id: Number(p?.id) || 0,
+        nombre: safeStr(p?.nombre),
+        descripcion: safeStr(p?.descripcion),
+        monto: Number(p?.monto) || 0,
+        activo: Number(p?.activo) || 0,
+      }))
+      .filter((p) => p.id > 0 && p.nombre);
+
+    return norm;
+  }, [apiBase, action, fetchJSON]);
+
+  // ✅ mantenimiento seleccionado (ahora desde DB)
+  const mantenimientoSeleccionado = useMemo(() => {
+    const set = new Set((mantSel || []).map((x) => Number(x)));
+    const base = Array.isArray(planesMant) ? planesMant : [];
+    return base.filter((p) => set.has(Number(p.id)));
+  }, [mantSel, planesMant]);
+
+  const devUsdNum = useMemo(() => {
+    const n = Number(String(devUsd || "").replace(",", "."));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }, [devUsd]);
+
+  const totalUSD = useMemo(() => {
+    const mant = mantenimientoSeleccionado.reduce(
+      (acc, it) => acc + (Number(it.monto) || 0),
+      0
+    );
+    return mant + devUsdNum;
+  }, [mantenimientoSeleccionado, devUsdNum]);
+
+  const totalARS = useMemo(() => {
+    const r = Number(usdRate);
+    if (!Number.isFinite(r) || r <= 0) return 0;
+    return totalUSD * r;
+  }, [totalUSD, usdRate]);
+
+  const itemsDetalle = useMemo(() => {
+    const out = [];
+
+    for (const it of mantenimientoSeleccionado) {
+      const labelBase = safeStr(it.nombre);
+      const desc = safeStr(it.descripcion);
+      const label = desc ? `${labelBase} — ${desc}` : labelBase;
+
+      out.push({
+        tipo: "mantenimiento",
+        id: Number(it.id),
+        descripcion: label,
+        usd: Number(it.monto) || 0,
+      });
+    }
+
+    if (devUsdNum > 0 || String(devDesc || "").trim() !== "") {
+      out.push({
+        tipo: "desarrollo",
+        id: "desarrollo_manual",
+        descripcion: String(devDesc || "").trim() || "Desarrollo",
+        usd: devUsdNum,
+      });
+    }
+
+    const r = Number(usdRate);
+    return out.map((x) => ({
+      ...x,
+      ars: Number.isFinite(r) && r > 0 ? x.usd * r : 0,
+    }));
+  }, [mantenimientoSeleccionado, devUsdNum, devDesc, usdRate]);
+
+  const toggleMant = useCallback((id) => {
+    const nid = Number(id);
+    if (!Number.isFinite(nid) || nid <= 0) return;
+
+    setMantSel((prev) => {
+      const set = new Set((prev || []).map((x) => Number(x)));
+      if (set.has(nid)) set.delete(nid);
+      else set.add(nid);
+      return Array.from(set);
+    });
+    setError("");
+  }, []);
+
+  // ===== dropdown helpers (NO van debajo del if (!open)) =====
+  const planesFiltrados = useMemo(() => {
+    const q = safeStr(mantSearch).toLowerCase();
+    const base = Array.isArray(planesMant) ? planesMant : [];
+    if (!q) return base;
+    return base.filter((p) => {
+      const n = safeStr(p.nombre).toLowerCase();
+      const d = safeStr(p.descripcion).toLowerCase();
+      return n.includes(q) || d.includes(q);
+    });
+  }, [planesMant, mantSearch]);
+
+  const selectedLabel = useMemo(() => {
+    const n = (mantSel || []).length;
+    if (n === 0) return "Seleccionar planes...";
+    if (n === 1) {
+      const oneId = Number(mantSel[0]);
+      const found = (planesMant || []).find((p) => Number(p.id) === oneId);
+      return found ? found.nombre : "1 seleccionado";
+    }
+    return `${n} seleccionados`;
+  }, [mantSel, planesMant]);
+
+  // ✅ al abrir: reset + precarga + dólar + cliente_facturacion + planes mantenimiento
   useEffect(() => {
     if (!open) return;
 
@@ -202,29 +431,66 @@ export default function ModalFacturaArca({
     setDocNro("");
     setClienteFact(null);
 
-    // ✅ default de fechas: mes seleccionado (data.anio + data.mes), si existe
+    // reset selector
+    setMantSel([]);
+    setMantOpen(false);
+    setMantSearch("");
+    setDevDesc("");
+    setDevUsd("");
+
+    // ✅ reset planes
+    setPlanesMant([]);
+    setPlanesErr("");
+
+    // fechas default mes seleccionado
     const { desde, hasta } = monthFirstLastISO(data?.anio, data?.mes);
     setPeriodoDesde(desde);
     setPeriodoHasta(hasta);
     setVtoPago(hasta);
 
-    // ✅ SI VIENE desde Pagos.jsx, lo usamos y NO pedimos al backend
-    const cfFromParent = data?.cliente_facturacion;
+    // ✅ traer dólar oficial (venta)
+    (async () => {
+      setLoadingUsd(true);
+      setUsdErr("");
+      try {
+        const venta = await getUsdOficialVenta();
+        setUsdRate(venta);
+      } catch (e) {
+        setUsdRate(null);
+        setUsdErr(e?.message || "No se pudo obtener el dólar oficial.");
+      } finally {
+        setLoadingUsd(false);
+      }
+    })();
 
+    // ✅ traer planes mantenimiento desde DB
+    (async () => {
+      setLoadingPlanes(true);
+      setPlanesErr("");
+      try {
+        const planes = await fetchPlanesMantenimiento();
+        setPlanesMant(planes);
+      } catch (e) {
+        setPlanesMant([]);
+        setPlanesErr(e?.message || "No se pudieron obtener planes de mantenimiento.");
+      } finally {
+        setLoadingPlanes(false);
+      }
+    })();
+
+    // ✅ si viene cliente_facturacion del padre, no pedimos
+    const cfFromParent = data?.cliente_facturacion;
     if (cfFromParent !== undefined) {
       setClienteFact(cfFromParent || null);
-
       if (cfFromParent?.doc_tipo) setDocTipo(Number(cfFromParent.doc_tipo));
       if (cfFromParent?.doc_nro)
         setDocNro(String(cfFromParent.doc_nro).replace(/\D/g, ""));
-
       setTimeout(() => firstRef.current?.focus?.(), 0);
       return;
     }
 
-    // ✅ si NO viene, recién ahí intentamos traerlo
-    const id_pago_real = data?.id_pago;
-    if (!id_pago_real) {
+    // si no hay id_pago, NO pedimos por id_pago (deudores)
+    if (!idPagoReal) {
       setTimeout(() => firstRef.current?.focus?.(), 0);
       return;
     }
@@ -240,7 +506,7 @@ export default function ModalFacturaArca({
             Accept: "application/json",
           },
           body: JSON.stringify({
-            id_pago: Number(id_pago_real),
+            id_pago: Number(idPagoReal),
             anio: Number(data?.anio || 0),
             mes: String(data?.mes || ""),
           }),
@@ -258,7 +524,16 @@ export default function ModalFacturaArca({
         setTimeout(() => firstRef.current?.focus?.(), 0);
       }
     })();
-  }, [open, apiBase, action, data, fetchJSON]);
+  }, [
+    open,
+    apiBase,
+    action,
+    data,
+    fetchJSON,
+    getUsdOficialVenta,
+    idPagoReal,
+    fetchPlanesMantenimiento,
+  ]);
 
   useEffect(() => {
     if (!open) return;
@@ -269,14 +544,13 @@ export default function ModalFacturaArca({
 
   const validarInputs = useCallback(() => {
     const doc = String(docNro || "").replace(/\D/g, "");
-    const id_pago = data?.id_pago;
 
-    if (!id_pago) return { ok: false, msg: "Falta id_pago." };
-    if (!doc)
-      return {
-        ok: false,
-        msg: "Ingresá el número de documento (solo números).",
-      };
+    // ✅ permitimos facturar con id_pago O id_sistema
+    if (!(idPagoReal > 0 || idSistemaReal > 0)) {
+      return { ok: false, msg: "Falta id_sistema / id_pago (registro inválido)." };
+    }
+
+    if (!doc) return { ok: false, msg: "Ingresá el número de documento (solo números)." };
 
     if (Number(docTipo) === 96) {
       if (!(doc.length === 7 || doc.length === 8)) {
@@ -291,56 +565,68 @@ export default function ModalFacturaArca({
 
     const docN = Number(doc);
     const pvN = Number(DEFAULT_PTO_VTA);
+    if (!Number.isFinite(docN) || docN <= 0) return { ok: false, msg: "Documento inválido." };
+    if (!Number.isFinite(pvN) || pvN <= 0) return { ok: false, msg: "Punto de venta inválido." };
 
-    if (!Number.isFinite(docN) || docN <= 0)
-      return { ok: false, msg: "Documento inválido." };
-    if (!Number.isFinite(pvN) || pvN <= 0)
-      return { ok: false, msg: "Punto de venta inválido." };
+    // dólar requerido
+    const r = Number(usdRate);
+    if (!Number.isFinite(r) || r <= 0) {
+      return { ok: false, msg: "No hay cotización USD válida (dólar oficial)." };
+    }
 
-    // ✅ validar monto real > 0 (para evitar facturas en 0)
-    if (!Number.isFinite(monto) || monto <= 0) {
+    // al menos 1 item o desarrollo con monto
+    const hasMant = (mantSel?.length || 0) > 0;
+    const hasDevMonto = devUsdNum > 0;
+    if (!hasMant && !hasDevMonto) {
       return {
         ok: false,
-        msg: "El monto del pago es inválido o está en 0. Verificá el registro del pago.",
+        msg: "Seleccioná al menos un plan de Mantenimiento o cargá un monto en Desarrollo.",
       };
     }
 
-    // ✅ validar fechas
+    if (!Number.isFinite(totalARS) || totalARS <= 0) {
+      return {
+        ok: false,
+        msg: "El total en ARS es inválido o 0. Revisá los montos USD y el dólar.",
+      };
+    }
+
+    // fechas
     const d = dateToYMD8(periodoDesde);
     const h = dateToYMD8(periodoHasta);
     const v = dateToYMD8(vtoPago);
 
     if (!d) return { ok: false, msg: "Elegí Período Desde (fecha válida)." };
     if (!h) return { ok: false, msg: "Elegí Período Hasta (fecha válida)." };
-    if (!v)
-      return { ok: false, msg: "Elegí Vto. para el pago (fecha válida)." };
-    if (h < d)
-      return {
-        ok: false,
-        msg: "Período Hasta no puede ser menor que Desde.",
-      };
+    if (!v) return { ok: false, msg: "Elegí Vto. para el pago (fecha válida)." };
+    if (h < d) return { ok: false, msg: "Período Hasta no puede ser menor que Desde." };
 
-    return {
-      ok: true,
-      id_pago,
-      docN,
-      pvN,
-      periodo_desde: d,
-      periodo_hasta: h,
-      vto_pago: v,
-    };
-  }, [data, docNro, docTipo, periodoDesde, periodoHasta, vtoPago, monto]);
+    return { ok: true };
+  }, [
+    docNro,
+    docTipo,
+    periodoDesde,
+    periodoHasta,
+    vtoPago,
+    usdRate,
+    mantSel,
+    devUsdNum,
+    totalARS,
+    idPagoReal,
+    idSistemaReal,
+  ]);
 
-  const irAResumen = () => {
+  const irAResumen = useCallback(() => {
     setError("");
     const v = validarInputs();
     if (!v.ok) return setError(v.msg);
     setOpenResumen(true);
-  };
+  }, [validarInputs]);
 
+  const cerrar = useCallback(() => onClose?.(), [onClose]);
+
+  // ✅ IMPORTANTE: el return condicional va DESPUÉS de TODOS los hooks
   if (!open) return null;
-
-  const cerrar = () => onClose?.();
 
   return (
     <>
@@ -360,7 +646,7 @@ export default function ModalFacturaArca({
             <div className="mi-modal__head-left">
               <h2 className="mi-modal__title">Factura ARCA (CAE)</h2>
               <p className="mi-modal__subtitle">
-                Pago: {idPago} &nbsp;|&nbsp; {titulo}
+                Pago: {idPagoLabel} &nbsp;|&nbsp; {titulo}
               </p>
             </div>
 
@@ -399,6 +685,30 @@ export default function ModalFacturaArca({
                 </div>
               ) : null}
 
+              {loadingUsd ? (
+                <div className="arca-alert arca-alert--info" role="status">
+                  Obteniendo dólar oficial...
+                </div>
+              ) : usdErr ? (
+                <div className="arca-alert arca-alert--error" role="alert">
+                  {usdErr}
+                </div>
+              ) : usdRate ? (
+                <div className="arca-alert arca-alert--info" role="status">
+                  Dólar oficial (VENTA): <b>${Number(usdRate).toFixed(2)}</b> ARS
+                </div>
+              ) : null}
+
+              {loadingPlanes ? (
+                <div className="arca-alert arca-alert--info" role="status">
+                  Cargando planes de mantenimiento...
+                </div>
+              ) : planesErr ? (
+                <div className="arca-alert arca-alert--error" role="alert">
+                  {planesErr}
+                </div>
+              ) : null}
+
               <div className="mi-grid">
                 <article className="mi-card">
                   <h3 className="mi-card__title">Cliente / Servicio</h3>
@@ -412,14 +722,40 @@ export default function ModalFacturaArca({
                       <span className="arca-kv__k">Sistema</span>
                       <span className="arca-kv__v">{nombreSistema}</span>
                     </div>
+
                     <div className="arca-kv__row">
-                      <span className="arca-kv__k">Monto</span>
-                      <span className="arca-kv__v">{moneyARS(monto)}</span>
+                      <span className="arca-kv__k">Total USD</span>
+                      <span className="arca-kv__v">{moneyUSD(totalUSD)}</span>
                     </div>
+
+                    <div className="arca-kv__row">
+                      <span className="arca-kv__k">Total ARS (a facturar)</span>
+                      <span className="arca-kv__v">{moneyARS(totalARS)}</span>
+                    </div>
+
                     <div className="arca-kv__row">
                       <span className="arca-kv__k">Punto de venta</span>
                       <span className="arca-kv__v">{DEFAULT_PTO_VTA}</span>
                     </div>
+                  </div>
+
+                  <div className="arca-mini" style={{ marginTop: 10 }}>
+                    {itemsDetalle.length ? (
+                      <>
+                        <b>Detalle:</b>{" "}
+                        {itemsDetalle.map((it, idx) => (
+                          <span key={`${it.id}_${idx}`}>
+                            {it.descripcion} ({moneyUSD(it.usd)}
+                            {usdRate ? ` → ${moneyARS(it.ars)}` : ""})
+                            {idx < itemsDetalle.length - 1 ? " • " : ""}
+                          </span>
+                        ))}
+                      </>
+                    ) : (
+                      <span>
+                        Seleccioná planes o cargá desarrollo para armar el monto.
+                      </span>
+                    )}
                   </div>
                 </article>
 
@@ -498,7 +834,187 @@ export default function ModalFacturaArca({
                   )}
                 </article>
 
-                {/* ✅ período: clic en cualquier parte abre calendario */}
+                {/* ✅ Mantenimiento (DB) -> Dropdown multi-select */}
+                <article className="mi-card mi-card--full">
+                  <h3 className="mi-card__title">
+                    Mantenimiento (USD) • Desde DB (selección múltiple)
+                  </h3>
+
+                  <div ref={mantWrapRef} style={{ position: "relative" }}>
+                    <button
+                      type="button"
+                      className="mit-btn mit-btn--ghost"
+                      style={{
+                        width: "100%",
+                        justifyContent: "space-between",
+                        padding: "12px 14px",
+                        borderRadius: 12,
+                        minHeight: 44,
+                      }}
+                      onClick={() => setMantOpen((v) => !v)}
+                      disabled={loadingPlanes || !!planesErr}
+                      title="Seleccionar planes de mantenimiento"
+                    >
+                      <span>{selectedLabel}</span>
+                      <span style={{ opacity: 0.8 }}>{mantOpen ? "▲" : "▼"}</span>
+                    </button>
+
+                    {mantOpen && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          zIndex: 50,
+                          top: "calc(100% + 8px)",
+                          left: 0,
+                          right: 0,
+                          background: "#fff",
+                          border: "1px solid rgba(0,0,0,0.12)",
+                          borderRadius: 12,
+                          boxShadow: "0 12px 30px rgba(0,0,0,0.12)",
+                          padding: 12,
+                          maxHeight: 320,
+                          overflow: "auto",
+                        }}
+                      >
+                        <div style={{ marginBottom: 10 }}>
+                          <input
+                            className="fl-input"
+                            placeholder="Buscar plan..."
+                            value={mantSearch}
+                            onChange={(e) => setMantSearch(e.target.value)}
+                            style={{ width: "100%" }}
+                          />
+                        </div>
+
+                        {planesFiltrados.length === 0 ? (
+                          <div className="arca-mini">No hay planes para mostrar.</div>
+                        ) : (
+                          <div style={{ display: "grid", gap: 10 }}>
+                            {planesFiltrados.map((p) => {
+                              const checked = mantSel.includes(Number(p.id));
+                              return (
+                                <label
+                                  key={p.id}
+                                  style={{
+                                    display: "flex",
+                                    gap: 10,
+                                    alignItems: "flex-start",
+                                    cursor: "pointer",
+                                    padding: "10px 10px",
+                                    borderRadius: 10,
+                                    border: "1px solid rgba(0,0,0,0.08)",
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleMant(p.id)}
+                                    style={{ marginTop: 4 }}
+                                  />
+
+                                  <div style={{ flex: 1, lineHeight: 1.25 }}>
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        justifyContent: "space-between",
+                                        gap: 12,
+                                      }}
+                                    >
+                                      <b>{p.nombre}</b>
+                                      <span>{moneyUSD(p.monto)}</span>
+                                    </div>
+                                    {p.descripcion ? (
+                                      <div className="arca-mini" style={{ marginTop: 4 }}>
+                                        {p.descripcion}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                          <button
+                            type="button"
+                            className="mit-btn mit-btn--ghost"
+                            onClick={() => setMantSel([])}
+                            title="Limpiar selección"
+                          >
+                            Limpiar
+                          </button>
+
+                          <button
+                            type="button"
+                            className="mit-btn mit-btn--solid"
+                            onClick={() => setMantOpen(false)}
+                            title="Cerrar"
+                            style={{ marginLeft: "auto" }}
+                          >
+                            Listo <FaCheck style={{ marginLeft: 8 }} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="arca-mini" style={{ marginTop: 10 }}>
+                    Se listan desde DB (nombre, descripción, monto). Se convierte a ARS
+                    con dólar oficial (venta).
+                  </div>
+                </article>
+
+                {/* ✅ Desarrollo manual */}
+                <article className="mi-card mi-card--full">
+                  <h3 className="mi-card__title">Desarrollo (USD) • Manual</h3>
+
+                  <div className="fl-grid">
+                    <div className="fl-field fl-col-full">
+                      <input
+                        className="fl-input"
+                        placeholder=" "
+                        value={devDesc}
+                        onChange={(e) => {
+                          setDevDesc(e.target.value);
+                          setError("");
+                        }}
+                      />
+                      <label className="fl-label">Descripción (opcional)</label>
+                    </div>
+
+                    <div className="fl-field">
+                      <input
+                        className="fl-input"
+                        placeholder=" "
+                        value={devUsd}
+                        onChange={(e) => {
+                          const v = e.target.value.replace(/[^\d.,]/g, "");
+                          setDevUsd(v);
+                          setError("");
+                        }}
+                        inputMode="decimal"
+                      />
+                      <label className="fl-label">Monto (USD)</label>
+                    </div>
+
+                    <div className="fl-field">
+                      <input
+                        className="fl-input"
+                        value={
+                          usdRate && devUsdNum > 0
+                            ? moneyARS(devUsdNum * Number(usdRate))
+                            : "$0,00"
+                        }
+                        disabled
+                        readOnly
+                      />
+                      <label className="fl-label">Equivalente (ARS)</label>
+                    </div>
+                  </div>
+                </article>
+
+                {/* ✅ Período / Vencimiento */}
                 <article className="mi-card mi-card--full">
                   <h3 className="mi-card__title">Período / Vencimiento</h3>
 
@@ -506,7 +1022,6 @@ export default function ModalFacturaArca({
                     <div
                       className="fl-field"
                       onMouseDown={(e) => {
-                        // evita seleccionar texto y asegura apertura rápida
                         e.preventDefault();
                         openNativePicker(refDesde.current);
                       }}
@@ -530,7 +1045,6 @@ export default function ModalFacturaArca({
                           setError("");
                         }}
                         onClick={(e) => {
-                          // si hicieron click directo en el input también abre
                           e.stopPropagation();
                           openNativePicker(e.currentTarget);
                         }}
@@ -639,14 +1153,28 @@ export default function ModalFacturaArca({
         action={action}
         data={{
           ...data,
+          // ✅ siempre mandar id_sistema (para deudores)
+          id_sistema: idSistemaReal || data?.id_sistema || null,
+          // ✅ id_pago puede ser null
+          id_pago: idPagoReal > 0 ? idPagoReal : null,
+
           cliente_facturacion: clienteFact,
 
-          // ✅ viaja al PDF y al backend (YYYYMMDD)
+          // ✅ dólar oficial + totales
+          usd_rate: usdRate,
+          total_usd: totalUSD,
+          total_ars: totalARS,
+          items_facturacion: itemsDetalle,
+
+          // ✅ monto final que viaja para ARCA (ARS)
+          monto: totalARS,
+
+          // ✅ fechas
           periodo_desde: dateToYMD8(periodoDesde),
           periodo_hasta: dateToYMD8(periodoHasta),
           vto_pago: dateToYMD8(vtoPago),
 
-          // opcional: conservar iso
+          // opcional iso
           periodo_desde_iso: periodoDesde,
           periodo_hasta_iso: periodoHasta,
           vto_pago_iso: vtoPago,

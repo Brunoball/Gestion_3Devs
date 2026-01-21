@@ -28,7 +28,6 @@ function route_global(string $action): bool
  */
 function route_listas(string $action): bool
 {
-  // Solo responde si action=listas
   if ($action !== 'listas') return false;
 
   require_once __DIR__ . '/obtener_listas.php';

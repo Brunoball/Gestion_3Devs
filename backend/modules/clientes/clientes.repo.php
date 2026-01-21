@@ -83,17 +83,38 @@ function clientes_eliminar(): void {
 }
 
 /* =========================
+   IVA CONDICIONES (helper DB)
+========================= */
+function iva_condicion_existe(PDO $pdo, int $id_condicion_iva): bool
+{
+  $st = $pdo->prepare("SELECT 1 FROM iva_condiciones WHERE id_condicion_iva=? AND activo=1 LIMIT 1");
+  $st->execute([$id_condicion_iva]);
+  return (bool)$st->fetchColumn();
+}
+
+/* =========================
    FACTURACIÓN (DB PURAS)
-   - NO usan json_out
-   - Se usan desde clientes.php handlers
 ========================= */
 
 function clientes_facturacion_get(PDO $pdo, int $id_cliente): ?array
 {
-  $sql = "SELECT id_cliente, doc_tipo, doc_nro, razon_social, domicilio, cond_iva, cond_venta, created_at
-          FROM clientes_facturacion
-          WHERE id_cliente = ?
-          LIMIT 1";
+  // ✅ join para devolver también la descripción
+  $sql = "
+    SELECT
+      cf.id_cliente,
+      cf.doc_tipo,
+      cf.doc_nro,
+      cf.razon_social,
+      cf.domicilio,
+      cf.id_condicion_iva,
+      ic.descripcion AS condicion_iva_desc,
+      cf.cond_venta,
+      cf.created_at
+    FROM clientes_facturacion cf
+    LEFT JOIN iva_condiciones ic ON ic.id_condicion_iva = cf.id_condicion_iva
+    WHERE cf.id_cliente = ?
+    LIMIT 1
+  ";
   $st = $pdo->prepare($sql);
   $st->execute([$id_cliente]);
   $row = $st->fetch(PDO::FETCH_ASSOC);
@@ -103,52 +124,48 @@ function clientes_facturacion_get(PDO $pdo, int $id_cliente): ?array
 
 function clientes_facturacion_upsert(PDO $pdo, array $in): void
 {
-  $id_cliente   = isset($in['id_cliente']) ? (int)$in['id_cliente'] : 0;
-  $doc_tipo     = isset($in['doc_tipo']) ? (int)$in['doc_tipo'] : 0;
-  $doc_nro_raw  = isset($in['doc_nro']) ? (string)$in['doc_nro'] : "";
-  $razon_social = isset($in['razon_social']) ? trim((string)$in['razon_social']) : "";
-  $domicilio    = isset($in['domicilio']) ? trim((string)$in['domicilio']) : "";
-  $cond_iva     = isset($in['cond_iva']) ? trim((string)$in['cond_iva']) : "IVA Sujeto Exento";
-  $cond_venta   = isset($in['cond_venta']) ? trim((string)$in['cond_venta']) : "Contado / Transferencia Bancaria";
+  $id_cliente       = isset($in['id_cliente']) ? (int)$in['id_cliente'] : 0;
+  $doc_tipo         = isset($in['doc_tipo']) ? (int)$in['doc_tipo'] : 0;
+  $doc_nro_raw      = isset($in['doc_nro']) ? (string)$in['doc_nro'] : "";
+  $razon_social     = isset($in['razon_social']) ? trim((string)$in['razon_social']) : "";
+  $domicilio        = isset($in['domicilio']) ? trim((string)$in['domicilio']) : "";
+  $id_condicion_iva = isset($in['id_condicion_iva']) ? (int)$in['id_condicion_iva'] : 4;
+  $cond_venta       = isset($in['cond_venta']) ? trim((string)$in['cond_venta']) : "Contado / Transferencia Bancaria";
 
-  if ($id_cliente <= 0) {
-    throw new Exception("id_cliente inválido");
-  }
-  if (!in_array($doc_tipo, [80, 96], true)) {
-    throw new Exception("doc_tipo inválido (80/96)");
-  }
+  if ($id_cliente <= 0) throw new Exception("id_cliente inválido");
+  if (!in_array($doc_tipo, [80, 96], true)) throw new Exception("doc_tipo inválido (80/96)");
 
-  // doc_nro: solo números
   $doc_nro_clean = preg_replace('/\D+/', '', $doc_nro_raw);
-  if ($doc_nro_clean === "") {
-    throw new Exception("doc_nro obligatorio");
+  if ($doc_nro_clean === "") throw new Exception("doc_nro obligatorio");
+  if ($razon_social === "") throw new Exception("razon_social obligatoria");
+
+  // ✅ validar existencia
+  if (!iva_condicion_existe($pdo, $id_condicion_iva)) {
+    throw new Exception("Condición IVA inválida");
   }
 
-  if ($razon_social === "") {
-    throw new Exception("razon_social obligatoria");
-  }
-
-  $sql = "INSERT INTO clientes_facturacion
-            (id_cliente, doc_tipo, doc_nro, razon_social, domicilio, cond_iva, cond_venta)
-          VALUES
-            (:id_cliente, :doc_tipo, :doc_nro, :razon_social, :domicilio, :cond_iva, :cond_venta)
-          ON DUPLICATE KEY UPDATE
-            doc_tipo     = VALUES(doc_tipo),
-            doc_nro      = VALUES(doc_nro),
-            razon_social = VALUES(razon_social),
-            domicilio    = VALUES(domicilio),
-            cond_iva     = VALUES(cond_iva),
-            cond_venta   = VALUES(cond_venta)";
+  $sql = "
+    INSERT INTO clientes_facturacion
+      (id_cliente, doc_tipo, doc_nro, razon_social, domicilio, id_condicion_iva, cond_venta)
+    VALUES
+      (:id_cliente, :doc_tipo, :doc_nro, :razon_social, :domicilio, :id_condicion_iva, :cond_venta)
+    ON DUPLICATE KEY UPDATE
+      doc_tipo         = VALUES(doc_tipo),
+      doc_nro          = VALUES(doc_nro),
+      razon_social     = VALUES(razon_social),
+      domicilio        = VALUES(domicilio),
+      id_condicion_iva = VALUES(id_condicion_iva),
+      cond_venta       = VALUES(cond_venta)
+  ";
 
   $st = $pdo->prepare($sql);
   $st->execute([
-    ':id_cliente'   => $id_cliente,
-    ':doc_tipo'     => $doc_tipo,
-    // BIGINT: como string numérico (seguro)
-    ':doc_nro'      => $doc_nro_clean,
-    ':razon_social' => $razon_social,
-    ':domicilio'    => $domicilio,
-    ':cond_iva'     => ($cond_iva !== '' ? $cond_iva : 'IVA Sujeto Exento'),
-    ':cond_venta'   => ($cond_venta !== '' ? $cond_venta : 'Contado / Transferencia Bancaria'),
+    ':id_cliente'       => $id_cliente,
+    ':doc_tipo'         => $doc_tipo,
+    ':doc_nro'          => $doc_nro_clean,
+    ':razon_social'     => $razon_social,
+    ':domicilio'        => $domicilio,
+    ':id_condicion_iva' => $id_condicion_iva,
+    ':cond_venta'       => ($cond_venta !== '' ? $cond_venta : 'Contado / Transferencia Bancaria'),
   ]);
 }

@@ -210,8 +210,29 @@ function getIdPago(item) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** ✅ busyKey consistente en TODO (desktop/mobile) */
+function arcaBusyKeyFromRow(row) {
+  const idPago = getIdPago(row);
+  const idSistema = getIdSistema(row);
+  if (idPago) return idPago;
+  if (idSistema) return -Number(idSistema);
+  return null;
+}
+
+/** Helper para obtener nombre del mes desde ID */
+function getMesLabelById(mesesArr, id) {
+  const n = Number(id);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  const found = (Array.isArray(mesesArr) ? mesesArr : []).find(
+    (m) => Number(m?.id) === n
+  );
+  return (found?.mes || "").toString().trim();
+}
+
 /* =========================
    Row virtualizado
+   ✅ ahora muestra ARCA también en DEUDORES
+   ✅ FIX: loading ARCA correcto también en deudores (sin id_pago)
 ========================= */
 const Row = memo(
   ({
@@ -238,8 +259,8 @@ const Row = memo(
     }
 
     const isPagado = activeTab === "pagado";
-    const idPago = getIdPago(item);
-    const arcaBusy = Boolean(idPago && arcaLoadingId === idPago);
+    const busyKey = arcaBusyKeyFromRow(item);
+    const arcaBusy = Boolean(busyKey && arcaLoadingId === busyKey);
 
     return (
       <div style={style} className="gpagos-virtual-row">
@@ -248,6 +269,7 @@ const Row = memo(
 
         <div className="gpagos-virtual-cell gpagos-virtual-actions">
           <div className="gpagos-actions-inline">
+            {/* Registrar pago (solo en deudores) */}
             {!isPagado && (
               <button
                 className="gpagos-action-button gpagos-pay-button"
@@ -262,6 +284,7 @@ const Row = memo(
               </button>
             )}
 
+            {/* Equipo (solo en pagados) */}
             {isPagado && (
               <button
                 className="gpagos-action-button gpagos-team-button"
@@ -276,21 +299,21 @@ const Row = memo(
               </button>
             )}
 
-            {isPagado && (
-              <button
-                className="gpagos-action-button gpagos-arca-button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onArcaClick?.(item);
-                }}
-                title={arcaBusy ? "Cargando datos..." : "Factura ARCA"}
-                type="button"
-                disabled={arcaBusy}
-              >
-                <FontAwesomeIcon icon={faFileInvoiceDollar} />
-              </button>
-            )}
+            {/* ✅ ARCA: aparece en pagados Y deudores */}
+            <button
+              className="gpagos-action-button gpagos-arca-button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onArcaClick?.(item);
+              }}
+              title={arcaBusy ? "Cargando datos..." : "Factura ARCA"}
+              type="button"
+              disabled={arcaBusy}
+            >
+              <FontAwesomeIcon icon={faFileInvoiceDollar} />
+            </button>
 
+            {/* Eliminar (solo pagados) */}
             {isPagado && (
               <button
                 className="gpagos-action-button gpagos-delete-button"
@@ -326,8 +349,8 @@ function Pagos() {
   const [years, setYears] = useState([]);
   const [selectedYear, setSelectedYear] = useState("");
 
-  const [meses, setMeses] = useState([]);
-  const [selectedMonth, setSelectedMonth] = useState("");
+  const [meses, setMeses] = useState([]); // [{id, mes}]
+  const [selectedMonthId, setSelectedMonthId] = useState(""); // guarda id_mes (string/number)
 
   const [mediosPago, setMediosPago] = useState([]);
   const [selectedMedioPago, setSelectedMedioPago] = useState("");
@@ -340,7 +363,7 @@ function Pagos() {
 
   // ===== UI =====
   const [loading, setLoading] = useState({ pagos: false, listas: false });
-  const [arcaLoadingId, setArcaLoadingId] = useState(null); // ✅ NUEVO: loading puntual de ARCA
+  const [arcaLoadingId, setArcaLoadingId] = useState(null); // ✅ loading puntual de ARCA
 
   // ===== Toasts =====
   const [toast, setToast] = useState({
@@ -420,11 +443,15 @@ function Pagos() {
     (row) => {
       const id_sistema = getIdSistema(row);
       if (!id_sistema) return;
+
+      const mesLabel = getMesLabelById(meses, selectedMonthId);
+
       setModalEquipo({
         open: true,
         id_sistema,
         anio: selectedYear || "",
-        mes: selectedMonth || "",
+        mes: mesLabel || "", // label para mostrar / backend
+        id_mes: Number(selectedMonthId) || 0, // ✅ id_mes real
         labelCliente: buildClienteLabel(row),
         labelSistema: buildSistemaLabel(row),
         monto: row?.monto ?? null,
@@ -432,64 +459,94 @@ function Pagos() {
         id_pago: getIdPago(row),
       });
     },
-    [selectedYear, selectedMonth]
+    [selectedYear, selectedMonthId, meses]
   );
 
   // ✅ MODAL ARCA
   const [modalArca, setModalArca] = useState(null);
   const closeModalArca = useCallback(() => setModalArca(null), []);
 
+  /**
+   * ✅ Trae info de facturación.
+   * - Si tengo id_pago, pruebo cliente_facturacion.
+   * - Si no hay id_pago (deudores), pruebo cliente_facturacion_sistema.
+   */
   const fetchClienteFacturacion = useCallback(
-    async (id_pago, anio, mes) => {
-      const url = `${API}?action=${ACTION_PAGOS}&op=cliente_facturacion`;
+    async ({ id_pago, id_sistema, anio, mes }) => {
+      const mesLabel = getMesLabelById(meses, mes);
 
-      const resp = await fetchJSON(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          id_pago: Number(id_pago),
-          // ✅ los mando igual (aunque hoy tu SQL no los usa),
-          // porque tu error anterior venía de un dispatcher que pedía anio.
-          anio: Number(anio),
-          mes: String(mes),
-        }),
-      });
+      // 1) por id_pago (ruta principal)
+      if (id_pago) {
+        const url = `${API}?action=${ACTION_PAGOS}&op=cliente_facturacion`;
+        const resp = await fetchJSON(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            id_pago: Number(id_pago),
+            anio: Number(anio),
+            mes: String(mesLabel), // ✅ label
+          }),
+        });
+        return resp?.cliente_facturacion ?? null;
+      }
 
-      return resp?.cliente_facturacion ?? null;
+      // 2) por id_sistema (deudores)
+      if (id_sistema) {
+        const url = `${API}?action=${ACTION_PAGOS}&op=cliente_facturacion_sistema`;
+        const resp = await fetchJSON(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            id_sistema: Number(id_sistema),
+            anio: Number(anio),
+            mes: String(mesLabel), // ✅ label
+          }),
+        });
+        return resp?.cliente_facturacion ?? null;
+      }
+
+      return null;
     },
-    [fetchJSON]
+    [fetchJSON, meses]
   );
-
 
   const openModalArca = useCallback(
     async (row) => {
       const id_sistema = getIdSistema(row);
-      const id_pago = getIdPago(row);
-      if (!id_sistema || !id_pago) return;
+      const id_pago = getIdPago(row); // ✅ en deudores puede venir null
+      if (!id_sistema) return;
 
-      if (!selectedYear || !selectedMonth) {
+      if (!selectedYear || !selectedMonthId) {
         showToast("error", "Seleccioná año y mes antes de facturar.", 2600);
         return;
       }
 
-      // ✅ loading puntual en este pago
-      setArcaLoadingId(id_pago);
+      const mesLabel = getMesLabelById(meses, selectedMonthId);
+      const id_mes = Number(selectedMonthId) || 0;
+
+      // ✅ loading puntual: id_pago si existe, si no -id_sistema
+      const busyKey = arcaBusyKeyFromRow(row);
+      if (busyKey != null) setArcaLoadingId(busyKey);
 
       let cliente_facturacion = null;
       try {
-        cliente_facturacion = await fetchClienteFacturacion(
-          id_pago,
-          selectedYear,
-          selectedMonth
-        );
-        // si vino vacío, avisamos (pero abrimos igual)
+        cliente_facturacion = await fetchClienteFacturacion({
+          id_pago: id_pago || null,
+          id_sistema,
+          anio: selectedYear,
+          mes: selectedMonthId, // 👈 se interpreta como id, y adentro lo transformamos a label
+        });
+
         if (!cliente_facturacion) {
           showToast(
             "warning",
-            "No se encontró info de facturación en la DB para este pago. Se abrirá igual.",
+            "No se encontró info de facturación en la DB para este registro. Se abrirá igual.",
             3200
           );
         }
@@ -504,26 +561,32 @@ function Pagos() {
         setArcaLoadingId(null);
       }
 
-      // ✅ abrimos modal con la info ya adentro
       setModalArca({
         open: true,
         id_sistema,
-        id_pago,
-        anio: selectedYear,
-        mes: selectedMonth,
+        id_pago: id_pago || null,
+
+        // ✅ lo que necesita ARCA/Resumen
+        anio: Number(selectedYear),
+        id_mes, // ✅ AHORA SÍ LLEGA (1..12)
+        mes: mesLabel, // (opcional) label para UI o backend
+
         labelCliente: buildClienteLabel(row),
         labelSistema: buildSistemaLabel(row),
         monto: row?.monto ?? null,
         fecha_pago: row?.fecha_pago ?? null,
         medio_pago: row?.medio_pago ?? null,
-        cliente_facturacion, // ✅ CLAVE
+        cliente_facturacion,
+        origen_estado: activeTab,
       });
     },
     [
       selectedYear,
-      selectedMonth,
+      selectedMonthId,
+      meses,
       showToast,
       fetchClienteFacturacion,
+      activeTab,
     ]
   );
 
@@ -543,8 +606,8 @@ function Pagos() {
   const cacheKey = useCallback((anio, mes) => `${anio || ""}|${mes || ""}`, []);
 
   const filtrosCompletos = useMemo(
-    () => Boolean(selectedYear && selectedMonth),
-    [selectedYear, selectedMonth]
+    () => Boolean(selectedYear && selectedMonthId),
+    [selectedYear, selectedMonthId]
   );
 
   /* =========================================================
@@ -585,9 +648,9 @@ function Pagos() {
             id: m?.id ?? m?.id_mes ?? null,
             mes: (m?.mes ?? m?.nombre ?? "").toString().trim(),
           }))
-          .filter((m) => m.mes)
-          .sort((a, b) => Number(a.id ?? 99999) - Number(b.id ?? 99999))
-          .map((m) => ({ mes: m.mes }));
+          .filter((m) => m.id != null && m.mes)
+          .sort((a, b) => Number(a.id) - Number(b.id));
+
         setMeses(mesesNorm);
 
         // medios pago
@@ -621,10 +684,7 @@ function Pagos() {
           .filter((n) => Number.isFinite(n))
           .sort((a, b) => b - a);
 
-        const finalYears = [
-          current,
-          ...aniosNorm.filter((y) => y !== current),
-        ];
+        const finalYears = [current, ...aniosNorm.filter((y) => y !== current)];
 
         setYears(finalYears);
         setSelectedYear(String(current));
@@ -641,11 +701,14 @@ function Pagos() {
 
   // ===== Carga pagos por mes/año =====
   const cargarPagosPorMes = useCallback(
-    async (anio, mes, force = false) => {
-      if (!anio || !mes) return;
+    async (anio, mesId, force = false) => {
+      if (!anio || !mesId) return;
       if (loading.pagos) return;
 
-      const key = cacheKey(anio, mes);
+      const mesLabel = getMesLabelById(meses, mesId);
+      if (!mesLabel) return;
+
+      const key = cacheKey(anio, mesId);
       const now = Date.now();
       const cache = cacheRef.current.pagos;
 
@@ -663,7 +726,7 @@ function Pagos() {
       setLoading((p) => ({ ...p, pagos: true }));
       try {
         const qp = `&anio=${encodeURIComponent(anio)}&mes=${encodeURIComponent(
-          mes
+          mesLabel
         )}`;
 
         const [pagados, deudores] = await Promise.all([
@@ -690,7 +753,7 @@ function Pagos() {
         setLoading((p) => ({ ...p, pagos: false }));
       }
     },
-    [cacheKey, fetchJSON, loading.pagos]
+    [cacheKey, fetchJSON, loading.pagos, meses]
   );
 
   useEffect(() => {
@@ -701,14 +764,14 @@ function Pagos() {
     }
 
     const deb = setTimeout(() => {
-      cargarPagosPorMes(selectedYear, selectedMonth);
+      cargarPagosPorMes(selectedYear, selectedMonthId);
     }, searchTerm ? 250 : 0);
 
     return () => clearTimeout(deb);
   }, [
     filtrosCompletos,
     selectedYear,
-    selectedMonth,
+    selectedMonthId,
     searchTerm,
     cargarPagosPorMes,
   ]);
@@ -738,7 +801,7 @@ function Pagos() {
     [selectedMedioPago, searchTerm]
   );
 
-  // ✅ si NO hay pagados pero SÍ hay deudores, auto “deudores”
+  // ✅ si NO hay pagados pero SÍ hay deudores, auto "deudores"
   useEffect(() => {
     if (!filtrosCompletos) return;
     if (loading.pagos) return;
@@ -797,7 +860,7 @@ function Pagos() {
     setLimit(120);
     setHasMore(true);
     if (listRef.current) listRef.current.scrollTo(0);
-  }, [selectedYear, selectedMonth, selectedMedioPago, searchTerm, activeTab]);
+  }, [selectedYear, selectedMonthId, selectedMedioPago, searchTerm, activeTab]);
 
   // ===== handlers =====
   const handleVolver = useCallback(() => navigate(-1), [navigate]);
@@ -844,25 +907,32 @@ function Pagos() {
 
   const listKey = useMemo(
     () =>
-      `pagos-${activeTab}-${selectedYear}-${selectedMonth}-${selectedMedioPago}-${searchTerm}`,
-    [activeTab, selectedYear, selectedMonth, selectedMedioPago, searchTerm]
+      `pagos-${activeTab}-${selectedYear}-${selectedMonthId}-${selectedMedioPago}-${searchTerm}`,
+    [activeTab, selectedYear, selectedMonthId, selectedMedioPago, searchTerm]
   );
 
   // ✅ refrescar
   const recargarListado = useCallback(() => {
-    if (!selectedYear || !selectedMonth) return;
-    const k = cacheKey(selectedYear, selectedMonth);
+    if (!selectedYear || !selectedMonthId) return;
+    const k = cacheKey(selectedYear, selectedMonthId);
     delete cacheRef.current.pagos.pagado[k];
     delete cacheRef.current.pagos.deudor[k];
     delete cacheRef.current.pagos.lastUpdated[k];
-    cargarPagosPorMes(selectedYear, selectedMonth, true);
-  }, [selectedYear, selectedMonth, cacheKey, cargarPagosPorMes]);
+    cargarPagosPorMes(selectedYear, selectedMonthId, true);
+  }, [selectedYear, selectedMonthId, cacheKey, cargarPagosPorMes]);
 
   // ✅ EXPORTAR EXCEL
   const exportarExcel = useCallback(() => {
     if (!filtrosCompletos) return;
     const data = Array.isArray(datosFiltrados) ? datosFiltrados : [];
     if (!data.length) return;
+
+    const mesLabel = getMesLabelById(meses, selectedMonthId) || "mes";
+    const safeMes = String(mesLabel)
+      .toLowerCase()
+      .replace(/\s+/g, "_")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
 
     const rows = data.map((x) => ({
       Cliente: buildClienteLabel(x),
@@ -882,15 +952,16 @@ function Pagos() {
       activeTab === "pagado" ? "Pagos" : "Deudores"
     );
 
-    const safeMes = String(selectedMonth || "mes")
-      .toLowerCase()
-      .replace(/\s+/g, "_")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "");
-
     const fileName = `pagos_${activeTab}_${selectedYear}_${safeMes}.xlsx`;
     XLSX.writeFile(wb, fileName);
-  }, [filtrosCompletos, datosFiltrados, activeTab, selectedYear, selectedMonth]);
+  }, [
+    filtrosCompletos,
+    datosFiltrados,
+    activeTab,
+    selectedYear,
+    selectedMonthId,
+    meses,
+  ]);
 
   // ✅ confirmar eliminación
   const confirmarEliminarPago = useCallback(async () => {
@@ -917,12 +988,18 @@ function Pagos() {
     } finally {
       setLoading((p) => ({ ...p, pagos: false }));
     }
-  }, [modalEliminar, fetchJSON, showToast, closeModalEliminar, recargarListado]);
+  }, [
+    modalEliminar,
+    fetchJSON,
+    showToast,
+    closeModalEliminar,
+    recargarListado,
+  ]);
 
   // ===== render tabla =====
   const renderTabla = useMemo(() => {
     if (!selectedYear) return <NoFiltersApplied />;
-    if (!selectedMonth) return <NoMonthSelected />;
+    if (!selectedMonthId) return <NoMonthSelected />;
     if (loading.pagos) return <LoadingIndicator />;
     if (datosFiltrados.length === 0) return <NoDataFound />;
 
@@ -932,7 +1009,12 @@ function Pagos() {
         <div className="gpagos-mobile-list">
           {datosFiltradosPaginated.map((row, index) => {
             const isPagado = activeTab === "pagado";
-            const key = String(getIdPago(row) || getIdSistema(row) || index);
+            const idPago = getIdPago(row);
+            const idSistema = getIdSistema(row);
+            const key = String(idPago || idSistema || index);
+
+            const busyKey = arcaBusyKeyFromRow(row);
+            const arcaBusy = Boolean(busyKey && arcaLoadingId === busyKey);
 
             return (
               <div key={key} className="gpagos-mobile-card">
@@ -963,47 +1045,47 @@ function Pagos() {
                   )}
 
                   {isPagado && (
-                    <>
-                      <button
-                        className="gpagos-mobile-team-button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onTeamClick(row);
-                        }}
-                        type="button"
-                        title="Equipo / monto a pagar"
-                      >
-                        <FontAwesomeIcon icon={faUsers} />
-                        <span>Equipo</span>
-                      </button>
+                    <button
+                      className="gpagos-mobile-team-button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTeamClick(row);
+                      }}
+                      type="button"
+                      title="Equipo / monto a pagar"
+                    >
+                      <FontAwesomeIcon icon={faUsers} />
+                      <span>Equipo</span>
+                    </button>
+                  )}
 
-                      <button
-                        className="gpagos-mobile-arca-button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onArcaClick(row);
-                        }}
-                        type="button"
-                        title="Factura ARCA"
-                        disabled={Boolean(arcaLoadingId && arcaLoadingId === getIdPago(row))}
-                      >
-                        <FontAwesomeIcon icon={faFileInvoiceDollar} />
-                        <span>ARCA</span>
-                      </button>
+                  <button
+                    className="gpagos-mobile-arca-button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onArcaClick(row);
+                    }}
+                    type="button"
+                    title={arcaBusy ? "Cargando datos..." : "Factura ARCA"}
+                    disabled={arcaBusy}
+                  >
+                    <FontAwesomeIcon icon={faFileInvoiceDollar} />
+                    <span>ARCA</span>
+                  </button>
 
-                      <button
-                        className="gpagos-mobile-delete-button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteClick(row);
-                        }}
-                        type="button"
-                        title="Eliminar pago"
-                      >
-                        <FontAwesomeIcon icon={faTimes} />
-                        <span>Eliminar</span>
-                      </button>
-                    </>
+                  {isPagado && (
+                    <button
+                      className="gpagos-mobile-delete-button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteClick(row);
+                      }}
+                      type="button"
+                      title="Eliminar pago"
+                    >
+                      <FontAwesomeIcon icon={faTimes} />
+                      <span>Eliminar</span>
+                    </button>
                   )}
                 </div>
               </div>
@@ -1069,7 +1151,7 @@ function Pagos() {
     );
   }, [
     selectedYear,
-    selectedMonth,
+    selectedMonthId,
     loading.pagos,
     datosFiltrados,
     datosFiltradosPaginated,
@@ -1125,7 +1207,7 @@ function Pagos() {
           onClose={closeModalArca}
           apiBase={API}
           action={ACTION_PAGOS}
-          data={modalArca} // ✅ ACÁ VIAJA cliente_facturacion YA LISTO
+          data={modalArca}
           onDone={() => {
             closeModalArca();
             recargarListado();
@@ -1204,9 +1286,9 @@ function Pagos() {
 
                 <select
                   id="meses"
-                  value={selectedMonth}
+                  value={selectedMonthId}
                   onChange={(e) => {
-                    setSelectedMonth(e.target.value);
+                    setSelectedMonthId(e.target.value);
                     setSearchTerm("");
                   }}
                   className="gpagos-dropdown"
@@ -1215,8 +1297,8 @@ function Pagos() {
                   <option value="" disabled>
                     Mes
                   </option>
-                  {meses.map((m, index) => (
-                    <option key={index} value={m.mes}>
+                  {meses.map((m) => (
+                    <option key={m.id} value={m.id}>
                       {m.mes}
                     </option>
                   ))}
@@ -1233,7 +1315,7 @@ function Pagos() {
                   value={selectedMedioPago}
                   onChange={(e) => setSelectedMedioPago(e.target.value)}
                   className="gpagos-dropdown"
-                  disabled={!selectedYear || !selectedMonth || loading.pagos}
+                  disabled={!selectedYear || !selectedMonthId || loading.pagos}
                 >
                   <option value="">Todos</option>
                   {mediosPago.map((m, idx) => (
@@ -1334,7 +1416,7 @@ function Pagos() {
                 placeholder="Buscar cliente o sistema..."
                 value={searchTerm}
                 onChange={handleSearchChange}
-                disabled={loading.pagos || !selectedYear || !selectedMonth}
+                disabled={loading.pagos || !selectedYear || !selectedMonthId}
               />
             </div>
           </div>

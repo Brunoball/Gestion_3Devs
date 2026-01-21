@@ -10,155 +10,178 @@ header('Access-Control-Allow-Methods: GET, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
-    http_response_code(204);
-    exit;
+  http_response_code(204);
+  exit;
 }
 
 try {
-    if (!($pdo instanceof PDO)) {
-        throw new RuntimeException('Conexión PDO no disponible.');
+  if (!($pdo instanceof PDO)) {
+    throw new RuntimeException('Conexión PDO no disponible.');
+  }
+
+  $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+  $pdo->exec("SET NAMES utf8mb4");
+
+  /* =========================
+     1) TRABAJADORES (activos)
+  ========================== */
+  $sqlTrab = "
+    SELECT
+      id,
+      nombre,
+      apellido,
+      email,
+      rol,
+      alias_pago,
+      activo,
+      fecha_alta
+    FROM trabajadores
+    WHERE activo = 1
+    ORDER BY apellido, nombre
+  ";
+
+  $trabajadores = [];
+  foreach ($pdo->query($sqlTrab, PDO::FETCH_ASSOC) as $r) {
+    $trabajadores[] = [
+      'id'         => (int)$r['id'],
+      'nombre'     => (string)$r['nombre'],
+      'apellido'   => (string)$r['apellido'],
+      'email'      => $r['email'] !== null ? (string)$r['email'] : null,
+      'rol'        => (string)$r['rol'], // admin|desarrollador|soporte|vista
+      'alias_pago' => $r['alias_pago'] !== null ? (string)$r['alias_pago'] : null,
+      'activo'     => (int)$r['activo'],
+      'fecha_alta' => (string)$r['fecha_alta'],
+    ];
+  }
+
+  /* =========================
+     2) MEDIOS DE PAGO (activos)
+  ========================== */
+  $sqlMP = "
+    SELECT
+      id_medio_pago AS id,
+      nombre,
+      activo
+    FROM medios_pago
+    WHERE activo = 1
+    ORDER BY nombre
+  ";
+
+  $medios_pago = [];
+  foreach ($pdo->query($sqlMP, PDO::FETCH_ASSOC) as $r) {
+    $medios_pago[] = [
+      'id'     => (int)$r['id'],
+      'nombre' => (string)$r['nombre'],
+      'activo' => (int)$r['activo'],
+    ];
+  }
+
+  /* =========================
+     3) PLANES MANTENIMIENTO (activos)
+  ========================== */
+  $sqlPlanes = "
+    SELECT
+      id,
+      nombre,
+      descripcion,
+      monto,
+      activo,
+      fecha_creacion
+    FROM planes_mantenimiento
+    WHERE activo = 1
+    ORDER BY nombre
+  ";
+
+  $planes_mantenimiento = [];
+  foreach ($pdo->query($sqlPlanes, PDO::FETCH_ASSOC) as $r) {
+    $planes_mantenimiento[] = [
+      'id'             => (int)$r['id'],
+      'nombre'         => (string)$r['nombre'],
+      'descripcion'    => $r['descripcion'] !== null ? (string)$r['descripcion'] : null,
+      'monto'          => (float)$r['monto'], // decimal(10,2)
+      'activo'         => (int)$r['activo'],
+      'fecha_creacion' => (string)$r['fecha_creacion'],
+    ];
+  }
+
+  /* =========================
+     4) MESES (tabla meses)
+  ========================== */
+  $sqlMeses = "
+    SELECT
+      id_mes AS id,
+      mes
+    FROM meses
+    ORDER BY id_mes ASC
+  ";
+
+  $meses = [];
+  foreach ($pdo->query($sqlMeses, PDO::FETCH_ASSOC) as $r) {
+    $meses[] = [
+      'id'  => (int)$r['id'],
+      'mes' => (string)$r['mes'],
+    ];
+  }
+
+  /* =========================
+     5) AÑOS CON REGISTROS (pagos)
+  ========================== */
+  $sqlAnios = "
+    SELECT DISTINCT YEAR(fecha_pago) AS anio
+    FROM pagos
+    WHERE fecha_pago IS NOT NULL
+    ORDER BY anio DESC
+  ";
+
+  $anios = [];
+  foreach ($pdo->query($sqlAnios, PDO::FETCH_ASSOC) as $r) {
+    if ($r['anio'] !== null) {
+      $anios[] = (int)$r['anio'];
     }
+  }
 
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->exec("SET NAMES utf8mb4");
+  /* =========================
+     6) CONDICIONES IVA (ARCA) ✅ NUEVO
+     Tabla: iva_condiciones
+     Campos: id_condicion_iva, descripcion, clases_permitidas, activo
+  ========================== */
+  $sqlIva = "
+    SELECT
+      id_condicion_iva AS id,
+      descripcion,
+      clases_permitidas,
+      activo
+    FROM iva_condiciones
+    WHERE activo = 1
+    ORDER BY id_condicion_iva ASC
+  ";
 
-    /* =========================
-       1) TRABAJADORES (activos)
-    ========================== */
-    $sqlTrab = "
-        SELECT
-            id,
-            nombre,
-            apellido,
-            email,
-            rol,
-            alias_pago,
-            activo,
-            fecha_alta
-        FROM trabajadores
-        WHERE activo = 1
-        ORDER BY apellido, nombre
-    ";
+  $iva_condiciones = [];
+  foreach ($pdo->query($sqlIva, PDO::FETCH_ASSOC) as $r) {
+    $iva_condiciones[] = [
+      'id'               => (int)$r['id'],              // código ARCA (1,4,5,6,...)
+      'descripcion'      => (string)$r['descripcion'],
+      'clases_permitidas'=> (string)$r['clases_permitidas'], // "A,M,B" o "A,M,B,C"
+      'activo'           => (int)$r['activo'],
+    ];
+  }
 
-    $trabajadores = [];
-    foreach ($pdo->query($sqlTrab, PDO::FETCH_ASSOC) as $r) {
-        $trabajadores[] = [
-            'id'         => (int)$r['id'],
-            'nombre'     => (string)$r['nombre'],
-            'apellido'   => (string)$r['apellido'],
-            'email'      => $r['email'] !== null ? (string)$r['email'] : null,
-            'rol'        => (string)$r['rol'], // admin|desarrollador|soporte|vista
-            'alias_pago' => $r['alias_pago'] !== null ? (string)$r['alias_pago'] : null,
-            'activo'     => (int)$r['activo'],
-            'fecha_alta' => (string)$r['fecha_alta'],
-        ];
-    }
-
-    /* =========================
-       2) MEDIOS DE PAGO (activos)
-    ========================== */
-    $sqlMP = "
-        SELECT
-            id_medio_pago AS id,
-            nombre,
-            activo
-        FROM medios_pago
-        WHERE activo = 1
-        ORDER BY nombre
-    ";
-
-    $medios_pago = [];
-    foreach ($pdo->query($sqlMP, PDO::FETCH_ASSOC) as $r) {
-        $medios_pago[] = [
-            'id'     => (int)$r['id'],
-            'nombre' => (string)$r['nombre'],
-            'activo' => (int)$r['activo'],
-        ];
-    }
-
-    /* =========================
-       3) PLANES MANTENIMIENTO (activos)
-    ========================== */
-    $sqlPlanes = "
-        SELECT
-            id,
-            nombre,
-            descripcion,
-            monto,
-            activo,
-            fecha_creacion
-        FROM planes_mantenimiento
-        WHERE activo = 1
-        ORDER BY nombre
-    ";
-
-    $planes_mantenimiento = [];
-    foreach ($pdo->query($sqlPlanes, PDO::FETCH_ASSOC) as $r) {
-        $planes_mantenimiento[] = [
-            'id'             => (int)$r['id'],
-            'nombre'         => (string)$r['nombre'],
-            'descripcion'    => $r['descripcion'] !== null ? (string)$r['descripcion'] : null,
-            'monto'          => (float)$r['monto'], // decimal(10,2)
-            'activo'         => (int)$r['activo'],
-            'fecha_creacion' => (string)$r['fecha_creacion'],
-        ];
-    }
-
-    /* =========================
-       4) MESES (tabla meses)
-       Tabla: gestion_3devs.meses
-       Campos: id_mes (PK), mes (varchar(15) UNIQUE)
-    ========================== */
-    $sqlMeses = "
-        SELECT
-            id_mes AS id,
-            mes
-        FROM meses
-        ORDER BY id_mes ASC
-    ";
-
-    $meses = [];
-    foreach ($pdo->query($sqlMeses, PDO::FETCH_ASSOC) as $r) {
-        $meses[] = [
-            'id'  => (int)$r['id'],
-            'mes' => (string)$r['mes'],
-        ];
-    }
-
-    /* =========================
-       5) AÑOS CON REGISTROS (pagos)
-       Se usa para el filtro de Año en Reportes
-       (NO filtra nada, solo lista los años existentes)
-    ========================== */
-    $sqlAnios = "
-        SELECT DISTINCT YEAR(fecha_pago) AS anio
-        FROM pagos
-        WHERE fecha_pago IS NOT NULL
-        ORDER BY anio DESC
-    ";
-
-    $anios = [];
-    foreach ($pdo->query($sqlAnios, PDO::FETCH_ASSOC) as $r) {
-        if ($r['anio'] !== null) {
-            $anios[] = (int)$r['anio'];
-        }
-    }
-
-    echo json_encode([
-        'exito' => true,
-        'listas' => [
-            'trabajadores'         => $trabajadores,
-            'medios_pago'          => $medios_pago,
-            'planes_mantenimiento' => $planes_mantenimiento,
-            'meses'                => $meses,
-            'anios'                => $anios, // ✅ NUEVO
-        ],
-    ], JSON_UNESCAPED_UNICODE);
+  echo json_encode([
+    'exito' => true,
+    'listas' => [
+      'trabajadores'         => $trabajadores,
+      'medios_pago'          => $medios_pago,
+      'planes_mantenimiento' => $planes_mantenimiento,
+      'meses'                => $meses,
+      'anios'                => $anios,
+      'iva_condiciones'      => $iva_condiciones, // ✅ NUEVO
+    ],
+  ], JSON_UNESCAPED_UNICODE);
 
 } catch (Throwable $e) {
-    http_response_code(500);
-    echo json_encode([
-        'exito'   => false,
-        'mensaje' => 'Error: ' . $e->getMessage(),
-    ], JSON_UNESCAPED_UNICODE);
+  http_response_code(500);
+  echo json_encode([
+    'exito'   => false,
+    'mensaje' => 'Error: ' . $e->getMessage(),
+  ], JSON_UNESCAPED_UNICODE);
 }

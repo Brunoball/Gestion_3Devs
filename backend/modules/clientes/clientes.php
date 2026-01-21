@@ -2,9 +2,7 @@
 // backend/modules/clientes/clientes.php
 declare(strict_types=1);
 
-// 👇 Si tu routes/api.php ya hace require del DB, esto es redundante.
-// Pero lo dejo para que funcione incluso si llamás al módulo directo.
-require_once __DIR__ . '/../../config/db.php'; // debe definir $pdo (PDO)
+require_once __DIR__ . '/../../config/db.php';
 
 /* =========================
    HELPERS (compartidos)
@@ -22,7 +20,7 @@ function read_json(): array {
 }
 
 /* =========================
-   REPOS (misma carpeta)
+   REPOS
 ========================= */
 require_once __DIR__ . '/clientes.repo.php';
 require_once __DIR__ . '/sistemas.repo.php';
@@ -31,15 +29,12 @@ require_once __DIR__ . '/sistema_trabajadores.repo.php';
 require_once __DIR__ . '/planes_mantenimiento.repo.php';
 
 /* =========================================================
-   ✅ NUEVOS HANDLERS: FACTURACIÓN
+   ✅ HANDLERS: FACTURACIÓN
 ========================================================= */
 
 /**
  * ✅ GET
  * /api.php?action=clientes&op=facturacion_get&id_cliente=123
- *
- * Devuelve:
- * { exito:true, facturacion: {...} }  ó  { exito:true, facturacion:null }
  */
 function clientes_facturacion_get_op(): void
 {
@@ -58,10 +53,8 @@ function clientes_facturacion_get_op(): void
       json_out(['exito' => false, 'mensaje' => 'id_cliente inválido']);
     }
 
-    // función DB pura (no imprime JSON)
     $fact = clientes_facturacion_get($pdo, $id_cliente);
 
-    // ✅ exito=true aunque no exista registro
     json_out([
       'exito' => true,
       'facturacion' => $fact, // null si no hay
@@ -78,10 +71,6 @@ function clientes_facturacion_get_op(): void
 /**
  * ✅ POST
  * /api.php?action=clientes&op=facturacion_upsert
- * body JSON:
- * {
- *   id_cliente, doc_tipo(80/96), doc_nro, razon_social, domicilio, cond_iva, cond_venta
- * }
  */
 function clientes_facturacion_upsert_op(): void
 {
@@ -102,26 +91,34 @@ function clientes_facturacion_upsert_op(): void
 
     $razon_social = trim((string)($in['razon_social'] ?? ''));
     $domicilio    = trim((string)($in['domicilio'] ?? ''));
-    $cond_iva     = trim((string)($in['cond_iva'] ?? 'IVA Sujeto Exento'));
-    $cond_venta   = trim((string)($in['cond_venta'] ?? 'Contado / Transferencia Bancaria'));
+
+    // ✅ NUEVO: condición iva por ID (ARCA)
+    $id_condicion_iva = isset($in['id_condicion_iva']) && is_numeric($in['id_condicion_iva'])
+      ? (int)$in['id_condicion_iva']
+      : 4;
+
+    $cond_venta = trim((string)($in['cond_venta'] ?? 'Contado / Transferencia Bancaria'));
 
     if ($id_cliente <= 0) json_out(['exito' => false, 'mensaje' => 'id_cliente inválido']);
     if (!in_array($doc_tipo, [80, 96], true)) json_out(['exito' => false, 'mensaje' => 'doc_tipo inválido (80/96)']);
     if ($doc_nro_clean === '') json_out(['exito' => false, 'mensaje' => 'doc_nro obligatorio (solo números)']);
     if ($razon_social === '') json_out(['exito' => false, 'mensaje' => 'razon_social obligatoria']);
 
+    // ✅ Validar que el ID exista en iva_condiciones (activo=1)
+    if (!iva_condicion_existe($pdo, $id_condicion_iva)) {
+      json_out(['exito' => false, 'mensaje' => 'Condición IVA inválida']);
+    }
+
     $payload = [
-      'id_cliente'   => $id_cliente,
-      'doc_tipo'     => $doc_tipo,
-      // BIGINT seguro como string numérico
-      'doc_nro'      => $doc_nro_clean,
-      'razon_social' => $razon_social,
-      'domicilio'    => $domicilio,
-      'cond_iva'     => ($cond_iva !== '' ? $cond_iva : 'IVA Sujeto Exento'),
-      'cond_venta'   => ($cond_venta !== '' ? $cond_venta : 'Contado / Transferencia Bancaria'),
+      'id_cliente'        => $id_cliente,
+      'doc_tipo'          => $doc_tipo,
+      'doc_nro'           => $doc_nro_clean, // string numérico
+      'razon_social'      => $razon_social,
+      'domicilio'         => $domicilio,
+      'id_condicion_iva'  => $id_condicion_iva,
+      'cond_venta'        => ($cond_venta !== '' ? $cond_venta : 'Contado / Transferencia Bancaria'),
     ];
 
-    // función DB pura (no imprime JSON)
     clientes_facturacion_upsert($pdo, $payload);
 
     json_out([
@@ -141,9 +138,6 @@ function clientes_facturacion_upsert_op(): void
    ✅ PLANES DE MANTENIMIENTO (tu handler)
 ========================================================= */
 
-/**
- * ✅ GET: /api.php?action=clientes&op=planes_mantenimiento_list
- */
 function planes_mantenimiento_listar(): void
 {
   global $pdo;
@@ -170,9 +164,3 @@ function planes_mantenimiento_listar(): void
     ]);
   }
 }
-
-/* =========================================================
-   IMPORTANTE
-   Tus otras funciones (clientes_listar, clientes_crear, etc.)
-   están en clientes.repo.php y se llaman desde route.php
-========================================================= */

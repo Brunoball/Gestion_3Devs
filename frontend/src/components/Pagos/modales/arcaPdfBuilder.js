@@ -8,11 +8,16 @@ import defaultLogoSrc from "../../../imagenes/logo_factura.jpeg";
 /**
  * PDF estilo ARCA (A4 pt) con:
  * - ORIGINAL / DUPLICADO / TRIPLICADO
- * - Emisor fijo (según tus PDFs)
+ * - Emisor fijo
  * - PV fijo 0002
- * - Ajustes: caja derecha con más aire, IIBB = CUIT, logo un poco más grande
- * - ✅ FIX: Razón Social del receptor PRIORIZA DB (cliente_facturacion.razon_social)
- * - ✅ NUEVO: Período + VtoPago desde data (lo que elijas en el modal)
+ * - Razón Social receptor prioriza DB (cliente_facturacion.razon_social)
+ * - Período + VtoPago desde data (lo que elijas en el modal)
+ * - TABLA DETALLE: muestra items de data.items_facturacion (planes + mantenimiento/desarrollo)
+ *
+ * ✅ REQUERIMIENTO:
+ * - NO mostrar nunca conversiones (USD -> ARS) en el PDF.
+ * - Si el mantenimiento está en USD, igual se transforma a ARS para importes, pero el cliente
+ *   solo ve ARS (precio unitario/subtotal).
  */
 
 // =====================
@@ -27,10 +32,33 @@ const FIX = {
   letra: "C",
   tipoTxt: "FACTURA",
   cod_afip: "011",
-  pto_vta_fijo: "0002", // ✅ SIEMPRE 0002
+  pto_vta_fijo: "0002",
   cond_iva_receptor_default: "IVA Sujeto Exento",
   cond_venta_default: "Contado / Transferencia Bancaria",
 };
+
+// =====================
+// Text sanitization (CRÍTICO para jsPDF)
+// =====================
+function sanitizePdfText(input) {
+  let t = input == null ? "" : String(input);
+  t = t.replace(/\s+/g, " ").trim();
+
+  // Reemplazos típicos
+  t = t
+    .replace(/[“”]/g, '"')
+    .replace(/[’‘]/g, "'")
+    .replace(/[–—]/g, "-")
+    .replace(/→/g, "->"); // por si aparece en algún texto igual
+
+  // Quitar chars fuera de Latin-1
+  let out = "";
+  for (let i = 0; i < t.length; i++) {
+    const code = t.charCodeAt(i);
+    out += code <= 255 ? t[i] : " ";
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
 
 // =====================
 // Helpers
@@ -49,8 +77,7 @@ function ymdToHuman(ymd) {
   if (!ymd) return "";
   const str = String(ymd);
 
-  if (isYMD8(str))
-    return `${str.slice(6, 8)}/${str.slice(4, 6)}/${str.slice(0, 4)}`;
+  if (isYMD8(str)) return `${str.slice(6, 8)}/${str.slice(4, 6)}/${str.slice(0, 4)}`;
 
   if (str.length >= 10 && str.includes("-")) {
     const [y, m, d] = str.slice(0, 10).split("-");
@@ -60,19 +87,24 @@ function ymdToHuman(ymd) {
 }
 function numEs(v, dec = 2) {
   const n = Number(v);
-  if (!Number.isFinite(n)) {
-    return (0).toLocaleString("es-AR", {
-      minimumFractionDigits: dec,
-      maximumFractionDigits: dec,
-    });
-  }
-  return n.toLocaleString("es-AR", {
+  const x = Number.isFinite(n) ? n : 0;
+  return x.toLocaleString("es-AR", {
     minimumFractionDigits: dec,
     maximumFractionDigits: dec,
   });
 }
 function moneyEs(v) {
   return numEs(v, 2);
+}
+function safeNumber(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+function toBool(v) {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  const t = String(v || "").toLowerCase().trim();
+  return t === "1" || t === "true" || t === "yes" || t === "si";
 }
 
 // =====================
@@ -96,19 +128,19 @@ function set(doc, font = "helvetica", style = "normal", size = 10) {
   doc.setFontSize(size);
 }
 function text(doc, str, x, y, opt) {
-  doc.text(s(str), x, y, opt);
+  doc.text(sanitizePdfText(str), x, y, opt);
 }
 function clampToWidth(doc, str, maxW) {
-  const t = s(str).replace(/\s+/g, " ").trim();
+  const t = sanitizePdfText(str);
   if (!t) return "";
   if (doc.getTextWidth(t) <= maxW) return t;
 
   let out = t;
-  while (out.length > 0 && doc.getTextWidth(out + "…") > maxW) out = out.slice(0, -1);
-  return out.length ? out + "…" : "";
+  while (out.length > 0 && doc.getTextWidth(out + "...") > maxW) out = out.slice(0, -1);
+  return out.length ? out + "..." : "";
 }
 function wrapByWidth(doc, str, maxW) {
-  const t = s(str).replace(/\s+/g, " ").trim();
+  const t = sanitizePdfText(str);
   if (!t) return [];
   const words = t.split(" ");
   const lines = [];
@@ -146,32 +178,111 @@ async function toDataUrlFromSrc(src) {
 }
 
 // =====================
-// Items
+// Items (DETALLE)
 // =====================
-function computeItems(fact, data) {
-  const raw = fact?.items;
-  if (Array.isArray(raw) && raw.length) {
-    return raw.map((it) => ({
-      codigo: s(it.codigo ?? it.cod ?? 1) || "1",
-      descripcion: s(it.descripcion || it.detalle || it.nombre || ""),
-      cantidad: Number(it.cantidad ?? 1),
-      unidad: s(it.unidad || it.u_medida || "unidades"),
-      precio: Number(it.precio_unitario ?? it.precio ?? it.importe ?? 0),
-      bonifPct: Number(it.bonif_pct ?? 0),
-      impBonif: Number(it.imp_bonif ?? 0),
-      subtotal: Number(it.subtotal ?? it.importe ?? 0),
-    }));
+/**
+ * Prioridad:
+ * 1) data.items_facturacion (lo del modal)
+ * 2) fact.items (si backend manda)
+ * 3) fallback 1 línea con total
+ *
+ * ✅ Regla: EN EL PDF SOLO ARS.
+ * - Si item tiene {ars}, se usa.
+ * - Si no, se usa {subtotal|precio_unitario|precio|importe} como ARS.
+ */
+function computeItems(fact, data, totalArs) {
+  const total = safeNumber(
+    totalArs,
+    safeNumber(fact?.importe ?? data?.monto ?? data?.importe ?? 0, 0)
+  );
+
+  // 1) data.items_facturacion
+  const fromModal = Array.isArray(data?.items_facturacion) ? data.items_facturacion : [];
+  const modalNorm = fromModal
+    .map((it, idx) => {
+      const descBase = sanitizePdfText(s(it?.descripcion).trim());
+      if (!descBase) return null;
+
+      // ✅ SOLO ARS (aunque venga usd, no se muestra)
+      const ars =
+        safeNumber(it?.ars, NaN);
+      const fallbackArs =
+        safeNumber(it?.subtotal, NaN) ??
+        safeNumber(it?.precio, NaN) ??
+        safeNumber(it?.importe, NaN);
+
+      const valueArs = Number.isFinite(ars) ? ars : (Number.isFinite(fallbackArs) ? fallbackArs : 0);
+
+      return {
+        codigo: String(idx + 1),
+        descripcion: descBase, // ✅ SIN conversiones
+        cantidad: 1,
+        unidad: "serv.",
+        precio: valueArs,
+        bonifPct: 0,
+        impBonif: 0,
+        subtotal: valueArs,
+      };
+    })
+    .filter(Boolean);
+
+  if (modalNorm.length) {
+    // Ajuste para que cierre con el total
+    const sum = modalNorm.reduce((acc, it) => acc + safeNumber(it.subtotal, 0), 0);
+    const diff = total - sum;
+
+    if (Number.isFinite(diff) && Math.abs(diff) >= 0.01) {
+      const last = modalNorm[modalNorm.length - 1];
+      const newSub = safeNumber(last.subtotal, 0) + diff;
+      last.subtotal = newSub;
+      last.precio = newSub; // cantidad 1
+    }
+    return modalNorm;
   }
 
-  const desc = s(data?.detalle || data?.labelSistema || data?.sistema || "");
-  const total = Number(fact?.importe ?? data?.monto ?? data?.importe ?? 0);
+  // 2) fact.items
+  const raw = fact?.items;
+  if (Array.isArray(raw) && raw.length) {
+    const norm = raw
+      .map((it, idx) => {
+        const desc = sanitizePdfText(s(it.descripcion || it.detalle || it.nombre || ""));
+        if (!desc) return null;
 
+        const cant = safeNumber(it.cantidad ?? 1, 1);
+
+        // ✅ Solo ARS (si viene ars explícito, se usa; si no, se asume que precio/subtotal ya es ARS)
+        const precio = Number.isFinite(safeNumber(it.ars, NaN))
+          ? safeNumber(it.ars, 0)
+          : safeNumber(it.precio_unitario ?? it.precio ?? it.importe ?? 0, 0);
+
+        const subtotal = Number.isFinite(safeNumber(it.subtotal, NaN))
+          ? safeNumber(it.subtotal, 0)
+          : precio * cant;
+
+        return {
+          codigo: sanitizePdfText(s(it.codigo ?? it.cod ?? idx + 1) || String(idx + 1)),
+          descripcion: desc,
+          cantidad: cant,
+          unidad: sanitizePdfText(s(it.unidad || it.u_medida || "serv.")),
+          precio,
+          bonifPct: safeNumber(it.bonif_pct ?? 0, 0),
+          impBonif: safeNumber(it.imp_bonif ?? 0, 0),
+          subtotal,
+        };
+      })
+      .filter(Boolean);
+
+    if (norm.length) return norm;
+  }
+
+  // 3) fallback
+  const desc = sanitizePdfText(s(data?.detalle || data?.labelSistema || data?.sistema || "Servicio"));
   return [
     {
       codigo: "1",
       descripcion: desc,
       cantidad: 1,
-      unidad: "unidades",
+      unidad: "serv.",
       precio: total,
       bonifPct: 0,
       impBonif: 0,
@@ -211,48 +322,52 @@ function getEmisor() {
     domComercial: FIX.emisor_domicilio,
     cuit: FIX.cuit_emisor,
     condIva: FIX.cond_iva_emisor,
-    iibb: FIX.cuit_emisor, // ✅ IIBB = CUIT
+    iibb: FIX.cuit_emisor,
     inicioAct: FIX.inicio_actividades,
   };
 }
 
 /**
- * ✅ FIX IMPORTANTE:
- * Prioriza datos de DB en:
- *   data.cliente_facturacion = { doc_tipo, doc_nro, razon_social, domicilio, cond_iva, cond_venta }
+ * ✅ Prioriza datos de DB:
+ * data.cliente_facturacion = { doc_tipo, doc_nro, razon_social, domicilio, cond_iva, cond_venta }
  */
 function getReceptor(fact, data) {
   const cf = data?.cliente_facturacion || null;
 
   const docTipo = Number(fact?.doc_tipo ?? cf?.doc_tipo ?? data?.doc_tipo ?? 0) || 0;
   const docNro = s(fact?.doc_nro ?? cf?.doc_nro ?? data?.doc_nro ?? "").replace(/\D/g, "");
-
   const nroParaCaja = docNro || s(fact?.receptor_cuit || data?.receptor_cuit || "");
 
   const razonDB = s(cf?.razon_social || "").trim();
 
   return {
-    cuit: s(nroParaCaja || ""),
-    razon: s(
-      razonDB ||
-        fact?.receptor_nombre ||
-        data?.receptor_nombre ||
-        data?.labelCliente ||
-        data?.cliente ||
-        ""
+    cuit: sanitizePdfText(s(nroParaCaja || "")),
+    razon: sanitizePdfText(
+      s(
+        razonDB ||
+          fact?.receptor_nombre ||
+          data?.receptor_nombre ||
+          data?.labelCliente ||
+          data?.cliente ||
+          ""
+      )
     ),
-    dom: s(fact?.receptor_domicilio || cf?.domicilio || data?.cliente_domicilio || ""),
-    condIva: s(
-      fact?.cond_iva_receptor ||
-        cf?.cond_iva ||
-        data?.cond_iva_receptor ||
-        FIX.cond_iva_receptor_default
+    dom: sanitizePdfText(s(fact?.receptor_domicilio || cf?.domicilio || data?.cliente_domicilio || "")),
+    condIva: sanitizePdfText(
+      s(
+        fact?.cond_iva_receptor ||
+          cf?.cond_iva ||
+          data?.cond_iva_receptor ||
+          FIX.cond_iva_receptor_default
+      )
     ),
-    condVenta: s(
-      fact?.condicion_venta ||
-        cf?.cond_venta ||
-        data?.condicion_venta ||
-        FIX.cond_venta_default
+    condVenta: sanitizePdfText(
+      s(
+        fact?.condicion_venta ||
+          cf?.cond_venta ||
+          data?.condicion_venta ||
+          FIX.cond_venta_default
+      )
     ),
     docTipo,
     docNro,
@@ -260,9 +375,8 @@ function getReceptor(fact, data) {
 }
 
 /**
- * ✅ NUEVO (tolerante):
- * - Prioriza lo que elegiste en el modal: data.periodo_desde / data.periodo_hasta / data.vto_pago
- * - Si no, cae a campos del backend: fact.FchServDesde/Hasta/VtoPago (si algún día los mandás de vuelta)
+ * ✅ Período (tolerante):
+ * - Prioriza lo elegido en el modal: data.periodo_desde / data.periodo_hasta / data.vto_pago
  */
 function getPeriodo(fact, data) {
   const pick = (...vals) => {
@@ -314,8 +428,9 @@ async function drawBottomAnchored(doc, ctx, layout) {
 
   const meta = getMeta(fact);
 
-  const totalReal = Number(fact?.importe ?? data?.monto ?? data?.importe ?? 0);
-  const total = forceTestAmount ? Number(testAmount) : totalReal;
+  const totalReal = safeNumber(fact?.importe ?? data?.monto ?? data?.importe ?? 0, 0);
+  const totalTest = safeNumber(testAmount, 1000);
+  const total = toBool(forceTestAmount) ? totalTest : totalReal;
 
   const footerH = 145;
   const gap = 18;
@@ -345,10 +460,7 @@ async function drawBottomAnchored(doc, ctx, layout) {
 
   if (meta.qrUrl) {
     try {
-      const qrDataUrl = await QRCode.toDataURL(String(meta.qrUrl), {
-        margin: 0,
-        scale: 6,
-      });
+      const qrDataUrl = await QRCode.toDataURL(String(meta.qrUrl), { margin: 0, scale: 6 });
       doc.addImage(qrDataUrl, "PNG", qrX, qrY, qrSize, qrSize);
     } catch {
       rect(doc, qrX, qrY, qrSize, qrSize, 0.4);
@@ -371,7 +483,7 @@ async function drawBottomAnchored(doc, ctx, layout) {
     text(doc, "ARCA", arcaX, footY + 58);
     set(doc, "helvetica", "normal", 6);
     text(doc, "AGENCIA DE RECAUDACION", arcaX, footY + 66);
-    text(doc, "Y CONTROL ADUANERO", arcaX, footY + 73);
+    text(doc, "Y CONTROL ADUANANERO", arcaX, footY + 73);
   }
 
   set(doc, "helvetica", "bold", 10);
@@ -406,7 +518,7 @@ async function drawBottomAnchored(doc, ctx, layout) {
   set(doc, "courier", "normal", 9);
   text(doc, meta.cae, W - B - 10, H - B - 6, { align: "right" });
 
-  return { totY, footY };
+  return { totY, footY, total };
 }
 
 // =====================
@@ -489,9 +601,7 @@ async function drawPage(doc, pageName, ctx) {
   set(doc, "helvetica", "normal", 9);
   text(doc, clampToWidth(doc, em.condIva, splitX - lx - 12), lx + 130, ly + 48);
 
-  // ==========================
   // ✅ DERECHA
-  // ==========================
   const rx = splitX + 1;
 
   set(doc, "helvetica", "bold", 20);
@@ -671,10 +781,11 @@ async function drawPage(doc, pageName, ctx) {
   text(doc, "Imp. Bonif.", xImpBon, tblY + 15, { align: "right" });
   text(doc, "Subtotal", xSubt, tblY + 15, { align: "right" });
 
-  const totalReal = Number(fact?.importe ?? data?.monto ?? data?.importe ?? 0);
-  const total = forceTestAmount ? Number(testAmount) : totalReal;
+  const totalReal = safeNumber(fact?.importe ?? data?.monto ?? data?.importe ?? 0, 0);
+  const totalTest = safeNumber(testAmount, 1000);
+  const total = toBool(forceTestAmount) ? totalTest : totalReal;
 
-  const items = computeItems({ ...fact, importe: total }, data);
+  const items = computeItems({ ...fact, importe: total }, data, total);
 
   set(doc, "helvetica", "normal", 9);
 
@@ -690,14 +801,14 @@ async function drawPage(doc, pageName, ctx) {
 
     if (y + blockH > maxBodyY) break;
 
-    text(doc, s(it.codigo || "1"), xCodigo, y);
+    text(doc, s(it.codigo || String(i + 1)), xCodigo, y);
 
     for (let li = 0; li < descLines.length; li++) {
       text(doc, descLines[li], xProd, y + li * 12);
     }
 
     text(doc, numEs(it.cantidad ?? 1, 2), xCant, y, { align: "right" });
-    text(doc, s(it.unidad || "unidades"), xUM, y, { align: "right" });
+    text(doc, s(it.unidad || "serv."), xUM, y, { align: "right" });
     text(doc, moneyEs(it.precio || 0), xPU, y, { align: "right" });
     text(doc, numEs(it.bonifPct || 0, 2), xBonif, y, { align: "right" });
     text(doc, moneyEs(it.impBonif || 0), xImpBon, y, { align: "right" });
@@ -708,7 +819,7 @@ async function drawPage(doc, pageName, ctx) {
 }
 
 // =====================
-// Public API
+// Build PDF function
 // =====================
 export async function buildArcaInvoicePdf({
   fact,
@@ -757,6 +868,13 @@ export async function buildArcaInvoicePdf({
   return doc;
 }
 
+// =====================
+// ✅ MAIN EXPORT FUNCTION
+// =====================
+/**
+ * Genera un PDF estilo ARCA y SIEMPRE devuelve { blob, filename }.
+ * Si download=true, además dispara la descarga automática.
+ */
 export async function saveArcaInvoicePdf({
   fact,
   data,
@@ -764,6 +882,8 @@ export async function saveArcaInvoicePdf({
   testAmount = 1000,
   logoDataUrl = null,
   arcaLogoDataUrl = null,
+  download = true,
+  filename: filenameIn,
 } = {}) {
   const doc = await buildArcaInvoicePdf({
     fact,
@@ -774,10 +894,31 @@ export async function saveArcaInvoicePdf({
     arcaLogoDataUrl,
   });
 
-  const pto = FIX.pto_vta_fijo;
-  const tipo = padLeft(fact?.cbte_tipo ?? 11, 3);
-  const nro = padLeft(fact?.cbte_nro ?? "", 8);
-  const fileNro = nro || "________";
+  // ✅ SIEMPRE blob
+  const blob = doc.output("blob");
 
-  doc.save(`FACTURA_${pto}_${tipo}_${fileNro}.pdf`);
+  const safe = (x) =>
+    sanitizePdfText(String(x || ""))
+      .replace(/[^\w\-]+/g, "_")
+      .slice(0, 60);
+
+  const pv = String(fact?.pto_vta ?? FIX.pto_vta_fijo).padStart(4, "0");
+  const nro = String(fact?.cbte_nro ?? "0").padStart(8, "0");
+  const cli = safe(data?.labelCliente || data?.cliente || "CLIENTE");
+  const sys = safe(data?.labelSistema || data?.sistema || "SISTEMA");
+
+  const filename = filenameIn || `FACTURA_${pv}-${nro}_${cli}_${sys}.pdf`;
+
+  if (download) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  return { blob, filename };
 }
