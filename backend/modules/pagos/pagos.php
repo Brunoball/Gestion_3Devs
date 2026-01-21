@@ -19,7 +19,10 @@ declare(strict_types=1);
  * ✅ ARCA:
  * - incluye arca_factura.php (pagos_factura_arca)
  *
- * ✅ NUEVO:
+ * ✅ Guardar PDF:
+ * - incluye factura_guardar_pdf.php (pagos_factura_guardar_pdf)
+ *
+ * ✅ Planes mantenimiento:
  * - gestion_3devs.planes_mantenimiento (id, nombre, descripcion, monto, activo, fecha_creacion)
  */
 
@@ -155,10 +158,7 @@ function pagos_planes_mantenimiento(): void
 {
   global $pdo;
 
-  // GET o POST da igual, pero dejamos GET
   try {
-    // Si tu tabla está en otro schema, lo dejamos explícito como en tu captura:
-    // gestion_3devs.planes_mantenimiento
     $sql = "
       SELECT
         id,
@@ -180,7 +180,6 @@ function pagos_planes_mantenimiento(): void
         'id' => (int)($r['id'] ?? 0),
         'nombre' => (string)($r['nombre'] ?? ''),
         'descripcion' => (string)($r['descripcion'] ?? ''),
-        // interpretamos monto como USD (el modal arma USD -> ARS)
         'monto' => isset($r['monto']) ? (float)$r['monto'] : 0.0,
         'activo' => (int)($r['activo'] ?? 0),
       ];
@@ -231,7 +230,6 @@ function pagos_cliente_facturacion(): void
     $st->execute([':id_pago' => $id_pago]);
     $row = $st->fetch(PDO::FETCH_ASSOC);
 
-    // ✅ Si no hay registro de clientes_facturacion, devolvemos null limpio
     if (!$row || empty($row['id_cliente'])) {
       json_ok([
         'exito' => true,
@@ -647,6 +645,153 @@ function pagos_detalle_sistema(): void
 }
 
 /* =========================================================
+   ✅ NUEVO: DETALLE POR PERÍODO (pago + factura)
+   GET /api.php?action=pagos&op=detalle_periodo&id_sistema=5&anio=2026&id_mes=1
+========================================================= */
+function pagos_detalle_periodo(): void
+{
+  global $pdo;
+
+  $id_sistema = isset($_GET['id_sistema']) && is_numeric($_GET['id_sistema']) ? (int)$_GET['id_sistema'] : 0;
+  $anio      = isset($_GET['anio']) && is_numeric($_GET['anio']) ? (int)$_GET['anio'] : 0;
+  $id_mes    = isset($_GET['id_mes']) && is_numeric($_GET['id_mes']) ? (int)$_GET['id_mes'] : 0;
+
+  if ($id_sistema <= 0) json_error("Falta id_sistema");
+  if ($anio < 2000 || $anio > 2100) json_error("Año inválido");
+  if ($id_mes < 1 || $id_mes > 12) json_error("Mes inválido");
+
+  try {
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->exec("SET NAMES utf8mb4");
+
+    // 1) Detalle sistema/cliente (para título del modal)
+    $sqlDet = "
+      SELECT
+        cs.id_sistema,
+        cs.id_cliente,
+        cs.nombre AS sistema_nombre,
+        cs.descripcion AS sistema_descripcion,
+        cs.estado AS sistema_estado,
+        c.nombre AS cliente_nombre
+      FROM clientes_sistemas cs
+      INNER JOIN clientes c ON c.id_cliente = cs.id_cliente
+      WHERE cs.id_sistema = :id_sistema
+      LIMIT 1
+    ";
+    $stDet = $pdo->prepare($sqlDet);
+    $stDet->execute([':id_sistema' => $id_sistema]);
+    $det = $stDet->fetch(PDO::FETCH_ASSOC);
+    if (!$det) json_error("Sistema no encontrado (id_sistema=$id_sistema)");
+
+    // 2) Pago (si existe) para ese período
+    $sqlPago = "
+      SELECT
+        id_pago,
+        id_sistema,
+        id_mes,
+        id_medio_pago,
+        monto,
+        fecha_pago
+      FROM pagos
+      WHERE id_sistema = :id_sistema
+        AND id_mes = :id_mes
+        AND YEAR(fecha_pago) = :anio
+      ORDER BY id_pago DESC
+      LIMIT 1
+    ";
+    $stP = $pdo->prepare($sqlPago);
+    $stP->execute([
+      ':id_sistema' => $id_sistema,
+      ':id_mes' => $id_mes,
+      ':anio' => $anio,
+    ]);
+    $pago = $stP->fetch(PDO::FETCH_ASSOC) ?: null;
+
+    // 3) Factura (si existe) para ese período (última)
+    $sqlF = "
+      SELECT
+        id_factura,
+        id_pago,
+        id_sistema,
+        anio,
+        id_mes,
+        estado,
+        monto_ars,
+        doc_tipo,
+        doc_nro,
+        cbte_tipo,
+        pto_vta,
+        cae,
+        cae_vto,
+        cbte_nro,
+        fecha_cbte,
+        pdf_path,
+        items_facturacion_json,
+        usd_rate,
+        total_usd,
+        total_ars,
+        periodo_desde,
+        periodo_hasta,
+        vto_pago,
+        created_at
+      FROM facturas
+      WHERE id_sistema = :id_sistema
+        AND anio = :anio
+        AND id_mes = :id_mes
+      ORDER BY created_at DESC, id_factura DESC
+      LIMIT 1
+    ";
+    $stF = $pdo->prepare($sqlF);
+    $stF->execute([
+      ':id_sistema' => $id_sistema,
+      ':anio' => $anio,
+      ':id_mes' => $id_mes,
+    ]);
+    $factura = $stF->fetch(PDO::FETCH_ASSOC) ?: null;
+
+    // Normalizar tipos
+    if ($pago) {
+      $pago = [
+        'id_pago' => (int)($pago['id_pago'] ?? 0),
+        'id_sistema' => (int)($pago['id_sistema'] ?? 0),
+        'id_mes' => (int)($pago['id_mes'] ?? 0),
+        'id_medio_pago' => (int)($pago['id_medio_pago'] ?? 0),
+        'monto' => isset($pago['monto']) ? (float)$pago['monto'] : 0.0,
+        'fecha_pago' => $pago['fecha_pago'] ?? null,
+      ];
+    }
+
+    if ($factura) {
+      $factura['id_factura'] = (int)($factura['id_factura'] ?? 0);
+      $factura['id_pago'] = isset($factura['id_pago']) ? (int)$factura['id_pago'] : null;
+      $factura['id_sistema'] = isset($factura['id_sistema']) ? (int)$factura['id_sistema'] : null;
+      $factura['anio'] = (int)($factura['anio'] ?? 0);
+      $factura['id_mes'] = (int)($factura['id_mes'] ?? 0);
+      $factura['monto_ars'] = isset($factura['monto_ars']) ? (float)$factura['monto_ars'] : 0.0;
+      $factura['usd_rate'] = isset($factura['usd_rate']) ? (float)$factura['usd_rate'] : null;
+      $factura['total_usd'] = isset($factura['total_usd']) ? (float)$factura['total_usd'] : null;
+      $factura['total_ars'] = isset($factura['total_ars']) ? (float)$factura['total_ars'] : null;
+    }
+
+    json_ok([
+      'exito' => true,
+      'detalle' => [
+        'cliente_nombre' => (string)($det['cliente_nombre'] ?? ''),
+        'sistema_nombre' => (string)($det['sistema_nombre'] ?? ''),
+        'sistema_descripcion' => (string)($det['sistema_descripcion'] ?? ''),
+        'sistema_estado' => $det['sistema_estado'] ?? null,
+      ],
+      'pago' => $pago,
+      'factura' => $factura,
+      'anio' => $anio,
+      'id_mes' => $id_mes,
+    ]);
+  } catch (Throwable $e) {
+    json_error("Error DB al obtener detalle del período", ['error' => $e->getMessage()]);
+  }
+}
+
+/* =========================================================
    ✅ REGISTRAR PAGO
 ========================================================= */
 function pagos_registrar_pago(): void
@@ -663,6 +808,11 @@ function pagos_registrar_pago(): void
   $meses = $body['meses'] ?? [];
   $fecha_pago = isset($body['fecha_pago']) ? trim((string)$body['fecha_pago']) : '';
 
+  // ✅ NUEVO: opcional (frontend lo manda cuando viene desde factura)
+  $id_factura_in = (isset($body['id_factura']) && is_numeric($body['id_factura']))
+    ? (int)$body['id_factura']
+    : 0;
+
   if ($id_sistema <= 0) json_error("Falta id_sistema");
   if ($anio < 2000 || $anio > 2100) json_error("Año inválido");
   if ($id_medio_pago <= 0) json_error("Falta id_medio_pago");
@@ -677,14 +827,17 @@ function pagos_registrar_pago(): void
   }
   $fecha_pago = $dt->format('Y-m-d');
 
+  // Validar sistema
   $stSys = $pdo->prepare("SELECT id_sistema FROM clientes_sistemas WHERE id_sistema = ? LIMIT 1");
   $stSys->execute([$id_sistema]);
   if (!$stSys->fetchColumn()) json_error("Sistema inexistente");
 
+  // Validar medio pago
   $stMP = $pdo->prepare("SELECT id_medio_pago FROM medios_pago WHERE id_medio_pago = ? AND activo = 1 LIMIT 1");
   $stMP->execute([$id_medio_pago]);
   if (!$stMP->fetchColumn()) json_error("Medio de pago inválido o inactivo");
 
+  // Normalizar meses
   $mesesNorm = [];
   foreach ($meses as $m) {
     if (!is_numeric($m)) continue;
@@ -699,6 +852,9 @@ function pagos_registrar_pago(): void
   $insertados = [];
   $omitidos = [];
 
+  // ✅ NUEVO: info por mes (para devolver auditoría)
+  $facturaPorMes = []; // [mes => ['id_factura'=>?, 'pdf_path'=>?]]
+
   try {
     $pdo->beginTransaction();
 
@@ -711,12 +867,36 @@ function pagos_registrar_pago(): void
       LIMIT 1
     ");
 
+    // ✅ NUEVO: buscar factura exacta por id_factura (si viene)
+    $stFacturaById = $pdo->prepare("
+      SELECT id_factura, pdf_path
+      FROM facturas
+      WHERE id_factura = :id_factura
+        AND id_sistema = :id_sistema
+        AND anio = :anio
+        AND id_mes = :id_mes
+      LIMIT 1
+    ");
+
+    // ✅ NUEVO: buscar última factura por período (fallback)
+    $stFacturaLast = $pdo->prepare("
+      SELECT id_factura, pdf_path
+      FROM facturas
+      WHERE id_sistema = :id_sistema
+        AND anio = :anio
+        AND id_mes = :id_mes
+      ORDER BY created_at DESC, id_factura DESC
+      LIMIT 1
+    ");
+
+    // ✅ MODIFICADO: ahora inserta comprobante + id_factura
     $stIns = $pdo->prepare("
-      INSERT INTO pagos (id_sistema, id_mes, id_medio_pago, monto, fecha_pago)
-      VALUES (:id_sistema, :id_mes, :id_medio_pago, :monto, :fecha_pago)
+      INSERT INTO pagos (id_sistema, id_mes, id_medio_pago, monto, fecha_pago, comprobante, id_factura)
+      VALUES (:id_sistema, :id_mes, :id_medio_pago, :monto, :fecha_pago, :comprobante, :id_factura)
     ");
 
     foreach ($mesesNorm as $mes) {
+      // duplicado?
       $stCheck->execute([
         ':id_sistema' => $id_sistema,
         ':id_mes' => $mes,
@@ -729,15 +909,59 @@ function pagos_registrar_pago(): void
         continue;
       }
 
+      // ✅ NUEVO: resolver factura para ese mes
+      $facturaId = null;
+      $pdfPath = null;
+
+      if ($id_factura_in > 0) {
+        $stFacturaById->execute([
+          ':id_factura' => $id_factura_in,
+          ':id_sistema' => $id_sistema,
+          ':anio' => $anio,
+          ':id_mes' => $mes,
+        ]);
+        $fx = $stFacturaById->fetch(PDO::FETCH_ASSOC);
+        if ($fx) {
+          $facturaId = (int)($fx['id_factura'] ?? 0);
+          $pdfPath = (string)($fx['pdf_path'] ?? '');
+        }
+      }
+
+      // fallback: última factura del período
+      if (!$facturaId) {
+        $stFacturaLast->execute([
+          ':id_sistema' => $id_sistema,
+          ':anio' => $anio,
+          ':id_mes' => $mes,
+        ]);
+        $fx = $stFacturaLast->fetch(PDO::FETCH_ASSOC);
+        if ($fx) {
+          $facturaId = (int)($fx['id_factura'] ?? 0);
+          $pdfPath = (string)($fx['pdf_path'] ?? '');
+        }
+      }
+
+      $pdfPath = trim((string)$pdfPath);
+      if ($pdfPath === '') $pdfPath = null;
+
+      // ✅ comprobante = pdf_path (si existe)
+      $comprobante = $pdfPath; // null si no hay factura/pdf
+
       $stIns->execute([
         ':id_sistema' => $id_sistema,
         ':id_mes' => $mes,
         ':id_medio_pago' => $id_medio_pago,
         ':monto' => $monto,
         ':fecha_pago' => $fecha_pago,
+        ':comprobante' => $comprobante,
+        ':id_factura' => ($facturaId && $facturaId > 0) ? $facturaId : null,
       ]);
 
       $insertados[] = $mes;
+      $facturaPorMes[$mes] = [
+        'id_factura' => ($facturaId && $facturaId > 0) ? $facturaId : null,
+        'pdf_path' => $pdfPath,
+      ];
     }
 
     $pdo->commit();
@@ -753,8 +977,12 @@ function pagos_registrar_pago(): void
     'fecha_pago' => $fecha_pago,
     'insertados' => $insertados,
     'omitidos' => $omitidos,
+
+    // ✅ NUEVO: para que puedas ver qué factura/pdf se asoció por mes
+    'factura_por_mes' => $facturaPorMes,
   ]);
 }
+
 
 /* =========================================================
    ✅ ELIMINAR PAGO
@@ -797,10 +1025,10 @@ if (!defined('PAGOS_ROUTED')) {
     if ($op === 'eliminar_pago') pagos_eliminar_pago();
     if ($op === 'registrar_pago') pagos_registrar_pago();
     if ($op === 'detalle_sistema') pagos_detalle_sistema();
+    if ($op === 'detalle_periodo') pagos_detalle_periodo();            // ✅ NUEVO
     if ($op === 'anios') pagos_listar_anios();
     if ($op === 'factura_arca') pagos_factura_arca();
-
-    // ✅ NUEVO
+    if ($op === 'factura_guardar_pdf') pagos_factura_guardar_pdf();
     if ($op === 'planes_mantenimiento') pagos_planes_mantenimiento();
 
     if ($estado === 'pagado' || $estado === 'pagados') pagos_listar_pagados();

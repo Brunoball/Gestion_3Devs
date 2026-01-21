@@ -200,12 +200,7 @@ function getIdSistema(item) {
 }
 
 function getIdPago(item) {
-  const v =
-    item?.id_pago ??
-    item?.idPago ??
-    item?.IdPago ??
-    item?.ID_PAGO ??
-    null;
+  const v = item?.id_pago ?? item?.idPago ?? item?.IdPago ?? item?.ID_PAGO ?? null;
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
@@ -231,21 +226,22 @@ function getMesLabelById(mesesArr, id) {
 
 /* =========================
    Row virtualizado
-   ✅ ahora muestra ARCA también en DEUDORES
-   ✅ FIX: loading ARCA correcto también en deudores (sin id_pago)
+   ✅ ARCA solo en DEUDORES (NO en PAGADOS)
 ========================= */
 const Row = memo(
-  ({
-    index,
-    style,
-    data,
-    activeTab,
-    onPayClick,
-    onDeleteClick,
-    onTeamClick,
-    onArcaClick,
-    arcaLoadingId,
-  }) => {
+  (
+    {
+      index,
+      style,
+      data,
+      activeTab,
+      onPayClick,
+      onDeleteClick,
+      onTeamClick,
+      onArcaClick,
+      arcaLoadingId,
+    }
+  ) => {
     const item = data[index];
 
     if (!item) {
@@ -259,6 +255,8 @@ const Row = memo(
     }
 
     const isPagado = activeTab === "pagado";
+    const isDeudor = activeTab === "deudores";
+
     const busyKey = arcaBusyKeyFromRow(item);
     const arcaBusy = Boolean(busyKey && arcaLoadingId === busyKey);
 
@@ -270,7 +268,7 @@ const Row = memo(
         <div className="gpagos-virtual-cell gpagos-virtual-actions">
           <div className="gpagos-actions-inline">
             {/* Registrar pago (solo en deudores) */}
-            {!isPagado && (
+            {isDeudor && (
               <button
                 className="gpagos-action-button gpagos-pay-button"
                 onClick={(e) => {
@@ -299,19 +297,21 @@ const Row = memo(
               </button>
             )}
 
-            {/* ✅ ARCA: aparece en pagados Y deudores */}
-            <button
-              className="gpagos-action-button gpagos-arca-button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onArcaClick?.(item);
-              }}
-              title={arcaBusy ? "Cargando datos..." : "Factura ARCA"}
-              type="button"
-              disabled={arcaBusy}
-            >
-              <FontAwesomeIcon icon={faFileInvoiceDollar} />
-            </button>
+            {/* ✅ ARCA: SOLO en DEUDORES */}
+            {isDeudor && (
+              <button
+                className="gpagos-action-button gpagos-arca-button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onArcaClick?.(item);
+                }}
+                title={arcaBusy ? "Cargando datos..." : "Factura ARCA"}
+                type="button"
+                disabled={arcaBusy}
+              >
+                <FontAwesomeIcon icon={faFileInvoiceDollar} />
+              </button>
+            )}
 
             {/* Eliminar (solo pagados) */}
             {isPagado && (
@@ -342,7 +342,7 @@ const Row = memo(
 function Pagos() {
   const navigate = useNavigate();
 
-  // ✅ por defecto “pagado”, pero auto-cambiamos a deudores si hace falta
+  // ✅ por defecto "pagado", pero auto-cambiamos a deudores si hace falta
   const [activeTab, setActiveTab] = useState("pagado");
 
   // ===== Filtros =====
@@ -418,18 +418,28 @@ function Pagos() {
     }
   }, []);
 
-  // ✅ MODAL PAGO
+  // ✅ MODAL PAGO - ACTUALIZADO: ahora pasa año y mes de los filtros
   const [modalPago, setModalPago] = useState(null);
-  const openModalPago = useCallback((row) => {
-    const id_sistema = getIdSistema(row);
-    if (!id_sistema) return;
-    setModalPago({
-      open: true,
-      id_sistema,
-      labelCliente: buildClienteLabel(row),
-      labelSistema: buildSistemaLabel(row),
-    });
-  }, []);
+  const openModalPago = useCallback(
+    (row) => {
+      const id_sistema = getIdSistema(row);
+      if (!id_sistema) return;
+
+      const mesLabel = getMesLabelById(meses, selectedMonthId);
+
+      setModalPago({
+        open: true,
+        id_sistema,
+        labelCliente: buildClienteLabel(row),
+        labelSistema: buildSistemaLabel(row),
+        anioSeleccionado: selectedYear,
+        mesSeleccionado: mesLabel,
+        idMesSeleccionado: selectedMonthId,
+      });
+    },
+    [selectedYear, selectedMonthId, meses]
+  );
+
   const closeModalPago = useCallback(() => setModalPago(null), []);
 
   // ✅ MODAL ELIMINAR
@@ -450,8 +460,8 @@ function Pagos() {
         open: true,
         id_sistema,
         anio: selectedYear || "",
-        mes: mesLabel || "", // label para mostrar / backend
-        id_mes: Number(selectedMonthId) || 0, // ✅ id_mes real
+        mes: mesLabel || "",
+        id_mes: Number(selectedMonthId) || 0,
         labelCliente: buildClienteLabel(row),
         labelSistema: buildSistemaLabel(row),
         monto: row?.monto ?? null,
@@ -475,7 +485,6 @@ function Pagos() {
     async ({ id_pago, id_sistema, anio, mes }) => {
       const mesLabel = getMesLabelById(meses, mes);
 
-      // 1) por id_pago (ruta principal)
       if (id_pago) {
         const url = `${API}?action=${ACTION_PAGOS}&op=cliente_facturacion`;
         const resp = await fetchJSON(url, {
@@ -487,13 +496,12 @@ function Pagos() {
           body: JSON.stringify({
             id_pago: Number(id_pago),
             anio: Number(anio),
-            mes: String(mesLabel), // ✅ label
+            mes: String(mesLabel),
           }),
         });
         return resp?.cliente_facturacion ?? null;
       }
 
-      // 2) por id_sistema (deudores)
       if (id_sistema) {
         const url = `${API}?action=${ACTION_PAGOS}&op=cliente_facturacion_sistema`;
         const resp = await fetchJSON(url, {
@@ -505,7 +513,7 @@ function Pagos() {
           body: JSON.stringify({
             id_sistema: Number(id_sistema),
             anio: Number(anio),
-            mes: String(mesLabel), // ✅ label
+            mes: String(mesLabel),
           }),
         });
         return resp?.cliente_facturacion ?? null;
@@ -519,7 +527,7 @@ function Pagos() {
   const openModalArca = useCallback(
     async (row) => {
       const id_sistema = getIdSistema(row);
-      const id_pago = getIdPago(row); // ✅ en deudores puede venir null
+      const id_pago = getIdPago(row);
       if (!id_sistema) return;
 
       if (!selectedYear || !selectedMonthId) {
@@ -530,7 +538,6 @@ function Pagos() {
       const mesLabel = getMesLabelById(meses, selectedMonthId);
       const id_mes = Number(selectedMonthId) || 0;
 
-      // ✅ loading puntual: id_pago si existe, si no -id_sistema
       const busyKey = arcaBusyKeyFromRow(row);
       if (busyKey != null) setArcaLoadingId(busyKey);
 
@@ -540,7 +547,7 @@ function Pagos() {
           id_pago: id_pago || null,
           id_sistema,
           anio: selectedYear,
-          mes: selectedMonthId, // 👈 se interpreta como id, y adentro lo transformamos a label
+          mes: selectedMonthId,
         });
 
         if (!cliente_facturacion) {
@@ -565,12 +572,9 @@ function Pagos() {
         open: true,
         id_sistema,
         id_pago: id_pago || null,
-
-        // ✅ lo que necesita ARCA/Resumen
         anio: Number(selectedYear),
-        id_mes, // ✅ AHORA SÍ LLEGA (1..12)
-        mes: mesLabel, // (opcional) label para UI o backend
-
+        id_mes,
+        mes: mesLabel,
         labelCliente: buildClienteLabel(row),
         labelSistema: buildSistemaLabel(row),
         monto: row?.monto ?? null,
@@ -641,7 +645,6 @@ function Pagos() {
       try {
         const listas = await fetchListas(false);
 
-        // meses
         const rawMeses = Array.isArray(listas?.meses) ? listas.meses : [];
         const mesesNorm = rawMeses
           .map((m) => ({
@@ -653,10 +656,7 @@ function Pagos() {
 
         setMeses(mesesNorm);
 
-        // medios pago
-        const rawMP = Array.isArray(listas?.medios_pago)
-          ? listas.medios_pago
-          : [];
+        const rawMP = Array.isArray(listas?.medios_pago) ? listas.medios_pago : [];
         const mpNorm = rawMP
           .map((item) => ({
             id:
@@ -673,7 +673,6 @@ function Pagos() {
           .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
         setMediosPago(mpNorm);
 
-        // años
         const current = new Date().getFullYear();
 
         const rawAnios = Array.isArray(listas?.anios) ? listas.anios : [];
@@ -870,10 +869,7 @@ function Pagos() {
   }, []);
 
   const onPayClick = useCallback((row) => openModalPago(row), [openModalPago]);
-  const onTeamClick = useCallback(
-    (row) => openModalEquipo(row),
-    [openModalEquipo]
-  );
+  const onTeamClick = useCallback((row) => openModalEquipo(row), [openModalEquipo]);
   const onArcaClick = useCallback((row) => openModalArca(row), [openModalArca]);
 
   const onDeleteClick = useCallback((row) => {
@@ -946,11 +942,7 @@ function Pagos() {
 
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(
-      wb,
-      ws,
-      activeTab === "pagado" ? "Pagos" : "Deudores"
-    );
+    XLSX.utils.book_append_sheet(wb, ws, activeTab === "pagado" ? "Pagos" : "Deudores");
 
     const fileName = `pagos_${activeTab}_${selectedYear}_${safeMes}.xlsx`;
     XLSX.writeFile(wb, fileName);
@@ -988,13 +980,7 @@ function Pagos() {
     } finally {
       setLoading((p) => ({ ...p, pagos: false }));
     }
-  }, [
-    modalEliminar,
-    fetchJSON,
-    showToast,
-    closeModalEliminar,
-    recargarListado,
-  ]);
+  }, [modalEliminar, fetchJSON, showToast, closeModalEliminar, recargarListado]);
 
   // ===== render tabla =====
   const renderTabla = useMemo(() => {
@@ -1009,6 +995,7 @@ function Pagos() {
         <div className="gpagos-mobile-list">
           {datosFiltradosPaginated.map((row, index) => {
             const isPagado = activeTab === "pagado";
+            const isDeudor = activeTab === "deudores";
             const idPago = getIdPago(row);
             const idSistema = getIdSistema(row);
             const key = String(idPago || idSistema || index);
@@ -1029,7 +1016,7 @@ function Pagos() {
                 </div>
 
                 <div className="gpagos-mobile-actions">
-                  {!isPagado && (
+                  {isDeudor && (
                     <button
                       className="gpagos-mobile-pay-button"
                       onClick={(e) => {
@@ -1059,19 +1046,22 @@ function Pagos() {
                     </button>
                   )}
 
-                  <button
-                    className="gpagos-mobile-arca-button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onArcaClick(row);
-                    }}
-                    type="button"
-                    title={arcaBusy ? "Cargando datos..." : "Factura ARCA"}
-                    disabled={arcaBusy}
-                  >
-                    <FontAwesomeIcon icon={faFileInvoiceDollar} />
-                    <span>ARCA</span>
-                  </button>
+                  {/* ✅ ARCA SOLO en DEUDORES */}
+                  {isDeudor && (
+                    <button
+                      className="gpagos-mobile-arca-button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onArcaClick(row);
+                      }}
+                      type="button"
+                      title={arcaBusy ? "Cargando datos..." : "Factura ARCA"}
+                      disabled={arcaBusy}
+                    >
+                      <FontAwesomeIcon icon={faFileInvoiceDollar} />
+                      <span>ARCA</span>
+                    </button>
+                  )}
 
                   {isPagado && (
                     <button
@@ -1120,19 +1110,14 @@ function Pagos() {
           width={"100%"}
           outerElementType={Outer}
           onItemsRendered={({ visibleStopIndex }) => {
-            if (
-              visibleStopIndex >= datosFiltradosPaginated.length - 5 &&
-              hasMore
-            ) {
+            if (visibleStopIndex >= datosFiltradosPaginated.length - 5 && hasMore) {
               loadMoreItems();
             }
           }}
         >
           {(props) => {
             if (props.index >= datosFiltradosPaginated.length) {
-              return (
-                <div style={props.style} className="gpagos-loading-row"></div>
-              );
+              return <div style={props.style} className="gpagos-loading-row"></div>;
             }
             return (
               <Row
@@ -1188,6 +1173,9 @@ function Pagos() {
             recargarListado();
             showToast("exito", "Pago realizado con éxito.", 2600);
           }}
+          anioSeleccionado={modalPago.anioSeleccionado}
+          mesSeleccionado={modalPago.mesSeleccionado}
+          idMesSeleccionado={modalPago.idMesSeleccionado}
         />
       )}
 
@@ -1233,10 +1221,7 @@ function Pagos() {
       <div className="gpagos-left-section gpagos-box">
         <div className="gpagos-header-section">
           <h2 className="gpagos-title">
-            <FontAwesomeIcon
-              icon={faMoneyCheckAlt}
-              className="gpagos-title-icon"
-            />
+            <FontAwesomeIcon icon={faMoneyCheckAlt} className="gpagos-title-icon" />
             Pagos
           </h2>
           <div className="gpagos-divider"></div>
@@ -1401,9 +1386,7 @@ function Pagos() {
         <div className="gpagos-table-header">
           <h3>
             <FontAwesomeIcon
-              icon={
-                activeTab === "pagado" ? faCheckCircle : faExclamationTriangle
-              }
+              icon={activeTab === "pagado" ? faCheckCircle : faExclamationTriangle}
             />
             {activeTab === "pagado" ? "Pagos Registrados" : "Pagos Pendientes"}
           </h3>

@@ -13,6 +13,7 @@ declare(strict_types=1);
  *
  * ✅ Modal:
  * - GET/POST /api.php?action=pagos&op=detalle_sistema&id_sistema=5
+ * - GET      /api.php?action=pagos&op=detalle_periodo&id_sistema=5&anio=2026&id_mes=1   ✅ NUEVO
  * - GET/POST /api.php?action=pagos&op=equipo_sistema&id_sistema=5&anio=2026&mes=ENERO
  * - POST     /api.php?action=pagos&op=registrar_pago
  * - POST     /api.php?action=pagos&op=eliminar_pago
@@ -27,7 +28,7 @@ declare(strict_types=1);
  * ✅ GUARDAR PDF FACTURA:
  * - POST /api.php?action=pagos&op=factura_guardar_pdf
  *
- * ✅ NUEVO: Planes de mantenimiento:
+ * ✅ Planes de mantenimiento:
  * - GET  /api.php?action=pagos&op=planes_mantenimiento
  */
 
@@ -56,6 +57,10 @@ function route_pagos(string $action): bool
       pagos_detalle_sistema();
       return true;
 
+    case 'detalle_periodo':                 // ✅ NUEVO
+      pagos_detalle_periodo();
+      return true;
+
     case 'equipo_sistema':
       pagos_equipo_sistema();
       return true;
@@ -80,12 +85,10 @@ function route_pagos(string $action): bool
       pagos_factura_arca();
       return true;
 
-    // ✅ NUEVO: Guardar PDF en tabla facturas
     case 'factura_guardar_pdf':
       pagos_factura_guardar_pdf();
       return true;
 
-    // ✅ NUEVO: planes de mantenimiento desde DB
     case 'planes_mantenimiento':
       pagos_planes_mantenimiento();
       return true;
@@ -106,7 +109,7 @@ function route_pagos(string $action): bool
   http_response_code(200);
   echo json_encode([
     'exito' => false,
-    'mensaje' => 'Parámetros inválidos. Usá: ?estado=pagado|deudor o ?op=detalle_sistema|equipo_sistema|registrar_pago|eliminar_pago|cliente_facturacion|cliente_facturacion_sistema|factura_arca|factura_guardar_pdf|planes_mantenimiento'
+    'mensaje' => 'Parámetros inválidos. Usá: ?estado=pagado|deudor o ?op=detalle_sistema|detalle_periodo|equipo_sistema|registrar_pago|eliminar_pago|cliente_facturacion|cliente_facturacion_sistema|factura_arca|factura_guardar_pdf|planes_mantenimiento'
   ], JSON_UNESCAPED_UNICODE);
 
   return true;

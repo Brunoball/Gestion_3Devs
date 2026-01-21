@@ -1,182 +1,16 @@
 // src/components/Pagos/modales/ModalPago.jsx
-import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { FaCoins, FaTimes, FaCheck } from "react-icons/fa";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { FaCoins, FaTimes, FaCheck, FaEye } from "react-icons/fa";
 import BASE_URL from "../../../config/config";
 import "./ModalPago.css";
 
 /* =========================
-   Dropdown Año estilo "pill"
+   Helpers
 ========================= */
-function YearDropdown({ value, options = [], onChange }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    const onDocClick = (e) => {
-      if (!ref.current) return;
-      if (!ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, []);
-
-  const handleSelect = (y) => {
-    onChange?.({ target: { value: y } });
-    setOpen(false);
-  };
-
-  return (
-    <div className="modpag_year-dd" ref={ref}>
-      <button
-        type="button"
-        className={`modpag_year-trigger ${open ? "is-open" : ""}`}
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-      >
-        <span className="modpag_year-ico" aria-hidden="true" />
-        {value}
-        <span className="modpag_year-caret" aria-hidden="true" />
-      </button>
-
-      {open && (
-        <div className="modpag_year-menu" role="listbox" tabIndex={-1}>
-          {options.map((y) => {
-            const selected = Number(y) === Number(value);
-            return (
-              <button
-                key={y}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                className={`modpag_year-item ${selected ? "is-selected" : ""}`}
-                onClick={() => handleSelect(y)}
-              >
-                {y}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
+function sanitizeMoneyTyping(raw) {
+  return String(raw ?? "").replace(/[^\d.,]/g, "");
 }
 
-/* =========================
-   MultiSelect Planes (checkbox dropdown)
-========================= */
-function MultiSelectPlanes({
-  options = [],
-  selectedIds = [],
-  onChangeIds,
-  disabled,
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    const onDocClick = (e) => {
-      if (!ref.current) return;
-      if (!ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, []);
-
-  const selected = useMemo(() => {
-    const set = new Set((selectedIds || []).map((x) => Number(x)));
-    return (options || []).filter((p) => set.has(Number(p.id)));
-  }, [options, selectedIds]);
-
-  const label = useMemo(() => {
-    if (!selected.length) return "Seleccionar mantenimientos";
-    if (selected.length === 1) return selected[0].nombre;
-    return `${selected.length} seleccionados`;
-  }, [selected]);
-
-  const toggle = useCallback(
-    (id) => {
-      const nid = Number(id);
-      const set = new Set((selectedIds || []).map((x) => Number(x)));
-      if (set.has(nid)) set.delete(nid);
-      else set.add(nid);
-      onChangeIds?.(Array.from(set));
-    },
-    [selectedIds, onChangeIds]
-  );
-
-  const clearAll = useCallback(() => onChangeIds?.([]), [onChangeIds]);
-
-  return (
-    <div className="modpag_ms" ref={ref}>
-      <button
-        type="button"
-        className={`modpag_ms-trigger ${open ? "is-open" : ""}`}
-        onClick={() => !disabled && setOpen((v) => !v)}
-        disabled={disabled}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-      >
-        <span className="modpag_ms-label">{label}</span>
-        <span className="modpag_ms-caret" aria-hidden="true" />
-      </button>
-
-      {open && (
-        <div className="modpag_ms-menu" role="listbox" tabIndex={-1}>
-          <div className="modpag_ms-top">
-            <span className="modpag_ms-top-title">Mantenimientos</span>
-            <button
-              type="button"
-              className="modpag_ms-clear"
-              onClick={clearAll}
-              disabled={!selectedIds?.length}
-              title="Limpiar"
-            >
-              Limpiar
-            </button>
-          </div>
-
-          <div className="modpag_ms-list">
-            {options.length ? (
-              options.map((p) => {
-                const checked = (selectedIds || []).some(
-                  (x) => Number(x) === Number(p.id)
-                );
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className={`modpag_ms-item ${checked ? "is-checked" : ""}`}
-                    onClick={() => toggle(p.id)}
-                  >
-                    <span className={`modpag_ms-box ${checked ? "on" : ""}`}>
-                      {checked ? "✓" : ""}
-                    </span>
-
-                    <span className="modpag_ms-item-text">
-                      <span className="modpag_ms-item-name">{p.nombre}</span>
-
-                      {/* ✅ montos de planes: están en USD */}
-                      <span className="modpag_ms-item-amt">
-                        USD {Number(p.monto || 0).toLocaleString("es-AR")}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })
-            ) : (
-              <div className="modpag_ms-empty">(No hay planes activos)</div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* =========================
-   Helpers números (monto manual)
-========================= */
 function parseMoneyInput(raw) {
   if (raw == null) return 0;
   const s = String(raw).trim();
@@ -191,22 +25,49 @@ function parseMoneyInput(raw) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function sanitizeMoneyTyping(raw) {
-  return String(raw ?? "").replace(/[^\d.,]/g, "");
+function moneyARS(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "$0,00";
+  try {
+    return n.toLocaleString("es-AR", { style: "currency", currency: "ARS" });
+  } catch {
+    return `$${n.toFixed(2)}`;
+  }
 }
 
-export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) {
+function getMonthNameEs(idMes) {
+  const idx = Number(idMes) - 1;
+  if (!Number.isFinite(idx) || idx < 0 || idx > 11) return "";
+  const name = new Date(2000, idx, 1).toLocaleString("es-ES", { month: "long" });
+  return String(name || "").toUpperCase();
+}
+
+/* =========================
+   ModalPago (nuevo flujo)
+========================= */
+/**
+ * ModalPago recibe:
+ * - anioSeleccionado: number (ej 2026)
+ * - mesSeleccionado: "ENERO" | 1..12 | "1"
+ */
+export default function ModalPago({
+  id_sistema,
+  cerrarModal,
+  onPagoRealizado,
+  anioSeleccionado,
+  mesSeleccionado,
+}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [detalle, setDetalle] = useState(null);
-  const [pagosPorAnio, setPagosPorAnio] = useState({});
+  const [detalle, setDetalle] = useState(null); // sistema/cliente
+  const [mediosPago, setMediosPago] = useState([]);
+  const [idMedioPago, setIdMedioPago] = useState("");
 
-  const [mesesSeleccionados, setMesesSeleccionados] = useState([]);
-  const [pagoExitoso, setPagoExitoso] = useState(false);
+  const [factura, setFactura] = useState(null);
+  const [pago, setPago] = useState(null);
 
-  // ✅ montos base (por mes) -> EN USD
-  const [montoDesarrollo, setMontoDesarrollo] = useState(""); // USD editable
+  const [monto, setMonto] = useState("");
 
   const [fechaPago, setFechaPago] = useState(() => {
     const d = new Date();
@@ -216,49 +77,10 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     return `${yyyy}-${mm}-${dd}`;
   });
 
-  const [idMedioPago, setIdMedioPago] = useState("");
-
-  const [mesesCatalogo, setMesesCatalogo] = useState([]);
-  const [mediosPago, setMediosPago] = useState([]);
-
-  // ✅ planes mantenimiento + selección múltiple -> montos en USD
-  const [planesMantenimiento, setPlanesMantenimiento] = useState([]);
-  const [planesSeleccionadosIds, setPlanesSeleccionadosIds] = useState([]);
-
-  // ✅ dólar actual (venta)
-  const [dolarInfo, setDolarInfo] = useState({
-    venta: null,
-    compra: null,
-    fecha: null,
-    fuente: null,
-  });
-
-  const hoy = useMemo(() => new Date(), []);
-  const yearNow = hoy.getFullYear();
-  const [selectedYear, setSelectedYear] = useState(yearNow);
+  const [pagoExitoso, setPagoExitoso] = useState(false);
 
   const API = useMemo(() => `${BASE_URL}/api.php`, []);
-
-  /* =========================================================
-     ✅ LISTAS + DÓLAR
-  ========================================================= */
   const LISTAS_API = useMemo(() => `${API}?action=listas`, [API]);
-  const DOLAR_API = useMemo(() => `${API}?action=dolar_oficial`, [API]);
-
-  const BACKEND_BASE = useMemo(() => {
-    if (typeof BASE_URL !== "string") return "";
-    return BASE_URL.endsWith("/routes") ? BASE_URL.replace(/\/routes$/, "") : BASE_URL;
-  }, []);
-
-  const LISTAS_DIRECT = useMemo(
-    () => `${BACKEND_BASE}/modules/global/obtener_listas.php`,
-    [BACKEND_BASE]
-  );
-
-  const DOLAR_DIRECT = useMemo(
-    () => `${BACKEND_BASE}/modules/global/obtener_dolar.php`,
-    [BACKEND_BASE]
-  );
 
   const fetchJSON = useCallback(async (url, opts) => {
     const res = await fetch(url, opts);
@@ -273,31 +95,15 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       const msg = data?.mensaje || data?.error || `HTTP ${res.status}`;
       throw new Error(msg);
     }
-
     if (data && typeof data === "object" && data?.exito === false) {
       throw new Error(data?.mensaje || "Error en el servidor");
     }
-
     return data;
   }, []);
 
-  const normalizarMeses = useCallback((data) => {
-    const raw = data?.listas?.meses || data?.meses || [];
-    const arr = Array.isArray(raw) ? raw : [];
-    return arr
-      .map((m) => ({
-        id_mes: Number(m?.id_mes ?? m?.id ?? null),
-        mes: String(m?.mes ?? m?.nombre ?? "").trim(),
-      }))
-      .filter(
-        (m) =>
-          Number.isFinite(m.id_mes) && m.id_mes >= 1 && m.id_mes <= 12 && m.mes
-      )
-      .sort((a, b) => a.id_mes - b.id_mes);
-  }, []);
-
   const normalizarMedios = useCallback((data) => {
-    const raw = data?.listas?.medios_pago || data?.medios_pago || data?.mediosPago || [];
+    const raw =
+      data?.listas?.medios_pago || data?.medios_pago || data?.mediosPago || [];
     const arr = Array.isArray(raw) ? raw : [];
     return arr
       .map((x) => ({
@@ -308,354 +114,213 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, []);
 
-  const normalizarPlanes = useCallback((data) => {
-    const raw =
-      data?.listas?.planes_mantenimiento ||
-      data?.planes_mantenimiento ||
-      data?.planesMantenimiento ||
-      [];
-    const arr = Array.isArray(raw) ? raw : [];
-    return arr
-      .map((p) => ({
-        id: Number(p?.id ?? p?.id_plan ?? null),
-        nombre: String(p?.nombre ?? p?.plan ?? "").trim(),
-        monto: Number(p?.monto ?? p?.precio ?? 0), // ✅ USD
-      }))
-      .filter(
-        (p) =>
-          Number.isFinite(p.id) &&
-          p.id > 0 &&
-          p.nombre &&
-          Number.isFinite(p.monto)
-      )
-      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-  }, []);
+  // Resolver mes a id_mes 1..12
+  const idMes = useMemo(() => {
+    const m = mesSeleccionado;
+    if (m == null || m === "") return 0;
 
-  // ✅ cargar catálogos + dólar
+    if (typeof m === "number" && Number.isFinite(m)) {
+      const n = Math.trunc(m);
+      return n >= 1 && n <= 12 ? n : 0;
+    }
+
+    const s = String(m).trim();
+    if (!s) return 0;
+
+    if (/^\d+$/.test(s)) {
+      const n = Number(s);
+      return n >= 1 && n <= 12 ? n : 0;
+    }
+
+    const map = {
+      ENERO: 1,
+      FEBRERO: 2,
+      MARZO: 3,
+      ABRIL: 4,
+      MAYO: 5,
+      JUNIO: 6,
+      JULIO: 7,
+      AGOSTO: 8,
+      SEPTIEMBRE: 9,
+      SETIEMBRE: 9,
+      OCTUBRE: 10,
+      NOVIEMBRE: 11,
+      DICIEMBRE: 12,
+    };
+
+    return map[String(s).toUpperCase()] || 0;
+  }, [mesSeleccionado]);
+
+  const anio = useMemo(() => {
+    const n = Number(anioSeleccionado);
+    return Number.isFinite(n) && n >= 2000 && n <= 2100 ? n : 0;
+  }, [anioSeleccionado]);
+
+  const periodoLabel = useMemo(() => {
+    const mn = getMonthNameEs(idMes);
+    if (!mn || !anio) return "Período no definido";
+    return `${mn} ${anio}`;
+  }, [idMes, anio]);
+
+  /* =========================================================
+     Cargar listas (medios de pago)
+  ========================================================= */
   useEffect(() => {
     let alive = true;
 
     (async () => {
-      // --- LISTAS ---
       try {
-        let dataListas;
-        try {
-          dataListas = await fetchJSON(LISTAS_API, { method: "GET" });
-        } catch {
-          dataListas = await fetchJSON(LISTAS_DIRECT, { method: "GET" });
-        }
+        const dataListas = await fetchJSON(LISTAS_API, { method: "GET" });
         if (!alive) return;
 
-        const m = normalizarMeses(dataListas);
         const mp = normalizarMedios(dataListas);
-        const pl = normalizarPlanes(dataListas);
+        setMediosPago(mp);
 
-        setMesesCatalogo(m.length ? m : []);
-        setMediosPago(mp.length ? mp : []);
-        setPlanesMantenimiento(pl.length ? pl : []);
-
-        if (!idMedioPago && mp.length) setIdMedioPago(String(mp[0].id_medio_pago));
-      } catch {
-        if (!alive) return;
-
-        setMesesCatalogo(
-          Array.from({ length: 12 }, (_, i) => ({
-            id_mes: i + 1,
-            mes: new Date(0, i).toLocaleString("es", { month: "long" }).toUpperCase(),
-          }))
-        );
-        setMediosPago([]);
-        setPlanesMantenimiento([]);
-      }
-
-      // --- DÓLAR ---
-      try {
-        let d;
-        try {
-          d = await fetchJSON(DOLAR_API, { method: "GET" });
-        } catch {
-          d = await fetchJSON(DOLAR_DIRECT, { method: "GET" });
+        if (!idMedioPago && mp.length) {
+          setIdMedioPago(String(mp[0].id_medio_pago));
         }
-        if (!alive) return;
-
-        const venta = Number(d?.venta);
-        const compra = Number(d?.compra);
-
-        setDolarInfo({
-          venta: Number.isFinite(venta) && venta > 0 ? venta : null,
-          compra: Number.isFinite(compra) && compra > 0 ? compra : null,
-          fecha: d?.fecha || null,
-          fuente: d?.fuente || "Dólar Oficial",
-        });
       } catch {
         if (!alive) return;
-        setDolarInfo({ venta: null, compra: null, fecha: null, fuente: null });
+        setMediosPago([]);
       }
     })();
 
     return () => {
       alive = false;
     };
-  }, [
-    LISTAS_API,
-    LISTAS_DIRECT,
-    DOLAR_API,
-    DOLAR_DIRECT,
-    fetchJSON,
-    normalizarMeses,
-    normalizarMedios,
-    normalizarPlanes,
-    idMedioPago,
-  ]);
+  }, [LISTAS_API, fetchJSON, normalizarMedios, idMedioPago]);
 
-  const dolarVenta = useMemo(() => {
-    const v = Number(dolarInfo?.venta);
-    return Number.isFinite(v) && v > 0 ? v : 0;
-  }, [dolarInfo]);
-
-  // ✅ total planes (USD por mes)
-  const totalPlanesUSD = useMemo(() => {
-    if (!planesSeleccionadosIds?.length) return 0;
-    const set = new Set(planesSeleccionadosIds.map((x) => Number(x)));
-    const total = (planesMantenimiento || []).reduce((acc, p) => {
-      if (set.has(Number(p.id))) return acc + Number(p.monto || 0);
-      return acc;
-    }, 0);
-    return Math.round(total * 100) / 100;
-  }, [planesSeleccionadosIds, planesMantenimiento]);
-
-  // ✅ monto manual USD (por mes)
-  const montoDesarrolloUSD = useMemo(
-    () => Math.round(parseMoneyInput(montoDesarrollo) * 100) / 100,
-    [montoDesarrollo]
-  );
-
-  // ✅ BASE USD por mes = (planes + desarrollo)
-  const basePorMesUSD = useMemo(() => {
-    const t = Number(totalPlanesUSD) + Number(montoDesarrolloUSD);
-    return Math.round(t * 100) / 100;
-  }, [totalPlanesUSD, montoDesarrolloUSD]);
-
-  // ✅ total USD = basePorMesUSD * cantidadMesesSeleccionados
-  const totalUSD = useMemo(() => {
-    const cant = Number(mesesSeleccionados?.length || 0);
-    if (!cant) return 0;
-    const t = Number(basePorMesUSD) * cant;
-    return Math.round(t * 100) / 100;
-  }, [basePorMesUSD, mesesSeleccionados]);
-
-  // ✅ total ARS = totalUSD * dólar venta
-  const totalARS = useMemo(() => {
-    if (!totalUSD) return 0;
-    if (!dolarVenta) return 0;
-    const t = Number(totalUSD) * Number(dolarVenta);
-    return Math.round(t * 100) / 100;
-  }, [totalUSD, dolarVenta]);
-
-  // ESC para cerrar
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape" || e.key === "Esc" || e.keyCode === 27) {
-        e.preventDefault();
-        cerrarModal?.();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [cerrarModal]);
-
-  // ✅ detalle sistema + pagosPorAnio
+  /* =========================================================
+     Traer detalle del período: pago + factura
+     GET /api.php?action=pagos&op=detalle_periodo&id_sistema=..&anio=..&id_mes=..
+  ========================================================= */
   useEffect(() => {
     let alive = true;
 
-    const run = async () => {
+    (async () => {
       setLoading(true);
       setError("");
       setPagoExitoso(false);
-      setMesesSeleccionados([]);
-      setPlanesSeleccionadosIds([]);
-      setMontoDesarrollo("");
+      setFactura(null);
+      setPago(null);
+      setDetalle(null);
+      setMonto("");
 
       try {
         if (!id_sistema) throw new Error("Falta id_sistema");
+        if (!anio) throw new Error("Falta año seleccionado");
+        if (!idMes) throw new Error("Falta mes seleccionado");
 
-        const url = `${API}?action=pagos&op=detalle_sistema&id_sistema=${encodeURIComponent(
-          id_sistema
-        )}`;
+        const url =
+          `${API}?action=pagos&op=detalle_periodo` +
+          `&id_sistema=${encodeURIComponent(id_sistema)}` +
+          `&anio=${encodeURIComponent(anio)}` +
+          `&id_mes=${encodeURIComponent(idMes)}`;
+
         const data = await fetchJSON(url, { method: "GET" });
         if (!alive) return;
 
-        setDetalle(data?.detalle || data?.sistema || data || null);
+        setDetalle(data?.detalle || data?.sistema || null);
+        setPago(data?.pago || null);
+        setFactura(data?.factura || null);
 
-        const pagos =
-          data?.pagosPorAnio && typeof data.pagosPorAnio === "object"
-            ? data.pagosPorAnio
-            : {};
-        setPagosPorAnio(pagos);
+        // monto: prioridad factura.total_ars -> factura.monto_ars -> pago.monto
+        const m1 = Number(data?.factura?.total_ars);
+        const m2 = Number(data?.factura?.monto_ars);
+        const m3 = Number(data?.pago?.monto);
 
-        const years = Object.keys(pagos).map(Number).filter(Boolean);
-        if (years.length) {
-          const maxYear = Math.max(...years, yearNow);
-          setSelectedYear((prev) => (Number.isFinite(Number(prev)) ? Number(prev) : maxYear));
-        } else {
-          setSelectedYear((prev) => (Number.isFinite(Number(prev)) ? Number(prev) : yearNow));
-        }
+        const finalMonto =
+          Number.isFinite(m1) && m1 > 0
+            ? m1
+            : Number.isFinite(m2) && m2 > 0
+            ? m2
+            : Number.isFinite(m3) && m3 > 0
+            ? m3
+            : 0;
+
+        setMonto(finalMonto ? String(finalMonto) : "");
+
+        if (data?.pago?.id_medio_pago) setIdMedioPago(String(data.pago.id_medio_pago));
+        if (data?.pago?.fecha_pago) setFechaPago(String(data.pago.fecha_pago).slice(0, 10));
       } catch (e) {
         if (!alive) return;
-        setError(e?.message || "Error al obtener datos del sistema.");
+        setError(e?.message || "Error al obtener el detalle del período.");
       } finally {
         if (!alive) return;
         setLoading(false);
       }
-    };
+    })();
 
-    run();
     return () => {
       alive = false;
     };
-  }, [id_sistema, fetchJSON, yearNow, API]);
+  }, [API, fetchJSON, id_sistema, anio, idMes]);
 
-  const yearOptions = useMemo(() => {
-    const years = new Set([yearNow, yearNow + 1, yearNow + 2]);
-    Object.keys(pagosPorAnio || {}).forEach((y) => years.add(Number(y)));
-    return Array.from(years).filter(Boolean).sort((a, b) => b - a);
-  }, [pagosPorAnio, yearNow]);
+  const tituloCliente = useMemo(() => {
+    const c =
+      detalle?.cliente?.nombre ||
+      detalle?.cliente_nombre ||
+      detalle?.cliente ||
+      detalle?.cliente_nombre;
+    const s =
+      detalle?.sistema?.nombre ||
+      detalle?.sistema_nombre ||
+      detalle?.sistema ||
+      detalle?.nombre_sistema ||
+      detalle?.nombre;
+    if (c && s) return `${c} • ${s}`;
+    return s || c || "Registro de Pago";
+  }, [detalle]);
 
-  const lastFixedYearRef = useRef(null);
-  useEffect(() => {
-    if (!yearOptions.length) return;
-    const curr = Number(selectedYear);
-    if (yearOptions.includes(curr)) {
-      lastFixedYearRef.current = curr;
-      return;
-    }
-    const next = Number(yearOptions[0]);
-    if (lastFixedYearRef.current === next) return;
-    lastFixedYearRef.current = next;
+  const montoArsNum = useMemo(() => {
+    const n = parseMoneyInput(monto);
+    return Math.round(n * 100) / 100;
+  }, [monto]);
 
-    setSelectedYear(next);
-    setMesesSeleccionados([]);
-    setPagoExitoso(false);
-    setError("");
-  }, [yearOptions, selectedYear]);
+  const montoEsFijo = useMemo(() => {
+    const t = Number(factura?.total_ars);
+    const m = Number(factura?.monto_ars);
+    return (Number.isFinite(t) && t > 0) || (Number.isFinite(m) && m > 0);
+  }, [factura]);
 
-  const meses = useMemo(() => {
-    const catalogo =
-      Array.isArray(mesesCatalogo) && mesesCatalogo.length
-        ? mesesCatalogo
-        : Array.from({ length: 12 }, (_, i) => ({
-            id_mes: i + 1,
-            mes: new Date(0, i).toLocaleString("es", { month: "long" }).toUpperCase(),
-          }));
+  const pdfUrl = useMemo(() => {
+    const p = factura?.pdf_path || factura?.pdf_url || null;
+    if (!p) return null;
+    return String(p);
+  }, [factura]);
 
-    return catalogo.map((m) => ({
-      id: Number(m.id_mes),
-      nombre: `${String(m.mes || "").toUpperCase()} ${selectedYear}`,
-    }));
-  }, [mesesCatalogo, selectedYear]);
+  // ✅ NUEVO: si no hay factura para el período, mostrar solo cartel y nada más
+  const sinFactura = useMemo(() => {
+    // consideramos "hay factura" si existe algún identificador fuerte o pdf o total/monto > 0
+    const hasId =
+      factura?.id_factura != null ||
+      factura?.cbte_nro != null ||
+      factura?.cae != null;
+    const hasPdf = Boolean(pdfUrl);
+    const hasMonto =
+      (Number.isFinite(Number(factura?.total_ars)) && Number(factura?.total_ars) > 0) ||
+      (Number.isFinite(Number(factura?.monto_ars)) && Number(factura?.monto_ars) > 0);
 
-  const isMesPagado = useCallback(
-    (mesId) => {
-      const arr = pagosPorAnio?.[selectedYear] || [];
-      return Array.isArray(arr) && arr.includes(mesId);
-    },
-    [pagosPorAnio, selectedYear]
-  );
+    return !hasId && !hasPdf && !hasMonto;
+  }, [factura, pdfUrl]);
 
-  const disponiblesIds = useMemo(
-    () => meses.filter((m) => !isMesPagado(m.id)).map((m) => m.id),
-    [meses, isMesPagado]
-  );
+  const handleAbrirFactura = useCallback(() => {
+    if (!pdfUrl) return;
+    window.open(pdfUrl, "_blank", "noopener,noreferrer");
+  }, [pdfUrl]);
 
-  const todosSeleccionados = useMemo(() => {
-    return (
-      disponiblesIds.length > 0 &&
-      disponiblesIds.every((id) => mesesSeleccionados.includes(id)) &&
-      mesesSeleccionados.length === disponiblesIds.length
-    );
-  }, [disponiblesIds, mesesSeleccionados]);
+  const puedePagar = useMemo(() => {
+    if (sinFactura) return false; // si no hay factura, no se permite pagar
+    if (!id_sistema) return false;
+    if (!anio || !idMes) return false;
+    if (!fechaPago) return false;
+    if (!idMedioPago) return false;
+    if (!Number.isFinite(montoArsNum) || montoArsNum <= 0) return false;
+    return true;
+  }, [sinFactura, id_sistema, anio, idMes, fechaPago, idMedioPago, montoArsNum]);
 
-  const handleSeleccionarMes = useCallback((mesId, yaPagado) => {
-    if (yaPagado) return;
-    setMesesSeleccionados((prev) =>
-      prev.includes(mesId) ? prev.filter((m) => m !== mesId) : [...prev, mesId]
-    );
-  }, []);
-
-  const handleSeleccionarTodos = useCallback(() => {
-    if (!disponiblesIds.length) {
-      setMesesSeleccionados([]);
-      return;
-    }
-    setMesesSeleccionados((prev) => {
-      const allSelected = disponiblesIds.every((id) => prev.includes(id));
-      return allSelected ? [] : [...disponiblesIds];
-    });
-  }, [disponiblesIds]);
-
-  const onChangeYear = useCallback((e) => {
-    const val = Number(e?.target?.value);
-    if (!val) return;
-    setSelectedYear(val);
-    setMesesSeleccionados([]);
-    setPagoExitoso(false);
-    setError("");
-  }, []);
-
-  const planesSeleccionados = useMemo(() => {
-    const set = new Set(planesSeleccionadosIds.map((x) => Number(x)));
-    return (planesMantenimiento || []).filter((p) => set.has(Number(p.id)));
-  }, [planesSeleccionadosIds, planesMantenimiento]);
-
-  // ✅ registrar pago REAL (monto final en ARS)
   const handleRealizarPago = useCallback(async () => {
-    if (!id_sistema) return;
-
-    if (mesesSeleccionados.length === 0) {
-      setError("Seleccioná al menos un mes.");
-      return;
-    }
-
-    const tienePlanes = planesSeleccionadosIds.length > 0;
-    const tieneDesarrollo = montoDesarrolloUSD > 0;
-
-    if (!tienePlanes && !tieneDesarrollo) {
-      setError("Seleccioná al menos un mantenimiento o ingresá un monto por desarrollo (USD).");
-      return;
-    }
-
-    const baseUSD = Number(basePorMesUSD);
-    if (!Number.isFinite(baseUSD) || baseUSD <= 0) {
-      setError("El monto por mes (USD) es inválido.");
-      return;
-    }
-
-    const totalUsdNum = Number(totalUSD);
-    if (!Number.isFinite(totalUsdNum) || totalUsdNum <= 0) {
-      setError("El total (USD) calculado es inválido.");
-      return;
-    }
-
-    if (!dolarVenta) {
-      setError("No se pudo obtener el dólar actual. Probá de nuevo.");
-      return;
-    }
-
-    const totalArsNum = Number(totalARS);
-    if (!Number.isFinite(totalArsNum) || totalArsNum <= 0) {
-      setError("El total (ARS) calculado es inválido.");
-      return;
-    }
-
-    if (!fechaPago) {
-      setError("Seleccioná una fecha de pago.");
-      return;
-    }
-
-    if (!idMedioPago) {
-      setError("Seleccioná un medio de pago.");
-      return;
-    }
+    if (!puedePagar) return;
 
     setError("");
 
@@ -664,30 +329,12 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
 
       const payload = {
         id_sistema: Number(id_sistema),
-        anio: Number(selectedYear),
-        meses: mesesSeleccionados,
-
-        // ✅ MONTO FINAL EN ARS
-        monto: totalArsNum,
-
+        anio: Number(anio),
+        meses: [Number(idMes)],
+        monto: Number(montoArsNum),
         fecha_pago: String(fechaPago),
         id_medio_pago: Number(idMedioPago),
-
-        // ✅ extras
-        monto_usd: totalUsdNum,
-        dolar_venta: Number(dolarVenta),
-        dolar_compra: Number(dolarInfo?.compra || 0),
-        dolar_fecha: dolarInfo?.fecha || null,
-
-        // ✅ planes
-        planes_seleccionados: planesSeleccionadosIds.map((x) => Number(x)),
-
-        // ✅ desarrollo en ARS coherente con total
-        monto_desarrollo: tieneDesarrollo
-          ? Math.round(Number(montoDesarrolloUSD) * Number(dolarVenta) * 100) / 100
-          : 0,
-
-        monto_desarrollo_usd: tieneDesarrollo ? montoDesarrolloUSD : 0,
+        id_factura: factura?.id_factura ? Number(factura.id_factura) : null,
       };
 
       const result = await fetchJSON(url, {
@@ -700,56 +347,28 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         throw new Error(result?.mensaje || "Error al registrar el pago");
       }
 
-      const insertados = Array.isArray(result?.insertados) ? result.insertados : mesesSeleccionados;
-
-      setPagosPorAnio((prev) => {
-        const copia = { ...(prev || {}) };
-        const set = new Set(copia[selectedYear] || []);
-        insertados.forEach((m) => set.add(Number(m)));
-        copia[selectedYear] = Array.from(set).sort((a, b) => a - b);
-        return copia;
-      });
-
       setPagoExitoso(true);
-      setMesesSeleccionados([]);
-      setPlanesSeleccionadosIds([]);
-      setMontoDesarrollo("");
       onPagoRealizado?.();
     } catch (e) {
       setError(e?.message || "Ocurrió un error al realizar el pago.");
     }
   }, [
+    API,
+    fetchJSON,
+    puedePagar,
     id_sistema,
-    mesesSeleccionados,
+    anio,
+    idMes,
+    montoArsNum,
     fechaPago,
     idMedioPago,
-    selectedYear,
-    fetchJSON,
+    factura,
     onPagoRealizado,
-    API,
-    planesSeleccionadosIds,
-    montoDesarrolloUSD,
-    totalUSD,
-    totalARS,
-    basePorMesUSD,
-    dolarVenta,
-    dolarInfo,
   ]);
 
-  const tituloCliente = useMemo(() => {
-    const c = detalle?.cliente || detalle?.nombre_cliente || detalle?.cliente_nombre;
-    const s = detalle?.sistema || detalle?.nombre_sistema || detalle?.nombre;
-    if (c && s) return `${c} • ${s}`;
-    return s || c || "Registro de Pagos";
-  }, [detalle]);
-
-  const puedePagar = useMemo(() => {
-    if (mesesSeleccionados.length === 0) return false;
-    if (basePorMesUSD <= 0) return false;
-    if (!dolarVenta) return false;
-    return true;
-  }, [mesesSeleccionados.length, basePorMesUSD, dolarVenta]);
-
+  /* =========================
+     UI states
+  ========================= */
   if (loading) {
     return (
       <div className="modpag_overlay">
@@ -795,13 +414,19 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
               ✕
             </button>
           </div>
+
           <div className="modpag_body">
             <p className="modpag_error-banner">{error}</p>
           </div>
+
           <div className="modpag_footer modpag_footer-sides">
             <div className="modpag_footer-left" />
             <div className="modpag_footer-right">
-              <button className="modpag_btn modpag_btn-secondary" onClick={cerrarModal} type="button">
+              <button
+                className="modpag_btn modpag_btn-secondary"
+                onClick={cerrarModal}
+                type="button"
+              >
                 <span className="only-desktop">Cerrar</span>
                 <FaTimes className="only-mobile-inline" />
               </button>
@@ -829,18 +454,22 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
               ✕
             </button>
           </div>
+
           <div className="modpag_body">
             <div className="modpag_success">
               <h2 className="modpag_success-title">¡Pago realizado con éxito!</h2>
-              <p className="modpag_success-subtitle">
-                Ya quedó marcado como pagado en el año {selectedYear}.
-              </p>
+              <p className="modpag_success-subtitle">Período: {periodoLabel}</p>
             </div>
           </div>
+
           <div className="modpag_footer modpag_footer-sides">
             <div className="modpag_footer-left" />
             <div className="modpag_footer-right">
-              <button className="modpag_btn modpag_btn-secondary" type="button" onClick={cerrarModal}>
+              <button
+                className="modpag_btn modpag_btn-secondary"
+                type="button"
+                onClick={cerrarModal}
+              >
                 <span className="only-desktop">Cerrar</span>
                 <FaTimes className="only-mobile-inline" />
               </button>
@@ -851,6 +480,54 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
     );
   }
 
+  // ✅ NUEVO: si no hay factura, mostrar SOLO el cartel
+  if (sinFactura) {
+    return (
+      <div className="modpag_overlay">
+        <div className="modpag_contenido">
+          <div className="modpag_header">
+            <div className="modpag_header-left">
+              <div className="modpag_icon-circle">
+                <FaCoins size={20} />
+              </div>
+              <div className="modpag_header-texts">
+                <h2 className="modpag_title">{tituloCliente}</h2>
+              </div>
+            </div>
+            <button className="modpag_close-btn" onClick={cerrarModal} type="button">
+              ✕
+            </button>
+          </div>
+
+          <div className="modpag_body">
+            <div className="modpag_error-banner">
+              Este cliente todavía no ha sido facturado para el período <strong>{periodoLabel}</strong>.
+              <br />
+              Realizá la factura antes de registrar el pago.
+            </div>
+          </div>
+
+          <div className="modpag_footer modpag_footer-sides">
+            <div className="modpag_footer-left" />
+            <div className="modpag_footer-right">
+              <button
+                className="modpag_btn modpag_btn-secondary"
+                onClick={cerrarModal}
+                type="button"
+              >
+                <span className="only-desktop">Cerrar</span>
+                <FaTimes className="only-mobile-inline" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* =========================
+     Main
+  ========================= */
   return (
     <div className="modpag_overlay">
       <div className="modpag_contenido">
@@ -869,8 +546,14 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
         </div>
 
         <div className="modpag_body">
+          {/* ===== Datos principales ===== */}
           <div className="modpag_info-summary">
             <div className="modpag_info-row">
+              <div className="modpag_info-item">
+                <span className="modpag_info-label">Período</span>
+                <input type="text" className="modpag_input" value={periodoLabel} readOnly />
+              </div>
+
               <div className="modpag_info-item">
                 <span className="modpag_info-label">Fecha pago</span>
                 <input
@@ -882,24 +565,16 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
               </div>
 
               <div className="modpag_info-item">
-                <span className="modpag_info-label">Mantenimientos (USD)</span>
-                <MultiSelectPlanes
-                  options={planesMantenimiento}
-                  selectedIds={planesSeleccionadosIds}
-                  onChangeIds={setPlanesSeleccionadosIds}
-                  disabled={!planesMantenimiento.length}
-                />
-              </div>
-
-              <div className="modpag_info-item">
-                <span className="modpag_info-label">Monto desarrollo (USD)</span>
+                <span className="modpag_info-label">Monto (ARS)</span>
                 <input
                   type="text"
-                  value={montoDesarrollo}
-                  onChange={(e) => setMontoDesarrollo(sanitizeMoneyTyping(e.target.value))}
+                  value={monto}
+                  onChange={(e) => !montoEsFijo && setMonto(sanitizeMoneyTyping(e.target.value))}
                   className="modpag_input"
                   placeholder="0"
                   inputMode="decimal"
+                  readOnly={montoEsFijo}
+                  title={montoEsFijo ? "Monto tomado de la factura" : "Sin factura: monto editable"}
                 />
               </div>
 
@@ -922,133 +597,135 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
                 </select>
               </div>
             </div>
-
-            {planesSeleccionados.length > 0 && (
-              <div className="modpag_planes_chips">
-                {planesSeleccionados.map((p) => (
-                  <span key={p.id} className="modpag_chip">
-                    {p.nombre} · USD {Number(p.monto).toLocaleString("es-AR")}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
 
+          {/* ===== Factura (resumen + ojo) ===== */}
           <div className="modpag_periodos-section">
-            <div className="modpag_section-header">
-              <h4 className="modpag_section-title">Meses</h4>
+            <div className="modpag_section-header" style={{ alignItems: "center" }}>
+              <h4 className="modpag_section-title" style={{ marginBottom: 0 }}>
+                Factura
+              </h4>
 
               <div className="modpag_section-header-actions">
-                <YearDropdown value={selectedYear} options={yearOptions} onChange={onChangeYear} />
-
                 <button
-                  className="modpag_btn modpag_btn-small modpag_btn-terciario"
-                  onClick={handleSeleccionarTodos}
-                  disabled={disponiblesIds.length === 0}
                   type="button"
+                  className="modpag_btn modpag_btn-small modpag_btn-terciario"
+                  onClick={handleAbrirFactura}
+                  disabled={!pdfUrl}
+                  title={pdfUrl ? "Ver factura (PDF)" : "No hay PDF de factura"}
                 >
-                  {todosSeleccionados ? "Deseleccionar todos" : "Seleccionar todos"}
-                  {mesesSeleccionados.length > 0 && (
-                    <span className="only-desktop"> ({mesesSeleccionados.length})</span>
-                  )}
+                  <FaEye style={{ marginRight: 8 }} />
+                  Ver
                 </button>
               </div>
             </div>
 
             <div className="modpag_periodos-grid-container">
-              <div className="modpag_periodos-grid">
-                {meses.map((mes) => {
-                  const yaPagado = isMesPagado(mes.id);
-                  const checked = mesesSeleccionados.includes(mes.id);
+              <div
+                className="modpag_periodos-grid"
+                style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}
+              >
+                <div className="modpag_periodo-card">
+                  <div className="modpag_periodo-label">
+                    <strong>Estado</strong>
+                    <div>{factura?.estado || (pdfUrl ? "solo_pdf" : "—")}</div>
+                  </div>
+                </div>
 
-                  return (
-                    <div
-                      key={`${selectedYear}-${mes.id}`}
-                      className={`modpag_periodo-card ${yaPagado ? "modpag_pagado" : ""} ${
-                        checked ? "modpag_seleccionado" : ""
-                      }`}
-                      onClick={() => handleSeleccionarMes(mes.id, yaPagado)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          handleSeleccionarMes(mes.id, yaPagado);
-                        }
-                      }}
-                    >
-                      <div className="modpag_periodo-checkbox">
-                        <input
-                          type="checkbox"
-                          id={`periodo-${selectedYear}-${mes.id}`}
-                          checked={checked}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            handleSeleccionarMes(mes.id, yaPagado);
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          disabled={yaPagado}
-                        />
-                        <span className="modpag_checkmark"></span>
-                      </div>
+                <div className="modpag_periodo-card">
+                  <div className="modpag_periodo-label">
+                    <strong>Total</strong>
+                    <div>{moneyARS(factura?.total_ars ?? factura?.monto_ars ?? montoArsNum ?? 0)}</div>
+                  </div>
+                </div>
 
-                      <label
-                        htmlFor={`periodo-${selectedYear}-${mes.id}`}
-                        className="modpag_periodo-label"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {mes.nombre}
-                        {yaPagado && (
-                          <span className="modpag_periodo-status">
-                            <span className="modpag_periodo-status-text">Pagado</span>
-                          </span>
-                        )}
-                      </label>
+                <div className="modpag_periodo-card">
+                  <div className="modpag_periodo-label">
+                    <strong>CBTE</strong>
+                    <div>
+                      {factura?.cbte_nro ? `N° ${factura.cbte_nro}` : "—"}{" "}
+                      {factura?.pto_vta ? `• PV ${String(factura.pto_vta).padStart(4, "0")}` : ""}
                     </div>
-                  );
-                })}
+                  </div>
+                </div>
+
+                <div className="modpag_periodo-card">
+                  <div className="modpag_periodo-label">
+                    <strong>CAE</strong>
+                    <div>{factura?.cae || "—"}</div>
+                  </div>
+                </div>
+
+                <div className="modpag_periodo-card">
+                  <div className="modpag_periodo-label">
+                    <strong>Fecha cbte</strong>
+                    <div>{factura?.fecha_cbte || "—"}</div>
+                  </div>
+                </div>
+
+                <div className="modpag_periodo-card">
+                  <div className="modpag_periodo-label">
+                    <strong>Vto CAE</strong>
+                    <div>{factura?.cae_vto || "—"}</div>
+                  </div>
+                </div>
+
+                <div className="modpag_periodo-card">
+                  <div className="modpag_periodo-label">
+                    <strong>Período desde</strong>
+                    <div>{factura?.periodo_desde || "—"}</div>
+                  </div>
+                </div>
+
+                <div className="modpag_periodo-card">
+                  <div className="modpag_periodo-label">
+                    <strong>Período hasta</strong>
+                    <div>{factura?.periodo_hasta || "—"}</div>
+                  </div>
+                </div>
+
+                <div className="modpag_periodo-card">
+                  <div className="modpag_periodo-label">
+                    <strong>Vto pago</strong>
+                    <div>{factura?.vto_pago || "—"}</div>
+                  </div>
+                </div>
+
+                <div className="modpag_periodo-card">
+                  <div className="modpag_periodo-label">
+                    <strong>PDF</strong>
+                    <div style={{ wordBreak: "break-word" }}>
+                      {pdfUrl ? "Disponible" : "No cargado"}
+                    </div>
+                  </div>
+                </div>
               </div>
+
+              {pago?.id_pago ? (
+                <div style={{ marginTop: 12 }}>
+                  <div
+                    className="modpag_error-banner"
+                    style={{
+                      background: "rgba(40,167,69,.12)",
+                      borderColor: "rgba(40,167,69,.35)",
+                    }}
+                  >
+                    Ya existe un pago registrado para este período (ID pago: {pago.id_pago}).
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
 
-        {/* =========================
-            FOOTER: total ARS + tarjeta dólar + botones
-        ========================= */}
+        {/* ===== Footer ===== */}
         <div className="modpag_footer modpag_footer-sides">
           <div className="modpag_footer-left">
             <div className="modpag_footer-total">
               <span className="modpag_footer-total-label">Total:</span>
-              <span className="modpag_footer-total-value">
-                ${Number(totalARS || 0).toLocaleString("es-AR")}
-              </span>
-
-              <div className="modpag_footer-total-usd">
-                USD {Number(totalUSD || 0).toLocaleString("es-AR")}
-              </div>
+              <span className="modpag_footer-total-value">{moneyARS(montoArsNum || 0)}</span>
             </div>
           </div>
-
-          {/* ✅ TARJETA DÓLAR (SIN STYLES INLINE) */}
-          <div className="modpag_footer-middle">
-            <div
-              className={`modpag_dolar2 ${dolarVenta ? "is-ok" : "is-empty"}`}
-              title={dolarInfo?.fecha ? `Actualizado: ${dolarInfo.fecha}` : ""}
-            >
-              <div className="modpag_dolar2-left">
-                <span className="modpag_dolar2-dot" aria-hidden="true" />
-                <div className="modpag_dolar2-text">
-                  <div className="modpag_dolar2-title">Dólar venta</div>
-
-                </div>
-              </div>
-
-              <div className="modpag_dolar2-value">
-                {dolarVenta ? `$${Number(dolarVenta).toLocaleString("es-AR")}` : "—"}
-              </div>
-            </div>
-          </div>
-
 
           <div className="modpag_footer-right">
             <button className="modpag_btn modpag_btn-secondary" onClick={cerrarModal} type="button">
@@ -1060,7 +737,7 @@ export default function ModalPago({ id_sistema, cerrarModal, onPagoRealizado }) 
               className="modpag_btn modpag_btn-primary"
               onClick={handleRealizarPago}
               disabled={!puedePagar}
-              title={`Registrar pago en ${selectedYear}`}
+              title={`Registrar pago: ${periodoLabel}`}
               type="button"
             >
               <span className="only-desktop">Pagar</span>
