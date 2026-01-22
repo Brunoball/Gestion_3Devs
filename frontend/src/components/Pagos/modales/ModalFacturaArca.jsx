@@ -834,136 +834,101 @@ export default function ModalFacturaArca({
                   )}
                 </article>
 
-                {/* ✅ Mantenimiento (DB) -> Dropdown multi-select */}
-                <article className="mi-card mi-card--full">
-                  <h3 className="mi-card__title">
-                    Mantenimiento (USD) • Desde DB (selección múltiple)
-                  </h3>
+{/* ✅ Mantenimiento (DB) -> Dropdown multi-select */}
+<article className="mi-card mi-card--full">
+  <h3 className="mi-card__title">
+    Mantenimiento (USD) • Desde DB (selección múltiple)
+  </h3>
 
-                  <div ref={mantWrapRef} style={{ position: "relative" }}>
-                    <button
-                      type="button"
-                      className="mit-btn mit-btn--ghost"
-                      style={{
-                        width: "100%",
-                        justifyContent: "space-between",
-                        padding: "12px 14px",
-                        borderRadius: 12,
-                        minHeight: 44,
-                      }}
-                      onClick={() => setMantOpen((v) => !v)}
-                      disabled={loadingPlanes || !!planesErr}
-                      title="Seleccionar planes de mantenimiento"
-                    >
-                      <span>{selectedLabel}</span>
-                      <span style={{ opacity: 0.8 }}>{mantOpen ? "▲" : "▼"}</span>
-                    </button>
+  <div ref={mantWrapRef} className="arca-dd">
+    <button
+      type="button"
+      className={`arca-dd__trigger ${mantOpen ? "is-open" : ""}`}
+      onClick={() => setMantOpen((v) => !v)}
+      disabled={loadingPlanes || !!planesErr}
+      title="Seleccionar planes de mantenimiento"
+    >
+      <span className="arca-dd__label">{selectedLabel}</span>
+      <span className="arca-dd__chev">{mantOpen ? "▲" : "▼"}</span>
+    </button>
 
-                    {mantOpen && (
-                      <div
-                        style={{
-                          position: "absolute",
-                          zIndex: 50,
-                          top: "calc(100% + 8px)",
-                          left: 0,
-                          right: 0,
-                          background: "#fff",
-                          border: "1px solid rgba(0,0,0,0.12)",
-                          borderRadius: 12,
-                          boxShadow: "0 12px 30px rgba(0,0,0,0.12)",
-                          padding: 12,
-                          maxHeight: 320,
-                          overflow: "auto",
-                        }}
-                      >
-                        <div style={{ marginBottom: 10 }}>
-                          <input
-                            className="fl-input"
-                            placeholder="Buscar plan..."
-                            value={mantSearch}
-                            onChange={(e) => setMantSearch(e.target.value)}
-                            style={{ width: "100%" }}
-                          />
-                        </div>
+    {mantOpen && (
+      <div className="arca-dd__panel">
+        <div className="arca-dd__search">
+          <input
+            className="fl-input arca-dd__search-input"
+            placeholder="Buscar plan..."
+            value={mantSearch}
+            onChange={(e) => setMantSearch(e.target.value)}
+          />
+        </div>
 
-                        {planesFiltrados.length === 0 ? (
-                          <div className="arca-mini">No hay planes para mostrar.</div>
-                        ) : (
-                          <div style={{ display: "grid", gap: 10 }}>
-                            {planesFiltrados.map((p) => {
-                              const checked = mantSel.includes(Number(p.id));
-                              return (
-                                <label
-                                  key={p.id}
-                                  style={{
-                                    display: "flex",
-                                    gap: 10,
-                                    alignItems: "flex-start",
-                                    cursor: "pointer",
-                                    padding: "10px 10px",
-                                    borderRadius: 10,
-                                    border: "1px solid rgba(0,0,0,0.08)",
-                                  }}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() => toggleMant(p.id)}
-                                    style={{ marginTop: 4 }}
-                                  />
+        {planesFiltrados.length === 0 ? (
+          <div className="arca-dd__empty">No hay planes para mostrar.</div>
+        ) : (
+          <div className="arca-dd__list">
+            {planesFiltrados.map((p) => {
+              const checked = mantSel.includes(Number(p.id));
+              return (
+                <label
+                  key={p.id}
+                  className={`arca-dd__item ${checked ? "is-checked" : ""}`}
+                >
+                  <input
+                    className="arca-dd__cb"
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleMant(p.id)}
+                  />
 
-                                  <div style={{ flex: 1, lineHeight: 1.25 }}>
-                                    <div
-                                      style={{
-                                        display: "flex",
-                                        justifyContent: "space-between",
-                                        gap: 12,
-                                      }}
-                                    >
-                                      <b>{p.nombre}</b>
-                                      <span>{moneyUSD(p.monto)}</span>
-                                    </div>
-                                    {p.descripcion ? (
-                                      <div className="arca-mini" style={{ marginTop: 4 }}>
-                                        {p.descripcion}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        )}
+                  <span className="arca-dd__fakecb" aria-hidden="true" />
 
-                        <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-                          <button
-                            type="button"
-                            className="mit-btn mit-btn--ghost"
-                            onClick={() => setMantSel([])}
-                            title="Limpiar selección"
-                          >
-                            Limpiar
-                          </button>
+                  <div className="arca-dd__meta">
+                    <div className="arca-dd__top">
+                      <span className="arca-dd__name">{p.nombre}</span>
+                      <span className="arca-dd__amount">{moneyUSD(p.monto)}</span>
+                    </div>
 
-                          <button
-                            type="button"
-                            className="mit-btn mit-btn--solid"
-                            onClick={() => setMantOpen(false)}
-                            title="Cerrar"
-                            style={{ marginLeft: "auto" }}
-                          >
-                            Listo <FaCheck style={{ marginLeft: 8 }} />
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                    {p.descripcion ? (
+                      <div className="arca-dd__desc">{p.descripcion}</div>
+                    ) : null}
                   </div>
+                </label>
+              );
+            })}
+          </div>
+        )}
 
-                  <div className="arca-mini" style={{ marginTop: 10 }}>
-                    Se listan desde DB (nombre, descripción, monto). Se convierte a ARS
-                    con dólar oficial (venta).
-                  </div>
-                </article>
+        <div className="arca-dd__actions">
+          <button
+            type="button"
+            className="mit-btn mit-btn--ghost"
+            onClick={() => setMantSel([])}
+            title="Limpiar selección"
+          >
+            Limpiar
+          </button>
+
+          <button
+            type="button"
+            className="mit-btn mit-btn--solid"
+            onClick={() => setMantOpen(false)}
+            title="Cerrar"
+            style={{ marginLeft: "auto" }}
+          >
+            Listo <FaCheck style={{ marginLeft: 8 }} />
+          </button>
+        </div>
+      </div>
+    )}
+  </div>
+
+  <div className="arca-mini" style={{ marginTop: 10 }}>
+    Se listan desde DB (nombre, descripción, monto). Se convierte a ARS con dólar
+    oficial (venta).
+  </div>
+</article>
+
 
                 {/* ✅ Desarrollo manual */}
                 <article className="mi-card mi-card--full">

@@ -2,6 +2,11 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { FaCoins, FaTimes, FaCheck, FaEye } from "react-icons/fa";
 import BASE_URL from "../../../config/config";
+
+// ✅ Reutiliza la estética del modal "EditarTrabajador"
+import "../../Trabajadores/modales/ModalEditarTrabajador.css";
+
+// ✅ Estilos específicos SOLO para cosas de pago/factura
 import "./ModalPago.css";
 
 /* =========================
@@ -43,11 +48,11 @@ function getMonthNameEs(idMes) {
 }
 
 /* =========================
-   ModalPago (nuevo flujo)
+   ModalPago (estética mi-*)
 ========================= */
 /**
- * ModalPago recibe:
- * - anioSeleccionado: number (ej 2026)
+ * Recibe:
+ * - anioSeleccionado: number
  * - mesSeleccionado: "ENERO" | 1..12 | "1"
  */
 export default function ModalPago({
@@ -60,7 +65,7 @@ export default function ModalPago({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [detalle, setDetalle] = useState(null); // sistema/cliente
+  const [detalle, setDetalle] = useState(null);
   const [mediosPago, setMediosPago] = useState([]);
   const [idMedioPago, setIdMedioPago] = useState("");
 
@@ -163,6 +168,15 @@ export default function ModalPago({
   }, [idMes, anio]);
 
   /* =========================================================
+     ESC cierra + click overlay cierra (misma UX que mi-modal)
+  ========================================================= */
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && cerrarModal?.();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [cerrarModal]);
+
+  /* =========================================================
      Cargar listas (medios de pago)
   ========================================================= */
   useEffect(() => {
@@ -191,7 +205,7 @@ export default function ModalPago({
   }, [LISTAS_API, fetchJSON, normalizarMedios, idMedioPago]);
 
   /* =========================================================
-     Traer detalle del período: pago + factura
+     Detalle período
      GET /api.php?action=pagos&op=detalle_periodo&id_sistema=..&anio=..&id_mes=..
   ========================================================= */
   useEffect(() => {
@@ -224,7 +238,6 @@ export default function ModalPago({
         setPago(data?.pago || null);
         setFactura(data?.factura || null);
 
-        // monto: prioridad factura.total_ars -> factura.monto_ars -> pago.monto
         const m1 = Number(data?.factura?.total_ars);
         const m2 = Number(data?.factura?.monto_ars);
         const m3 = Number(data?.pago?.monto);
@@ -289,13 +302,10 @@ export default function ModalPago({
     return String(p);
   }, [factura]);
 
-  // ✅ NUEVO: si no hay factura para el período, mostrar solo cartel y nada más
+  // ✅ si no hay factura, bloquear pago y mostrar cartel
   const sinFactura = useMemo(() => {
-    // consideramos "hay factura" si existe algún identificador fuerte o pdf o total/monto > 0
     const hasId =
-      factura?.id_factura != null ||
-      factura?.cbte_nro != null ||
-      factura?.cae != null;
+      factura?.id_factura != null || factura?.cbte_nro != null || factura?.cae != null;
     const hasPdf = Boolean(pdfUrl);
     const hasMonto =
       (Number.isFinite(Number(factura?.total_ars)) && Number(factura?.total_ars) > 0) ||
@@ -310,14 +320,15 @@ export default function ModalPago({
   }, [pdfUrl]);
 
   const puedePagar = useMemo(() => {
-    if (sinFactura) return false; // si no hay factura, no se permite pagar
+    if (sinFactura) return false;
     if (!id_sistema) return false;
     if (!anio || !idMes) return false;
     if (!fechaPago) return false;
     if (!idMedioPago) return false;
     if (!Number.isFinite(montoArsNum) || montoArsNum <= 0) return false;
+    if (pago?.id_pago) return false; // ✅ si ya hay pago, no permitir otro
     return true;
-  }, [sinFactura, id_sistema, anio, idMes, fechaPago, idMedioPago, montoArsNum]);
+  }, [sinFactura, id_sistema, anio, idMes, fechaPago, idMedioPago, montoArsNum, pago]);
 
   const handleRealizarPago = useCallback(async () => {
     if (!puedePagar) return;
@@ -366,382 +377,269 @@ export default function ModalPago({
     onPagoRealizado,
   ]);
 
-  /* =========================
-     UI states
-  ========================= */
-  if (loading) {
-    return (
-      <div className="modpag_overlay">
-        <div className="modpag_contenido">
-          <div className="modpag_header">
-            <div className="modpag_header-left">
-              <div className="modpag_icon-circle">
-                <FaCoins size={20} />
-              </div>
-              <div className="modpag_header-texts">
-                <h2 className="modpag_title">{tituloCliente}</h2>
-              </div>
-            </div>
-            <button className="modpag_close-btn" disabled type="button">
-              ✕
-            </button>
-          </div>
-          <div className="modpag_body">
-            <div className="modpag_loading-state">
-              <div className="modpag_spinner"></div>
-              <span>Cargando datos...</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="modpag_overlay">
-        <div className="modpag_contenido">
-          <div className="modpag_header">
-            <div className="modpag_header-left">
-              <div className="modpag_icon-circle">
-                <FaCoins size={20} />
-              </div>
-              <div className="modpag_header-texts">
-                <h2 className="modpag_title">{tituloCliente}</h2>
-              </div>
-            </div>
-            <button className="modpag_close-btn" onClick={cerrarModal} type="button">
-              ✕
-            </button>
-          </div>
-
-          <div className="modpag_body">
-            <p className="modpag_error-banner">{error}</p>
-          </div>
-
-          <div className="modpag_footer modpag_footer-sides">
-            <div className="modpag_footer-left" />
-            <div className="modpag_footer-right">
-              <button
-                className="modpag_btn modpag_btn-secondary"
-                onClick={cerrarModal}
-                type="button"
-              >
-                <span className="only-desktop">Cerrar</span>
-                <FaTimes className="only-mobile-inline" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (pagoExitoso) {
-    return (
-      <div className="modpag_overlay">
-        <div className="modpag_contenido">
-          <div className="modpag_header">
-            <div className="modpag_header-left">
-              <div className="modpag_icon-circle">
-                <FaCoins size={20} />
-              </div>
-              <div className="modpag_header-texts">
-                <h2 className="modpag_title">{tituloCliente}</h2>
-              </div>
-            </div>
-            <button className="modpag_close-btn" type="button" onClick={cerrarModal}>
-              ✕
-            </button>
-          </div>
-
-          <div className="modpag_body">
-            <div className="modpag_success">
-              <h2 className="modpag_success-title">¡Pago realizado con éxito!</h2>
-              <p className="modpag_success-subtitle">Período: {periodoLabel}</p>
-            </div>
-          </div>
-
-          <div className="modpag_footer modpag_footer-sides">
-            <div className="modpag_footer-left" />
-            <div className="modpag_footer-right">
-              <button
-                className="modpag_btn modpag_btn-secondary"
-                type="button"
-                onClick={cerrarModal}
-              >
-                <span className="only-desktop">Cerrar</span>
-                <FaTimes className="only-mobile-inline" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ✅ NUEVO: si no hay factura, mostrar SOLO el cartel
-  if (sinFactura) {
-    return (
-      <div className="modpag_overlay">
-        <div className="modpag_contenido">
-          <div className="modpag_header">
-            <div className="modpag_header-left">
-              <div className="modpag_icon-circle">
-                <FaCoins size={20} />
-              </div>
-              <div className="modpag_header-texts">
-                <h2 className="modpag_title">{tituloCliente}</h2>
-              </div>
-            </div>
-            <button className="modpag_close-btn" onClick={cerrarModal} type="button">
-              ✕
-            </button>
-          </div>
-
-          <div className="modpag_body">
-            <div className="modpag_error-banner">
-              Este cliente todavía no ha sido facturado para el período <strong>{periodoLabel}</strong>.
-              <br />
-              Realizá la factura antes de registrar el pago.
-            </div>
-          </div>
-
-          <div className="modpag_footer modpag_footer-sides">
-            <div className="modpag_footer-left" />
-            <div className="modpag_footer-right">
-              <button
-                className="modpag_btn modpag_btn-secondary"
-                onClick={cerrarModal}
-                type="button"
-              >
-                <span className="only-desktop">Cerrar</span>
-                <FaTimes className="only-mobile-inline" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const cerrar = () => {
+    cerrarModal?.();
+  };
 
   /* =========================
-     Main
+     UI
   ========================= */
   return (
-    <div className="modpag_overlay">
-      <div className="modpag_contenido">
-        <div className="modpag_header">
-          <div className="modpag_header-left">
-            <div className="modpag_icon-circle">
-              <FaCoins size={20} />
-            </div>
-            <div className="modpag_header-texts">
-              <h2 className="modpag_title">{tituloCliente}</h2>
+    <div
+      className="mi-modal__overlay"
+      onClick={(e) => e.target.classList.contains("mi-modal__overlay") && cerrar()}
+    >
+      <div
+        className="mi-modal__container pay-modal"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header (mi-modal) */}
+        <div className="mi-modal__header">
+          <div className="mi-modal__head-left">
+            <div className="pay-head">
+              <span className="pay-head__ico">
+                <FaCoins />
+              </span>
+
+              <div className="pay-head__txt">
+                <h2 className="mi-modal__title">{tituloCliente}</h2>
+                <p className="mi-modal__subtitle">Período: {periodoLabel}</p>
+              </div>
             </div>
           </div>
-          <button className="modpag_close-btn" onClick={cerrarModal} type="button">
-            ✕
+
+          <button className="mi-modal__close" onClick={cerrar} aria-label="Cerrar">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
 
-        <div className="modpag_body">
-          {/* ===== Datos principales ===== */}
-          <div className="modpag_info-summary">
-            <div className="modpag_info-row">
-              <div className="modpag_info-item">
-                <span className="modpag_info-label">Período</span>
-                <input type="text" className="modpag_input" value={periodoLabel} readOnly />
+        {/* Body (misma estructura que mi-modal) */}
+        <div className="mit-modal__body">
+          <div className="mi-tabpanel">
+            {/* Loading */}
+            {loading ? (
+              <div className="pay-center">
+                <div className="pay-spinner" />
+                <span>Cargando datos...</span>
               </div>
+            ) : null}
 
-              <div className="modpag_info-item">
-                <span className="modpag_info-label">Fecha pago</span>
-                <input
-                  type="date"
-                  value={fechaPago}
-                  onChange={(e) => setFechaPago(e.target.value)}
-                  className="modpag_input"
-                />
+            {/* Error general */}
+            {!loading && error ? (
+              <div className="pay-banner pay-banner--error">
+                <strong>Error:</strong> {error}
               </div>
+            ) : null}
 
-              <div className="modpag_info-item">
-                <span className="modpag_info-label">Monto (ARS)</span>
-                <input
-                  type="text"
-                  value={monto}
-                  onChange={(e) => !montoEsFijo && setMonto(sanitizeMoneyTyping(e.target.value))}
-                  className="modpag_input"
-                  placeholder="0"
-                  inputMode="decimal"
-                  readOnly={montoEsFijo}
-                  title={montoEsFijo ? "Monto tomado de la factura" : "Sin factura: monto editable"}
-                />
+            {/* Pago exitoso */}
+            {!loading && !error && pagoExitoso ? (
+              <div className="pay-banner pay-banner--success">
+                <h3 className="pay-success-title">¡Pago realizado con éxito!</h3>
+                <div className="pay-muted">Período: {periodoLabel}</div>
               </div>
+            ) : null}
 
-              <div className="modpag_info-item">
-                <span className="modpag_info-label">Medio de pago</span>
-                <select
-                  className="modpag_input"
-                  value={idMedioPago}
-                  onChange={(e) => setIdMedioPago(e.target.value)}
-                >
-                  {mediosPago.length ? (
-                    mediosPago.map((mp) => (
-                      <option key={mp.id_medio_pago} value={mp.id_medio_pago}>
-                        {mp.nombre}
-                      </option>
-                    ))
-                  ) : (
-                    <option value="">(No hay medios de pago)</option>
-                  )}
-                </select>
+            {/* Sin factura */}
+            {!loading && !error && !pagoExitoso && sinFactura ? (
+              <div className="pay-banner pay-banner--warn">
+                Este cliente todavía no ha sido facturado para el período{" "}
+                <strong>{periodoLabel}</strong>.
+                <br />
+                Realizá la factura antes de registrar el pago.
               </div>
-            </div>
-          </div>
+            ) : null}
 
-          {/* ===== Factura (resumen + ojo) ===== */}
-          <div className="modpag_periodos-section">
-            <div className="modpag_section-header" style={{ alignItems: "center" }}>
-              <h4 className="modpag_section-title" style={{ marginBottom: 0 }}>
-                Factura
-              </h4>
+            {/* Main */}
+            {!loading && !error && !pagoExitoso && !sinFactura ? (
+              <div className="mi-grid">
+                {/* Card: Datos de pago */}
+                <article className="mi-card mi-card--full pay-card">
+                  <h3 className="mi-card__title">Datos del pago</h3>
 
-              <div className="modpag_section-header-actions">
-                <button
-                  type="button"
-                  className="modpag_btn modpag_btn-small modpag_btn-terciario"
-                  onClick={handleAbrirFactura}
-                  disabled={!pdfUrl}
-                  title={pdfUrl ? "Ver factura (PDF)" : "No hay PDF de factura"}
-                >
-                  <FaEye style={{ marginRight: 8 }} />
-                  Ver
-                </button>
-              </div>
-            </div>
+                  <div className="fl-grid pay-fl">
+                    <div className="fl-field fl-col-full">
+                      <input
+                        className="fl-input"
+                        placeholder=" "
+                        value={periodoLabel}
+                        readOnly
+                      />
+                      <label className="fl-label">Período</label>
+                    </div>
 
-            <div className="modpag_periodos-grid-container">
-              <div
-                className="modpag_periodos-grid"
-                style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}
-              >
-                <div className="modpag_periodo-card">
-                  <div className="modpag_periodo-label">
-                    <strong>Estado</strong>
-                    <div>{factura?.estado || (pdfUrl ? "solo_pdf" : "—")}</div>
+                    <div className="fl-field">
+                      <input
+                        className="fl-input"
+                        placeholder=" "
+                        type="date"
+                        value={fechaPago}
+                        onChange={(e) => setFechaPago(e.target.value)}
+                      />
+                      <label className="fl-label">Fecha pago</label>
+                    </div>
+
+                    <div className="fl-field">
+                      <input
+                        className="fl-input"
+                        placeholder=" "
+                        value={monto}
+                        onChange={(e) =>
+                          !montoEsFijo && setMonto(sanitizeMoneyTyping(e.target.value))
+                        }
+                        inputMode="decimal"
+                        readOnly={montoEsFijo}
+                        title={montoEsFijo ? "Monto tomado de la factura" : "Monto editable"}
+                      />
+                      <label className="fl-label">Monto (ARS)</label>
+                    </div>
+
+                    <div className="fl-field fl-col-full">
+                      <select
+                        className="fl-input fl-select"
+                        value={idMedioPago}
+                        onChange={(e) => setIdMedioPago(e.target.value)}
+                      >
+                        {mediosPago.length ? (
+                          mediosPago.map((mp) => (
+                            <option key={mp.id_medio_pago} value={mp.id_medio_pago}>
+                              {mp.nombre}
+                            </option>
+                          ))
+                        ) : (
+                          <option value="">(No hay medios de pago)</option>
+                        )}
+                      </select>
+                      <label className="fl-label">Medio de pago</label>
+                    </div>
+
+                    {pago?.id_pago ? (
+                      <div className="fl-col-full">
+                        <div className="pay-banner pay-banner--info">
+                          Ya existe un pago registrado para este período (ID pago:{" "}
+                          <strong>{pago.id_pago}</strong>).
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                </div>
+                </article>
 
-                <div className="modpag_periodo-card">
-                  <div className="modpag_periodo-label">
-                    <strong>Total</strong>
-                    <div>{moneyARS(factura?.total_ars ?? factura?.monto_ars ?? montoArsNum ?? 0)}</div>
+                {/* Card: Factura */}
+                <article className="mi-card mi-card--full pay-card">
+                  <div className="pay-fact-head">
+                    <h3 className="mi-card__title" style={{ marginBottom: 0 }}>
+                      Factura
+                    </h3>
+
+                    <button
+                      type="button"
+                      className="mit-btn mit-btn--ghost pay-btn-small"
+                      onClick={handleAbrirFactura}
+                      disabled={!pdfUrl}
+                      title={pdfUrl ? "Ver factura (PDF)" : "No hay PDF de factura"}
+                    >
+                      <FaEye /> Ver
+                    </button>
                   </div>
-                </div>
 
-                <div className="modpag_periodo-card">
-                  <div className="modpag_periodo-label">
-                    <strong>CBTE</strong>
-                    <div>
-                      {factura?.cbte_nro ? `N° ${factura.cbte_nro}` : "—"}{" "}
-                      {factura?.pto_vta ? `• PV ${String(factura.pto_vta).padStart(4, "0")}` : ""}
+                  <div className="pay-fact-grid">
+                    <div className="pay-kpi">
+                      <span className="pay-kpi__k">Estado</span>
+                      <span className="pay-kpi__v">
+                        {factura?.estado || (pdfUrl ? "solo_pdf" : "—")}
+                      </span>
+                    </div>
+
+                    <div className="pay-kpi">
+                      <span className="pay-kpi__k">Total</span>
+                      <span className="pay-kpi__v">
+                        {moneyARS(factura?.total_ars ?? factura?.monto_ars ?? montoArsNum ?? 0)}
+                      </span>
+                    </div>
+
+                    <div className="pay-kpi">
+                      <span className="pay-kpi__k">CBTE</span>
+                      <span className="pay-kpi__v">
+                        {factura?.cbte_nro ? `N° ${factura.cbte_nro}` : "—"}{" "}
+                        {factura?.pto_vta ? `• PV ${String(factura.pto_vta).padStart(4, "0")}` : ""}
+                      </span>
+                    </div>
+
+                    <div className="pay-kpi">
+                      <span className="pay-kpi__k">CAE</span>
+                      <span className="pay-kpi__v">{factura?.cae || "—"}</span>
+                    </div>
+
+                    <div className="pay-kpi">
+                      <span className="pay-kpi__k">Fecha cbte</span>
+                      <span className="pay-kpi__v">{factura?.fecha_cbte || "—"}</span>
+                    </div>
+
+                    <div className="pay-kpi">
+                      <span className="pay-kpi__k">Vto CAE</span>
+                      <span className="pay-kpi__v">{factura?.cae_vto || "—"}</span>
+                    </div>
+
+                    <div className="pay-kpi">
+                      <span className="pay-kpi__k">Período desde</span>
+                      <span className="pay-kpi__v">{factura?.periodo_desde || "—"}</span>
+                    </div>
+
+                    <div className="pay-kpi">
+                      <span className="pay-kpi__k">Período hasta</span>
+                      <span className="pay-kpi__v">{factura?.periodo_hasta || "—"}</span>
+                    </div>
+
+                    <div className="pay-kpi">
+                      <span className="pay-kpi__k">Vto pago</span>
+                      <span className="pay-kpi__v">{factura?.vto_pago || "—"}</span>
+                    </div>
+
+                    <div className="pay-kpi">
+                      <span className="pay-kpi__k">PDF</span>
+                      <span className="pay-kpi__v">{pdfUrl ? "Disponible" : "No cargado"}</span>
                     </div>
                   </div>
-                </div>
-
-                <div className="modpag_periodo-card">
-                  <div className="modpag_periodo-label">
-                    <strong>CAE</strong>
-                    <div>{factura?.cae || "—"}</div>
-                  </div>
-                </div>
-
-                <div className="modpag_periodo-card">
-                  <div className="modpag_periodo-label">
-                    <strong>Fecha cbte</strong>
-                    <div>{factura?.fecha_cbte || "—"}</div>
-                  </div>
-                </div>
-
-                <div className="modpag_periodo-card">
-                  <div className="modpag_periodo-label">
-                    <strong>Vto CAE</strong>
-                    <div>{factura?.cae_vto || "—"}</div>
-                  </div>
-                </div>
-
-                <div className="modpag_periodo-card">
-                  <div className="modpag_periodo-label">
-                    <strong>Período desde</strong>
-                    <div>{factura?.periodo_desde || "—"}</div>
-                  </div>
-                </div>
-
-                <div className="modpag_periodo-card">
-                  <div className="modpag_periodo-label">
-                    <strong>Período hasta</strong>
-                    <div>{factura?.periodo_hasta || "—"}</div>
-                  </div>
-                </div>
-
-                <div className="modpag_periodo-card">
-                  <div className="modpag_periodo-label">
-                    <strong>Vto pago</strong>
-                    <div>{factura?.vto_pago || "—"}</div>
-                  </div>
-                </div>
-
-                <div className="modpag_periodo-card">
-                  <div className="modpag_periodo-label">
-                    <strong>PDF</strong>
-                    <div style={{ wordBreak: "break-word" }}>
-                      {pdfUrl ? "Disponible" : "No cargado"}
-                    </div>
-                  </div>
-                </div>
+                </article>
               </div>
-
-              {pago?.id_pago ? (
-                <div style={{ marginTop: 12 }}>
-                  <div
-                    className="modpag_error-banner"
-                    style={{
-                      background: "rgba(40,167,69,.12)",
-                      borderColor: "rgba(40,167,69,.35)",
-                    }}
-                  >
-                    Ya existe un pago registrado para este período (ID pago: {pago.id_pago}).
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        {/* ===== Footer ===== */}
-        <div className="modpag_footer modpag_footer-sides">
-          <div className="modpag_footer-left">
-            <div className="modpag_footer-total">
-              <span className="modpag_footer-total-label">Total:</span>
-              <span className="modpag_footer-total-value">{moneyARS(montoArsNum || 0)}</span>
-            </div>
+            ) : null}
           </div>
 
-          <div className="modpag_footer-right">
-            <button className="modpag_btn modpag_btn-secondary" onClick={cerrarModal} type="button">
-              <span className="only-desktop">Cerrar</span>
-              <FaTimes className="only-mobile-inline" />
+          {/* Footer (mit-actions) */}
+          <div className="mit-actions">
+            <div className="mit-help">
+              <span className="pay-total-pill">
+                <span className="pay-total-pill__k">Total</span>
+                <span className="pay-total-pill__v">{moneyARS(montoArsNum || 0)}</span>
+              </span>
+            </div>
+
+            <button type="button" className="mit-btn mit-btn--ghost" onClick={cerrar}>
+              <FaTimes style={{ marginRight: 8 }} />
+              Cerrar
             </button>
 
             <button
-              className="modpag_btn modpag_btn-primary"
+              type="button"
+              className="mit-btn mit-btn--solid"
               onClick={handleRealizarPago}
               disabled={!puedePagar}
               title={`Registrar pago: ${periodoLabel}`}
-              type="button"
             >
-              <span className="only-desktop">Pagar</span>
-              <FaCheck className="only-mobile-inline" />
+              <FaCheck style={{ marginRight: 8 }} />
+              Pagar
             </button>
           </div>
         </div>

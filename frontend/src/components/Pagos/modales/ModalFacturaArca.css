@@ -292,3 +292,231 @@
     align-items: flex-start;
   }
 }
+/* =========================
+   Dropdown Mantenimiento (ARCA)
+========================= */
+.arca-dd{
+  position: relative;
+}
+
+.arca-dd__trigger{
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  min-height: 44px;
+  border-radius: 14px;
+  border: 1px solid rgba(29, 66, 138, .22);
+  background: #fff;
+  color: var(--mi-text, #0f172a);
+  font-weight: 800;
+  box-shadow: 0 6px 18px rgba(15,23,42,.06);
+  transition: border-color .2s ease, box-shadow .2s ease, transform .06s ease;
+}
+
+.arca-dd__trigger:hover{
+  border-color: rgba(29, 66, 138, .35);
+  box-shadow: 0 10px 24px rgba(15,23,42,.10);
+}
+
+.arca-dd__trigger:active{
+  transform: translateY(1px);
+}
+
+.arca-dd__trigger.is-open{
+  border-color: rgba(29, 66, 138, .55);
+  box-shadow: 0 12px 30px rgba(15,23,42,.12);
+}
+
+.arca-dd__trigger:disabled{
+  opacity: .65;
+  cursor: not-allowed;
+}
+
+.arca-dd__label{
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.arca-dd__chev{
+  opacity: .8;
+  font-size: .95rem;
+}
+
+/* Panel */
+.arca-dd__panel{
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 10px);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid rgba(15,23,42,.12);
+  border-radius: 16px;
+  box-shadow: 0 18px 40px rgba(15,23,42,.16);
+  overflow: hidden;
+}
+
+/* Search */
+.arca-dd__search{
+  padding: 12px;
+  border-bottom: 1px solid rgba(226,232,240,.9);
+  background: rgba(241,245,249,.55);
+}
+
+.arca-dd__search-input{
+  width: 100%;
+}
+
+/* Lista scrolleable */
+.arca-dd__list{
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+/* Scrollbar (Chrome/Edge) */
+.arca-dd__list::-webkit-scrollbar{ width: 10px; }
+.arca-dd__list::-webkit-scrollbar-thumb{
+  background: rgba(15,23,42,.18);
+  border-radius: 999px;
+}
+.arca-dd__list::-webkit-scrollbar-track{
+  background: rgba(15,23,42,.06);
+}
+
+/* Item */
+.arca-dd__item{
+  display: grid;
+  grid-template-columns: 20px  1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(226,232,240,.95);
+  background: #fff;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .06s ease;
+}
+
+.arca-dd__item:hover{
+  background: rgba(29, 66, 138, .06);
+  border-color: rgba(29, 66, 138, .22);
+}
+
+.arca-dd__item:active{
+  transform: translateY(1px);
+}
+
+.arca-dd__item.is-checked{
+  background: rgba(29, 66, 138, .09);
+  border-color: rgba(29, 66, 138, .35);
+}
+
+/* Checkbox real oculto */
+.arca-dd__cb{
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Checkbox “fake” */
+.arca-dd__fakecb{
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  border: 2px solid rgba(29, 66, 138, .55);
+  background: #fff;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+  transition: background .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+
+.arca-dd__fakecb::after{
+  content: "✓";
+  font-weight: 900;
+  font-size: 14px;
+  color: #fff;
+  transform: scale(0);
+  transition: transform .12s ease;
+}
+
+.arca-dd__cb:checked + .arca-dd__fakecb{
+  background: var(--mi-primary, #1D428A);
+  border-color: var(--mi-primary, #1D428A);
+  box-shadow: 0 0 0 4px rgba(29,66,138,.18);
+}
+
+.arca-dd__cb:checked + .arca-dd__fakecb::after{
+  transform: scale(1);
+}
+
+/* Meta */
+.arca-dd__meta{
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.arca-dd__top{
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.arca-dd__name{
+  font-weight: 900;
+  color: var(--mi-text, #0f172a);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.arca-dd__amount{
+  font-weight: 900;
+  color: var(--mi-text, #0f172a);
+  opacity: .9;
+}
+
+.arca-dd__desc{
+  margin-top: 6px;
+  font-size: .82rem;
+  color: var(--mi-muted, #475569);
+  line-height: 1.35;
+}
+
+/* Empty + actions */
+.arca-dd__empty{
+  padding: 14px;
+  color: var(--mi-muted, #475569);
+  font-size: .9rem;
+}
+
+.arca-dd__actions{
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid rgba(226,232,240,.9);
+  background: rgba(241,245,249,.55);
+}
+
+/* Mobile */
+@media (max-width: 720px){
+  .arca-dd__top{
+    grid-template-columns: 1fr;
+  }
+  .arca-dd__amount{
+    justify-self: start;
+  }
+}
