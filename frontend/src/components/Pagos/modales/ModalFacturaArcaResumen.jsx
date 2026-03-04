@@ -282,6 +282,7 @@ export default function ModalFacturaArcaResumen({
     [apiBase, action, data, docTipo, docNro, cbteTipo, ptoVta]
   );
 
+  // ✅ Solo genera y descarga el PDF — NO guarda nada en DB
   const exportarSoloPDF = useCallback(async () => {
     setError("");
     const v = validar();
@@ -316,7 +317,8 @@ export default function ModalFacturaArcaResumen({
         doc_nro: v.docN,
       };
 
-      const out = await saveArcaInvoicePdf({
+      // ✅ Solo genera y descarga el PDF, sin guardar en DB
+      await saveArcaInvoicePdf({
         fact: factMock,
         data: {
           ...data,
@@ -330,23 +332,7 @@ export default function ModalFacturaArcaResumen({
         download: true,
       });
 
-      const blob =
-        out?.blob instanceof Blob ? out.blob : out instanceof Blob ? out : null;
-
-      const filename = out?.filename || "factura_prueba.pdf";
-
-      if (!blob) throw new Error("No se pudo generar el PDF (blob vacío).");
-
-      const saved = await guardarFacturaEnDB({
-        blob,
-        filename,
-        fact: factMock,
-        estado: "solo_pdf",
-      });
-
-      onDone?.(saved);
       onClose?.();
-      onCloseAll?.();
     } catch (e) {
       setError(e?.message || "No se pudo exportar el PDF.");
     } finally {
@@ -363,10 +349,7 @@ export default function ModalFacturaArcaResumen({
     data,
     nombreCliente,
     nombreSistema,
-    guardarFacturaEnDB,
-    onDone,
     onClose,
-    onCloseAll,
   ]);
 
   const emitir = useCallback(async () => {
@@ -420,6 +403,7 @@ export default function ModalFacturaArcaResumen({
       const filename = out?.filename || "factura.pdf";
       if (!blob) throw new Error("No se pudo generar el PDF (blob vacío).");
 
+      // ✅ Solo guarda en DB al emitir de verdad
       await guardarFacturaEnDB({ blob, filename, fact, estado: "emitida" });
 
       onFacturada?.(fact);
@@ -569,7 +553,7 @@ export default function ModalFacturaArcaResumen({
               className="mit-btn mit-btn--ghost"
               onClick={exportarSoloPDF}
               disabled={loading || loadingPdf || !confirm}
-              title={!confirm ? "Marcá la confirmación para habilitar." : "Exporta el PDF (PRUEBA) y lo guarda en DB como solo_pdf."}
+              title={!confirm ? "Marcá la confirmación para habilitar." : "Exporta el PDF localmente (sin guardar en DB ni emitir)."}
             >
               {loadingPdf ? "Generando PDF..." : "Solo PDF (sin emitir)"}
             </button>
