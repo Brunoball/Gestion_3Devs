@@ -520,3 +520,43 @@
     justify-self: start;
   }
 }
+/* =========================
+   Tabs estilo UNDERLINE
+========================= */
+
+.arca-tabs{
+  display: flex;
+  gap: 18px;
+  padding: 0 10px;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.arca-tab{
+  border: none;
+  background: none;
+  padding: 10px 4px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  position: relative;
+  transition: color .2s ease;
+}
+
+.arca-tab:hover{
+  color: #1D428A;
+}
+
+.arca-tab.is-active{
+  color: #1D428A;
+}
+
+.arca-tab.is-active::after{
+  content: "";
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #1D428A;
+  border-radius: 3px;
+}
