@@ -1,3 +1,4 @@
+// ✅ REEMPLAZAR COMPLETO
 // src/components/Reportes/Reportes.jsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -19,8 +20,8 @@ import {
   faPenToSquare,
   faTrash,
   faEye,
-  faPaperclip, // ✅ NUEVO
-  faChartLine, // ✅ NUEVO (botón gráficos)
+  faPaperclip,
+  faChartLine,
 } from "@fortawesome/free-solid-svg-icons";
 import * as XLSX from "xlsx";
 
@@ -34,8 +35,8 @@ import * as ModNuevoEgreso from "./modales/ModalNuevoEgreso";
 import * as ModEditarMovimiento from "./modales/ModalEditarMovimiento";
 import * as ModEliminarEgreso from "./modales/ModalEliminarEgreso";
 import * as ModVerComprobante from "./modales/ModalVerComprobante";
-import * as ModComprobantePago from "./modales/ModalComprobantePago"; // ✅ NUEVO
-import * as ModGraficosReportes from "./modales/ModalGraficosReportes"; // ✅ NUEVO (modal gráficos)
+import * as ModComprobantePago from "./modales/ModalComprobantePago";
+import * as ModGraficosReportes from "./modales/ModalGraficosReportes";
 
 function pickComponent(mod, preferredName) {
   const c =
@@ -50,8 +51,8 @@ const ModalNuevoEgreso = pickComponent(ModNuevoEgreso, "ModalNuevoEgreso");
 const ModalEditarMovimiento = pickComponent(ModEditarMovimiento, "ModalEditarMovimiento");
 const ModalEliminarEgreso = pickComponent(ModEliminarEgreso, "ModalEliminarEgreso");
 const ModalVerComprobante = pickComponent(ModVerComprobante, "ModalVerComprobante");
-const ModalComprobantePago = pickComponent(ModComprobantePago, "ModalComprobantePago"); // ✅ NUEVO
-const ModalGraficosReportes = pickComponent(ModGraficosReportes, "ModalGraficosReportes"); // ✅ NUEVO
+const ModalComprobantePago = pickComponent(ModComprobantePago, "ModalComprobantePago");
+const ModalGraficosReportes = pickComponent(ModGraficosReportes, "ModalGraficosReportes");
 
 function assertIsComponent(Cmp, name) {
   if (process.env.NODE_ENV !== "production") {
@@ -68,8 +69,8 @@ assertIsComponent(ModalNuevoEgreso, "ModalNuevoEgreso");
 assertIsComponent(ModalEditarMovimiento, "ModalEditarMovimiento");
 assertIsComponent(ModalEliminarEgreso, "ModalEliminarEgreso");
 assertIsComponent(ModalVerComprobante, "ModalVerComprobante");
-assertIsComponent(ModalComprobantePago, "ModalComprobantePago"); // ✅ NUEVO
-assertIsComponent(ModalGraficosReportes, "ModalGraficosReportes"); // ✅ NUEVO
+assertIsComponent(ModalComprobantePago, "ModalComprobantePago");
+assertIsComponent(ModalGraficosReportes, "ModalGraficosReportes");
 
 const nfPesos = new Intl.NumberFormat("es-AR");
 const SKELETON_ROWS = 8;
@@ -106,7 +107,7 @@ function GridTable({ title, icon, columns = [], rows = [], loading = false, acti
   return (
     <section className="reportes-block">
       <div className="contable-tablewrap reportes-tablewrap minimal">
-                  <div
+        <div
           className="gridtable-header minimal"
           style={{ gridTemplateColumns: allCols.map((c) => c.fr).join(" ") }}
         >
@@ -117,50 +118,40 @@ function GridTable({ title, icon, columns = [], rows = [], loading = false, acti
           ))}
         </div>
 
-
-
-  <div className="gridtable-scroll minimal">
-     <div className="gridtable-body minimal">
-          {loading ? (
-            renderSkeletonRows(allCols.length || 5)
-          ) : safeRows.length ? (
-            safeRows.map((r, idx) => (
-              <div
-                key={r?.id ?? `${title}-${idx}`}
-                className="gridtable-row row-appear minimal"
-                style={{ gridTemplateColumns: allCols.map((c) => c.fr).join(" ") }}
-              >
-                {allCols.map((c) => (
-                  <div
-                    key={c.key}
-                    className={`gridtable-cell ${c.center ? "centers" : ""}`}
-                    data-label={c.label}
-                  >
-                    {c.render ? c.render(r) : r?.[c.key] ?? ""}
-                  </div>
-                ))}
-              </div>
-            ))
-          ) : (
-            <div className="detalle-empty">
-              <div className="gridtable-empty-inner">
-                <div className="empty-icon" aria-hidden="true">
-                  <FontAwesomeIcon icon={faInbox} />
+        <div className="gridtable-scroll minimal">
+          <div className="gridtable-body minimal">
+            {loading ? (
+              renderSkeletonRows(allCols.length || 5)
+            ) : safeRows.length ? (
+              safeRows.map((r, idx) => (
+                <div
+                  key={r?.id ?? `${title}-${idx}`}
+                  className="gridtable-row row-appear minimal"
+                  style={{ gridTemplateColumns: allCols.map((c) => c.fr).join(" ") }}
+                >
+                  {allCols.map((c) => (
+                    <div
+                      key={c.key}
+                      className={`gridtable-cell ${c.center ? "centers" : ""}`}
+                      data-label={c.label}
+                    >
+                      {c.render ? c.render(r) : r?.[c.key] ?? ""}
+                    </div>
+                  ))}
                 </div>
-                <div>No hay datos para los filtros aplicados.</div>
+              ))
+            ) : (
+              <div className="detalle-empty">
+                <div className="gridtable-empty-inner">
+                  <div className="empty-icon" aria-hidden="true">
+                    <FontAwesomeIcon icon={faInbox} />
+                  </div>
+                  <div>No hay datos para los filtros aplicados.</div>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-
-  </div>
-
-       
-
-
-
-
-
       </div>
     </section>
   );
@@ -209,6 +200,9 @@ export default function Reportes() {
   const [searchText, setSearchText] = useState("");
   const [loadingData, setLoadingData] = useState(false);
 
+  // ✅ IMPORTANTÍSIMO:
+  // mantenemos pagos/egresos SIEMPRE cargados para las tarjetas,
+  // incluso cuando view === "trabajadores"
   const [pagos, setPagos] = useState([]);
   const [egresos, setEgresos] = useState([]);
   const [trabajadores, setTrabajadores] = useState([]);
@@ -265,7 +259,9 @@ export default function Reportes() {
 
     const trimmed = (text || "").trim();
     if (trimmed.startsWith("<")) {
-      throw new Error(`Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`);
+      throw new Error(
+        `Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`
+      );
     }
 
     try {
@@ -293,7 +289,9 @@ export default function Reportes() {
 
     const trimmed = (text || "").trim();
     if (trimmed.startsWith("<")) {
-      throw new Error(`Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`);
+      throw new Error(
+        `Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`
+      );
     }
 
     try {
@@ -318,7 +316,9 @@ export default function Reportes() {
 
     const trimmed = (text || "").trim();
     if (trimmed.startsWith("<")) {
-      throw new Error(`Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`);
+      throw new Error(
+        `Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`
+      );
     }
 
     try {
@@ -330,8 +330,7 @@ export default function Reportes() {
 
   const onEditar = useCallback(
     (row) => {
-      const t =
-        view === "egresos" ? "egreso" : view === "trabajadores" ? "trabajador" : "pago";
+      const t = view === "egresos" ? "egreso" : view === "trabajadores" ? "trabajador" : "pago";
 
       const fixedId =
         row?.id ?? row?.id_mov ?? row?.id_pago ?? row?.id_egreso ?? row?.id_trabajador ?? null;
@@ -590,32 +589,75 @@ export default function Reportes() {
     };
   }, [fetchJSON, showToast]);
 
-  /* ===== Carga DATOS ===== */
+  /* =========================================================
+     ✅ CARGA DATOS (ARREGLADO)
+     - Siempre carga movimientos (pagos/egresos) para que
+       las tarjetas muestren valores también en "trabajadores".
+     - Si view === "trabajadores", además carga trabajadores.
+  ========================================================= */
   useEffect(() => {
     let alive = true;
+
+    const buildBaseUrl = () => {
+      const u = new URL(`${BASE_URL}/api.php`);
+      u.searchParams.set("action", "reportes");
+
+      if (anioSeleccionado !== "TODOS") {
+        const y = parseInt(anioSeleccionado, 10);
+        if (!Number.isNaN(y)) u.searchParams.set("anio", String(y));
+      }
+      if (mesSeleccionado !== "TODOS") {
+        const m = parseInt(mesSeleccionado, 10);
+        if (!Number.isNaN(m)) u.searchParams.set("mes", String(m));
+      }
+      return u;
+    };
 
     (async () => {
       try {
         setErrorMsg("");
         setLoadingData(true);
 
-        const u = new URL(`${BASE_URL}/api.php`);
-        u.searchParams.set("action", "reportes");
+        // 1) ✅ Siempre: movimientos (pagos + egresos) -> tarjetas
+        {
+          const uMov = buildBaseUrl();
+          uMov.searchParams.set("op", "movimientos");
+          const dataMov = await fetchJSON(uMov.toString());
 
-        if (anioSeleccionado !== "TODOS") {
-          const y = parseInt(anioSeleccionado, 10);
-          if (!Number.isNaN(y)) u.searchParams.set("anio", String(y));
-        }
-        if (mesSeleccionado !== "TODOS") {
-          const m = parseInt(mesSeleccionado, 10);
-          if (!Number.isNaN(m)) u.searchParams.set("mes", String(m));
+          const pagosArr = Array.isArray(dataMov?.pagos)
+            ? dataMov.pagos
+            : Array.isArray(dataMov?.ingresos)
+            ? dataMov.ingresos
+            : [];
+
+          const egresosArr = Array.isArray(dataMov?.egresos) ? dataMov.egresos : [];
+
+          const norm = (r) => ({
+            id: r.id ?? r.ID ?? r.id_mov ?? r.id_pago ?? r.id_egreso ?? null,
+            fecha: r.fecha ?? r.Fecha ?? r.fecha_mov ?? r.fechaPago ?? r.fecha_pago ?? "",
+            concepto: r.concepto ?? r.Concepto ?? r.nombre_concepto ?? "",
+            descripcion: r.descripcion ?? r.detalle ?? r.Descripcion ?? "",
+            categoria: r.categoria ?? r.Categoria ?? r.nombre_categoria ?? "",
+            medio: r.medio ?? r.Medio ?? r.medio_pago ?? r.Medio_Pago ?? "",
+            monto: Number(r.monto ?? r.Monto ?? r.importe ?? r.Precio ?? 0) || 0,
+            cliente_nombre: r.cliente_nombre ?? r.cliente ?? "",
+            sistema_nombre: r.sistema_nombre ?? r.sistema ?? "",
+            id_medio_pago: r.id_medio_pago ?? r.idMedio ?? r.id_medio ?? r.medio_id ?? null,
+            comprobante: r.comprobante ?? "",
+          });
+
+          if (!alive) return;
+          setPagos(pagosArr.map(norm));
+          setEgresos(egresosArr.map(norm));
         }
 
+        // 2) ✅ Si estoy en "trabajadores", cargo trabajadores (tabla)
         if (view === "trabajadores") {
-          u.searchParams.set("op", "trabajadores");
-          const data = await fetchJSON(u.toString());
+          const uT = buildBaseUrl();
+          uT.searchParams.set("op", "trabajadores");
+          const dataT = await fetchJSON(uT.toString());
 
-          const arr = Array.isArray(data?.trabajadores) ? data.trabajadores : [];
+          const arr = Array.isArray(dataT?.trabajadores) ? dataT.trabajadores : [];
           const normT = (r) => ({
             id: r.id ?? r.id_trabajador ?? null,
             nombre: r.nombre ?? "",
@@ -628,40 +670,11 @@ export default function Reportes() {
 
           if (!alive) return;
           setTrabajadores(arr.map(normT));
-          setPagos([]);
-          setEgresos([]);
-          return;
+        } else {
+          // si no estoy en trabajadores, limpio la tabla de trabajadores
+          if (!alive) return;
+          setTrabajadores([]);
         }
-
-        u.searchParams.set("op", "movimientos");
-        const data = await fetchJSON(u.toString());
-
-        const pagosArr = Array.isArray(data?.pagos)
-          ? data.pagos
-          : Array.isArray(data?.ingresos)
-          ? data.ingresos
-          : [];
-
-        const egresosArr = Array.isArray(data?.egresos) ? data.egresos : [];
-
-        const norm = (r) => ({
-          id: r.id ?? r.ID ?? r.id_mov ?? r.id_pago ?? r.id_egreso ?? null,
-          fecha: r.fecha ?? r.Fecha ?? r.fecha_mov ?? r.fechaPago ?? r.fecha_pago ?? "",
-          concepto: r.concepto ?? r.Concepto ?? r.nombre_concepto ?? "",
-          descripcion: r.descripcion ?? r.detalle ?? r.Descripcion ?? "",
-          categoria: r.categoria ?? r.Categoria ?? r.nombre_categoria ?? "",
-          medio: r.medio ?? r.Medio ?? r.medio_pago ?? r.Medio_Pago ?? "",
-          monto: Number(r.monto ?? r.Monto ?? r.importe ?? r.Precio ?? 0) || 0,
-          cliente_nombre: r.cliente_nombre ?? r.cliente ?? "",
-          sistema_nombre: r.sistema_nombre ?? r.sistema ?? "",
-          id_medio_pago: r.id_medio_pago ?? r.idMedio ?? r.id_medio ?? r.medio_id ?? null,
-          comprobante: r.comprobante ?? "", // ✅ ahora viene también en pagos
-        });
-
-        if (!alive) return;
-        setPagos(pagosArr.map(norm));
-        setEgresos(egresosArr.map(norm));
-        setTrabajadores([]);
       } catch (e) {
         // eslint-disable-next-line no-console
         console.error("Error cargando reportes:", e);
@@ -669,9 +682,12 @@ export default function Reportes() {
 
         const msg = String(e?.message || e);
         setErrorMsg(msg);
+
+        // mantenemos consistencia
         setPagos([]);
         setEgresos([]);
         setTrabajadores([]);
+
         showToast("error", `❌ Error cargando datos: ${msg}`, 4200);
       } finally {
         if (alive) setLoadingData(false);
@@ -761,7 +777,7 @@ export default function Reportes() {
         key: "sistema_nombre",
         label: "Sistema",
         fr: "1.6fr",
-        center: true, // ✅ centrado
+        center: true,
         render: (r) => {
           if (r?.sistema_nombre) return r.sistema_nombre;
           const parts = String(r?.concepto || "").split(" - ");
@@ -902,7 +918,7 @@ export default function Reportes() {
           MES: r.categoria,
           MEDIO: r.medio,
           MONTO: r.monto,
-          COMPROBANTE: r.comprobante || "", // ✅ NUEVO
+          COMPROBANTE: r.comprobante || "",
         })),
         { header: ["FECHA", "CLIENTE", "SISTEMA", "MES", "MEDIO", "MONTO", "COMPROBANTE"] }
       );
@@ -1036,7 +1052,6 @@ export default function Reportes() {
             </label>
 
             <div className="side-actions">
-              {/* ✅ Excel */}
               <button
                 className="btn-dark excel"
                 type="button"
@@ -1047,7 +1062,6 @@ export default function Reportes() {
                 <FontAwesomeIcon icon={faFileExcel} /> Excel
               </button>
 
-              {/* ✅ NUEVO: Gráficos (al lado de Excel) */}
               <button
                 className="btn-dark"
                 type="button"
@@ -1254,7 +1268,6 @@ export default function Reportes() {
                 loading={loadingData}
                 actions={(r) => (
                   <div className="actions-cell">
-                    {/* ver comprobante si existe */}
                     <button
                       type="button"
                       className={`icon-btn ${r?.comprobante ? "" : "disabled"}`}
@@ -1266,7 +1279,6 @@ export default function Reportes() {
                       <FontAwesomeIcon icon={faEye} />
                     </button>
 
-                    {/* ✅ abrir modal para adjuntar / borrar */}
                     <button
                       type="button"
                       className="icon-btn"

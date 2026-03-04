@@ -1,3 +1,4 @@
+// ✅ REEMPLAZAR COMPLETO
 // src/components/Pagos/Pagos.jsx
 import React, {
   useState,
@@ -145,46 +146,19 @@ function normalizeText(s) {
     .trim();
 }
 
+/** ✅ Ahora la grilla es SOLO por CLIENTE */
 function buildClienteLabel(item) {
-  const a = (item?.apellido || item?.Apellido || item?.APELLIDO || "")
-    .toString()
-    .trim();
-  const n = (item?.nombre || item?.Nombre || item?.NOMBRE || "")
-    .toString()
-    .trim();
-
-  const rs = (item?.razon_social ||
-    item?.RazonSocial ||
-    item?.RAZON_SOCIAL ||
-    "")
-    .toString()
-    .trim();
-
-  const cli = (
+  const cli =
     item?.cliente ||
     item?.cliente_nombre ||
     item?.nombre_cliente ||
     item?.titular ||
-    ""
-  )
-    .toString()
-    .trim();
-
-  if (a || n) return `${a} ${n}`.trim();
-  if (rs) return rs;
-  if (cli) return cli;
-  return "—";
+    "";
+  const out = String(cli || "").trim();
+  return out || "—";
 }
 
-function buildSistemaLabel(item) {
-  const s =
-    (item?.sistema ?? "").toString().trim() ||
-    (item?.concepto ?? "").toString().trim() ||
-    (item?.detalle ?? "").toString().trim() ||
-    (item?.descripcion ?? "").toString().trim();
-  return s || "—";
-}
-
+/** ✅ Para no romper modales: seguimos teniendo un id_sistema “principal” en cada fila */
 function getIdSistema(item) {
   const v =
     item?.id_sistema ??
@@ -199,6 +173,17 @@ function getIdSistema(item) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function getIdCliente(item) {
+  const v =
+    item?.id_cliente ??
+    item?.idCliente ??
+    item?.IdCliente ??
+    item?.ID_CLIENTE ??
+    null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function getIdPago(item) {
   const v = item?.id_pago ?? item?.idPago ?? item?.IdPago ?? item?.ID_PAGO ?? null;
   const n = Number(v);
@@ -208,8 +193,10 @@ function getIdPago(item) {
 /** ✅ busyKey consistente en TODO (desktop/mobile) */
 function arcaBusyKeyFromRow(row) {
   const idPago = getIdPago(row);
+  const idCliente = getIdCliente(row);
   const idSistema = getIdSistema(row);
   if (idPago) return idPago;
+  if (idCliente) return -Number(idCliente);
   if (idSistema) return -Number(idSistema);
   return null;
 }
@@ -224,9 +211,31 @@ function getMesLabelById(mesesArr, id) {
   return (found?.mes || "").toString().trim();
 }
 
+/* =========================================================
+   ✅ DETECTOR "SIN FACTURA" igual al ModalPago
+========================================================= */
+function computeSinFacturaFromFactura(factura) {
+  const pdfUrl = factura?.pdf_path || factura?.pdf_url || null;
+
+  const hasId =
+    factura?.id_factura != null ||
+    factura?.cbte_nro != null ||
+    factura?.cae != null;
+
+  const hasPdf = Boolean(pdfUrl);
+
+  const hasMonto =
+    (Number.isFinite(Number(factura?.total_ars)) && Number(factura?.total_ars) > 0) ||
+    (Number.isFinite(Number(factura?.monto_ars)) && Number(factura?.monto_ars) > 0);
+
+  return !hasId && !hasPdf && !hasMonto;
+}
+
 /* =========================
    Row virtualizado
    ✅ ARCA solo en DEUDORES (NO en PAGADOS)
+   ✅ Pagar: bloqueado si NO hay factura
+   ✅ Tabla: SOLO Cliente + Acciones
 ========================= */
 const Row = memo(
   (
@@ -240,6 +249,8 @@ const Row = memo(
       onTeamClick,
       onArcaClick,
       arcaLoadingId,
+      canOpenPagoMap,
+      facturaCheckLoadingMap,
     }
   ) => {
     const item = data[index];
@@ -248,7 +259,6 @@ const Row = memo(
       return (
         <div style={style} className="gpagos-virtual-row gpagos-loading-row">
           <div className="gpagos-virtual-cell">Cargando...</div>
-          <div className="gpagos-virtual-cell"></div>
           <div className="gpagos-virtual-cell"></div>
         </div>
       );
@@ -260,23 +270,43 @@ const Row = memo(
     const busyKey = arcaBusyKeyFromRow(item);
     const arcaBusy = Boolean(busyKey && arcaLoadingId === busyKey);
 
+    // ✅ estado factura (por periodo) usando id_sistema “principal”
+    const idSistema = getIdSistema(item);
+    const canOpenPago = idSistema ? canOpenPagoMap?.[idSistema] : true; // default true
+    const facturaChecking = idSistema
+      ? Boolean(facturaCheckLoadingMap?.[idSistema])
+      : false;
+
+    const payDisabled = !isDeudor ? true : facturaChecking ? true : canOpenPago === false;
+
+    const payTitle = !isDeudor
+      ? ""
+      : facturaChecking
+      ? "Verificando factura..."
+      : canOpenPago === false
+      ? "No facturado: primero generá la factura para este período"
+      : "Registrar pago";
+
     return (
       <div style={style} className="gpagos-virtual-row">
         <div className="gpagos-virtual-cell">{buildClienteLabel(item)}</div>
-        <div className="gpagos-virtual-cell">{buildSistemaLabel(item)}</div>
 
         <div className="gpagos-virtual-cell gpagos-virtual-actions">
           <div className="gpagos-actions-inline">
             {/* Registrar pago (solo en deudores) */}
             {isDeudor && (
               <button
-                className="gpagos-action-button gpagos-pay-button"
+                className={`gpagos-action-button gpagos-pay-button ${
+                  payDisabled ? "gpagos-action-disabled" : ""
+                }`}
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (payDisabled) return;
                   onPayClick?.(item);
                 }}
-                title="Registrar pago"
+                title={payTitle}
                 type="button"
+                disabled={payDisabled}
               >
                 <FontAwesomeIcon icon={faMoneyCheckAlt} />
               </button>
@@ -336,7 +366,9 @@ const Row = memo(
     prev.index === next.index &&
     prev.data === next.data &&
     prev.activeTab === next.activeTab &&
-    prev.arcaLoadingId === next.arcaLoadingId
+    prev.arcaLoadingId === next.arcaLoadingId &&
+    prev.canOpenPagoMap === next.canOpenPagoMap &&
+    prev.facturaCheckLoadingMap === next.facturaCheckLoadingMap
 );
 
 function Pagos() {
@@ -418,181 +450,22 @@ function Pagos() {
     }
   }, []);
 
-  // ✅ MODAL PAGO - ACTUALIZADO: ahora pasa año y mes de los filtros
+  // ✅ MODAL PAGO
   const [modalPago, setModalPago] = useState(null);
-  const openModalPago = useCallback(
-    (row) => {
-      const id_sistema = getIdSistema(row);
-      if (!id_sistema) return;
-
-      const mesLabel = getMesLabelById(meses, selectedMonthId);
-
-      setModalPago({
-        open: true,
-        id_sistema,
-        labelCliente: buildClienteLabel(row),
-        labelSistema: buildSistemaLabel(row),
-        anioSeleccionado: selectedYear,
-        mesSeleccionado: mesLabel,
-        idMesSeleccionado: selectedMonthId,
-      });
-    },
-    [selectedYear, selectedMonthId, meses]
-  );
-
-  const closeModalPago = useCallback(() => setModalPago(null), []);
 
   // ✅ MODAL ELIMINAR
   const [modalEliminar, setModalEliminar] = useState(null);
-  const closeModalEliminar = useCallback(() => setModalEliminar(null), []);
 
   // ✅ MODAL EQUIPO
   const [modalEquipo, setModalEquipo] = useState(null);
-  const closeModalEquipo = useCallback(() => setModalEquipo(null), []);
-  const openModalEquipo = useCallback(
-    (row) => {
-      const id_sistema = getIdSistema(row);
-      if (!id_sistema) return;
-
-      const mesLabel = getMesLabelById(meses, selectedMonthId);
-
-      setModalEquipo({
-        open: true,
-        id_sistema,
-        anio: selectedYear || "",
-        mes: mesLabel || "",
-        id_mes: Number(selectedMonthId) || 0,
-        labelCliente: buildClienteLabel(row),
-        labelSistema: buildSistemaLabel(row),
-        monto: row?.monto ?? null,
-        fecha_pago: row?.fecha_pago ?? null,
-        id_pago: getIdPago(row),
-      });
-    },
-    [selectedYear, selectedMonthId, meses]
-  );
 
   // ✅ MODAL ARCA
   const [modalArca, setModalArca] = useState(null);
+
+  const closeModalPago = useCallback(() => setModalPago(null), []);
+  const closeModalEliminar = useCallback(() => setModalEliminar(null), []);
+  const closeModalEquipo = useCallback(() => setModalEquipo(null), []);
   const closeModalArca = useCallback(() => setModalArca(null), []);
-
-  /**
-   * ✅ Trae info de facturación.
-   * - Si tengo id_pago, pruebo cliente_facturacion.
-   * - Si no hay id_pago (deudores), pruebo cliente_facturacion_sistema.
-   */
-  const fetchClienteFacturacion = useCallback(
-    async ({ id_pago, id_sistema, anio, mes }) => {
-      const mesLabel = getMesLabelById(meses, mes);
-
-      if (id_pago) {
-        const url = `${API}?action=${ACTION_PAGOS}&op=cliente_facturacion`;
-        const resp = await fetchJSON(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            id_pago: Number(id_pago),
-            anio: Number(anio),
-            mes: String(mesLabel),
-          }),
-        });
-        return resp?.cliente_facturacion ?? null;
-      }
-
-      if (id_sistema) {
-        const url = `${API}?action=${ACTION_PAGOS}&op=cliente_facturacion_sistema`;
-        const resp = await fetchJSON(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            id_sistema: Number(id_sistema),
-            anio: Number(anio),
-            mes: String(mesLabel),
-          }),
-        });
-        return resp?.cliente_facturacion ?? null;
-      }
-
-      return null;
-    },
-    [fetchJSON, meses]
-  );
-
-  const openModalArca = useCallback(
-    async (row) => {
-      const id_sistema = getIdSistema(row);
-      const id_pago = getIdPago(row);
-      if (!id_sistema) return;
-
-      if (!selectedYear || !selectedMonthId) {
-        showToast("error", "Seleccioná año y mes antes de facturar.", 2600);
-        return;
-      }
-
-      const mesLabel = getMesLabelById(meses, selectedMonthId);
-      const id_mes = Number(selectedMonthId) || 0;
-
-      const busyKey = arcaBusyKeyFromRow(row);
-      if (busyKey != null) setArcaLoadingId(busyKey);
-
-      let cliente_facturacion = null;
-      try {
-        cliente_facturacion = await fetchClienteFacturacion({
-          id_pago: id_pago || null,
-          id_sistema,
-          anio: selectedYear,
-          mes: selectedMonthId,
-        });
-
-        if (!cliente_facturacion) {
-          showToast(
-            "warning",
-            "No se encontró info de facturación en la DB para este registro. Se abrirá igual.",
-            3200
-          );
-        }
-      } catch (e) {
-        console.error(e);
-        showToast(
-          "error",
-          `No pude traer datos de facturación (${e.message || "error"}). Se abrirá igual.`,
-          3400
-        );
-      } finally {
-        setArcaLoadingId(null);
-      }
-
-      setModalArca({
-        open: true,
-        id_sistema,
-        id_pago: id_pago || null,
-        anio: Number(selectedYear),
-        id_mes,
-        mes: mesLabel,
-        labelCliente: buildClienteLabel(row),
-        labelSistema: buildSistemaLabel(row),
-        monto: row?.monto ?? null,
-        fecha_pago: row?.fecha_pago ?? null,
-        medio_pago: row?.medio_pago ?? null,
-        cliente_facturacion,
-        origen_estado: activeTab,
-      });
-    },
-    [
-      selectedYear,
-      selectedMonthId,
-      meses,
-      showToast,
-      fetchClienteFacturacion,
-      activeTab,
-    ]
-  );
 
   // ===== Virtual / infinite =====
   const [limit, setLimit] = useState(120);
@@ -728,6 +601,7 @@ function Pagos() {
           mesLabel
         )}`;
 
+        // ✅ Backend ahora devuelve filas por CLIENTE (con id_sistema principal para modales)
         const [pagados, deudores] = await Promise.all([
           fetchJSON(`${API}?action=${ACTION_PAGOS}&estado=pagado${qp}`, {
             method: "GET",
@@ -790,8 +664,7 @@ function Pagos() {
         const t = normalizeText(searchTerm);
         filtered = filtered.filter((x) => {
           const label = normalizeText(buildClienteLabel(x));
-          const sistema = normalizeText(buildSistemaLabel(x));
-          return label.includes(t) || sistema.includes(t);
+          return label.includes(t);
         });
       }
 
@@ -868,8 +741,296 @@ function Pagos() {
     setSearchTerm(e.target.value);
   }, []);
 
+  /* =========================================================
+     ✅ cache estado "tiene factura" por período
+     (se valida por id_sistema principal)
+  ========================================================= */
+  const facturaCacheRef = useRef({
+    periodoKey: "",
+    canOpenBySistema: {},
+    loadingBySistema: {},
+  });
+
+  const periodoKey = useMemo(() => {
+    if (!selectedYear || !selectedMonthId) return "";
+    return `${selectedYear}|${selectedMonthId}`;
+  }, [selectedYear, selectedMonthId]);
+
+  const [canOpenPagoMap, setCanOpenPagoMap] = useState({});
+  const [facturaCheckLoadingMap, setFacturaCheckLoadingMap] = useState({});
+
+  useEffect(() => {
+    facturaCacheRef.current.periodoKey = periodoKey;
+    facturaCacheRef.current.canOpenBySistema = {};
+    facturaCacheRef.current.loadingBySistema = {};
+    setCanOpenPagoMap({});
+    setFacturaCheckLoadingMap({});
+  }, [periodoKey]);
+
+  const checkFacturaForSistema = useCallback(
+    async (id_sistema) => {
+      const idSistema = Number(id_sistema);
+      if (!Number.isFinite(idSistema) || idSistema <= 0) return true;
+
+      if (!selectedYear || !selectedMonthId) return true;
+
+      if (facturaCacheRef.current.periodoKey !== periodoKey) {
+        facturaCacheRef.current.periodoKey = periodoKey;
+        facturaCacheRef.current.canOpenBySistema = {};
+        facturaCacheRef.current.loadingBySistema = {};
+      }
+
+      if (facturaCacheRef.current.canOpenBySistema[idSistema] != null) {
+        return Boolean(facturaCacheRef.current.canOpenBySistema[idSistema]);
+      }
+
+      if (facturaCacheRef.current.loadingBySistema[idSistema]) {
+        return true;
+      }
+
+      facturaCacheRef.current.loadingBySistema[idSistema] = true;
+      setFacturaCheckLoadingMap((m) => ({ ...m, [idSistema]: true }));
+
+      try {
+        const url =
+          `${API}?action=pagos&op=detalle_periodo` +
+          `&id_sistema=${encodeURIComponent(idSistema)}` +
+          `&anio=${encodeURIComponent(Number(selectedYear))}` +
+          `&id_mes=${encodeURIComponent(Number(selectedMonthId))}`;
+
+        const data = await fetchJSON(url, { method: "GET" });
+        const factura = data?.factura || null;
+        const sinFactura = computeSinFacturaFromFactura(factura);
+        const canOpen = !sinFactura;
+
+        facturaCacheRef.current.canOpenBySistema[idSistema] = canOpen;
+        setCanOpenPagoMap((m) => ({ ...m, [idSistema]: canOpen }));
+
+        return canOpen;
+      } catch (e) {
+        console.error(e);
+        facturaCacheRef.current.canOpenBySistema[idSistema] = true;
+        setCanOpenPagoMap((m) => ({ ...m, [idSistema]: true }));
+        return true;
+      } finally {
+        facturaCacheRef.current.loadingBySistema[idSistema] = false;
+        setFacturaCheckLoadingMap((m) => ({ ...m, [idSistema]: false }));
+      }
+    },
+    [fetchJSON, selectedYear, selectedMonthId, periodoKey]
+  );
+
+  const prefetchFacturaForRows = useCallback(
+    async (rows) => {
+      if (!rows?.length) return;
+      if (!selectedYear || !selectedMonthId) return;
+      if (activeTab !== "deudores") return;
+
+      const ids = [];
+      for (const r of rows) {
+        const idS = getIdSistema(r);
+        if (!idS) continue;
+        if (facturaCacheRef.current.canOpenBySistema[idS] != null) continue;
+        ids.push(idS);
+      }
+      if (!ids.length) return;
+
+      const uniq = Array.from(new Set(ids));
+      const limitConc = 6;
+      let idx = 0;
+
+      const worker = async () => {
+        while (idx < uniq.length) {
+          const my = uniq[idx++];
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            await checkFacturaForSistema(my);
+          } catch {}
+        }
+      };
+
+      const workers = Array.from({ length: Math.min(limitConc, uniq.length) }, worker);
+      await Promise.all(workers);
+    },
+    [activeTab, selectedYear, selectedMonthId, checkFacturaForSistema]
+  );
+
+  useEffect(() => {
+    if (!filtrosCompletos) return;
+    if (loading.pagos) return;
+    if (activeTab !== "deudores") return;
+    prefetchFacturaForRows(datosFiltradosPaginated.slice(0, 40));
+  }, [
+    filtrosCompletos,
+    loading.pagos,
+    activeTab,
+    datosFiltradosPaginated,
+    prefetchFacturaForRows,
+  ]);
+
+  // ✅ MODAL PAGO: usa id_sistema principal
+  const openModalPago = useCallback(
+    async (row) => {
+      const id_sistema = getIdSistema(row);
+      if (!id_sistema) return;
+
+      if (!selectedYear || !selectedMonthId) {
+        showToast("error", "Seleccioná año y mes antes de registrar pagos.", 2600);
+        return;
+      }
+
+      const canOpen = await checkFacturaForSistema(id_sistema);
+      if (canOpen === false) {
+        showToast(
+          "warning",
+          "Este cliente todavía no ha sido facturado para el período seleccionado. Facturá antes de registrar el pago.",
+          3400
+        );
+        return;
+      }
+
+      const mesLabel = getMesLabelById(meses, selectedMonthId);
+
+      setModalPago({
+        open: true,
+        id_sistema,
+        labelCliente: buildClienteLabel(row),
+        labelSistema: "", // ✅ ya no existe “Detalle”
+        anioSeleccionado: selectedYear,
+        mesSeleccionado: mesLabel,
+        idMesSeleccionado: selectedMonthId,
+      });
+    },
+    [selectedYear, selectedMonthId, meses, showToast, checkFacturaForSistema]
+  );
+
   const onPayClick = useCallback((row) => openModalPago(row), [openModalPago]);
+
+  const openModalEquipo = useCallback(
+    (row) => {
+      const id_sistema = getIdSistema(row);
+      if (!id_sistema) return;
+
+      const mesLabel = getMesLabelById(meses, selectedMonthId);
+
+      setModalEquipo({
+        open: true,
+        id_sistema,
+        anio: selectedYear || "",
+        mes: mesLabel || "",
+        id_mes: Number(selectedMonthId) || 0,
+        labelCliente: buildClienteLabel(row),
+        labelSistema: "", // ✅ ya no existe “Detalle”
+        monto: row?.monto ?? null,
+        fecha_pago: row?.fecha_pago ?? null,
+        id_pago: getIdPago(row),
+      });
+    },
+    [selectedYear, selectedMonthId, meses]
+  );
+
   const onTeamClick = useCallback((row) => openModalEquipo(row), [openModalEquipo]);
+
+  const fetchClienteFacturacion = useCallback(
+    async ({ id_pago, id_sistema, anio, mes }) => {
+      const mesLabel = getMesLabelById(meses, mes);
+
+      if (id_pago) {
+        const url = `${API}?action=${ACTION_PAGOS}&op=cliente_facturacion`;
+        const resp = await fetchJSON(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({
+            id_pago: Number(id_pago),
+            anio: Number(anio),
+            mes: String(mesLabel),
+          }),
+        });
+        return resp?.cliente_facturacion ?? null;
+      }
+
+      if (id_sistema) {
+        const url = `${API}?action=${ACTION_PAGOS}&op=cliente_facturacion_sistema`;
+        const resp = await fetchJSON(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({
+            id_sistema: Number(id_sistema),
+            anio: Number(anio),
+            mes: String(mesLabel),
+          }),
+        });
+        return resp?.cliente_facturacion ?? null;
+      }
+
+      return null;
+    },
+    [fetchJSON, meses]
+  );
+
+  const openModalArca = useCallback(
+    async (row) => {
+      const id_sistema = getIdSistema(row);
+      const id_pago = getIdPago(row);
+      if (!id_sistema) return;
+
+      if (!selectedYear || !selectedMonthId) {
+        showToast("error", "Seleccioná año y mes antes de facturar.", 2600);
+        return;
+      }
+
+      const mesLabel = getMesLabelById(meses, selectedMonthId);
+      const id_mes = Number(selectedMonthId) || 0;
+
+      const busyKey = arcaBusyKeyFromRow(row);
+      if (busyKey != null) setArcaLoadingId(busyKey);
+
+      let cliente_facturacion = null;
+      try {
+        cliente_facturacion = await fetchClienteFacturacion({
+          id_pago: id_pago || null,
+          id_sistema,
+          anio: selectedYear,
+          mes: selectedMonthId,
+        });
+
+        if (!cliente_facturacion) {
+          showToast(
+            "warning",
+            "No se encontró info de facturación en la DB para este registro. Se abrirá igual.",
+            3200
+          );
+        }
+      } catch (e) {
+        console.error(e);
+        showToast(
+          "error",
+          `No pude traer datos de facturación (${e.message || "error"}). Se abrirá igual.`,
+          3400
+        );
+      } finally {
+        setArcaLoadingId(null);
+      }
+
+      setModalArca({
+        open: true,
+        id_sistema,
+        id_pago: id_pago || null,
+        anio: Number(selectedYear),
+        id_mes,
+        mes: mesLabel,
+        labelCliente: buildClienteLabel(row),
+        labelSistema: "", // ✅ ya no existe “Detalle”
+        monto: row?.monto ?? null,
+        fecha_pago: row?.fecha_pago ?? null,
+        medio_pago: row?.medio_pago ?? null,
+        cliente_facturacion,
+        origen_estado: activeTab,
+      });
+    },
+    [selectedYear, selectedMonthId, meses, showToast, fetchClienteFacturacion, activeTab]
+  );
+
   const onArcaClick = useCallback((row) => openModalArca(row), [openModalArca]);
 
   const onDeleteClick = useCallback((row) => {
@@ -879,7 +1040,7 @@ function Pagos() {
       open: true,
       id_pago,
       labelCliente: buildClienteLabel(row),
-      labelSistema: buildSistemaLabel(row),
+      labelSistema: "", // ✅ ya no existe “Detalle”
       fecha: row?.fecha_pago ?? null,
       monto: row?.monto ?? null,
     });
@@ -914,10 +1075,16 @@ function Pagos() {
     delete cacheRef.current.pagos.pagado[k];
     delete cacheRef.current.pagos.deudor[k];
     delete cacheRef.current.pagos.lastUpdated[k];
+
+    facturaCacheRef.current.canOpenBySistema = {};
+    facturaCacheRef.current.loadingBySistema = {};
+    setCanOpenPagoMap({});
+    setFacturaCheckLoadingMap({});
+
     cargarPagosPorMes(selectedYear, selectedMonthId, true);
   }, [selectedYear, selectedMonthId, cacheKey, cargarPagosPorMes]);
 
-  // ✅ EXPORTAR EXCEL
+  // ✅ EXPORTAR EXCEL (sin Detalle)
   const exportarExcel = useCallback(() => {
     if (!filtrosCompletos) return;
     const data = Array.isArray(datosFiltrados) ? datosFiltrados : [];
@@ -931,13 +1098,13 @@ function Pagos() {
       .replace(/[\u0300-\u036f]/g, "");
 
     const rows = data.map((x) => ({
+      "ID Cliente": getIdCliente(x) ?? "",
       Cliente: buildClienteLabel(x),
-      Sistema: buildSistemaLabel(x),
       "Medio de Pago": x?.medio_pago ?? "",
       Monto: x?.monto ?? "",
       "Fecha de pago": x?.fecha_pago ?? "",
-      "ID Pago": getIdPago(x) ?? "",
-      "ID Sistema": getIdSistema(x) ?? "",
+      "ID Pago (último)": getIdPago(x) ?? "",
+      "ID Sistema (principal)": getIdSistema(x) ?? "",
     }));
 
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -946,14 +1113,7 @@ function Pagos() {
 
     const fileName = `pagos_${activeTab}_${selectedYear}_${safeMes}.xlsx`;
     XLSX.writeFile(wb, fileName);
-  }, [
-    filtrosCompletos,
-    datosFiltrados,
-    activeTab,
-    selectedYear,
-    selectedMonthId,
-    meses,
-  ]);
+  }, [filtrosCompletos, datosFiltrados, activeTab, selectedYear, selectedMonthId, meses]);
 
   // ✅ confirmar eliminación
   const confirmarEliminarPago = useCallback(async () => {
@@ -964,10 +1124,7 @@ function Pagos() {
 
       await fetchJSON(`${API}?action=${ACTION_PAGOS}&op=eliminar_pago`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ id_pago: modalEliminar.id_pago }),
       });
 
@@ -997,11 +1154,27 @@ function Pagos() {
             const isPagado = activeTab === "pagado";
             const isDeudor = activeTab === "deudores";
             const idPago = getIdPago(row);
-            const idSistema = getIdSistema(row);
-            const key = String(idPago || idSistema || index);
+            const idCliente = getIdCliente(row);
+            const key = String(idPago || idCliente || index);
 
             const busyKey = arcaBusyKeyFromRow(row);
             const arcaBusy = Boolean(busyKey && arcaLoadingId === busyKey);
+
+            const idSistema = getIdSistema(row);
+            const canOpenPago = idSistema ? canOpenPagoMap?.[idSistema] : true;
+            const facturaChecking = idSistema
+              ? Boolean(facturaCheckLoadingMap?.[idSistema])
+              : false;
+
+            const payDisabled = !isDeudor ? true : facturaChecking ? true : canOpenPago === false;
+
+            const payTitle = !isDeudor
+              ? ""
+              : facturaChecking
+              ? "Verificando factura..."
+              : canOpenPago === false
+              ? "No facturado: primero generá la factura para este período"
+              : "Registrar pago";
 
             return (
               <div key={key} className="gpagos-mobile-card">
@@ -1010,21 +1183,20 @@ function Pagos() {
                   <span>{buildClienteLabel(row)}</span>
                 </div>
 
-                <div className="gpagos-mobile-row">
-                  <span className="gpagos-mobile-label">Sistema:</span>
-                  <span>{buildSistemaLabel(row)}</span>
-                </div>
-
                 <div className="gpagos-mobile-actions">
                   {isDeudor && (
                     <button
-                      className="gpagos-mobile-pay-button"
+                      className={`gpagos-mobile-pay-button ${
+                        payDisabled ? "gpagos-action-disabled" : ""
+                      }`}
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (payDisabled) return;
                         onPayClick(row);
                       }}
                       type="button"
-                      title="Registrar pago"
+                      title={payTitle}
+                      disabled={payDisabled}
                     >
                       <FontAwesomeIcon icon={faMoneyCheckAlt} />
                       <span>Pagar</span>
@@ -1046,7 +1218,6 @@ function Pagos() {
                     </button>
                   )}
 
-                  {/* ✅ ARCA SOLO en DEUDORES */}
                   {isDeudor && (
                     <button
                       className="gpagos-mobile-arca-button"
@@ -1096,7 +1267,6 @@ function Pagos() {
       <div className="gpagos-virtual-tables" style={{ height: "85vh" }}>
         <div className="gpagos-virtual-header">
           <div className="gpagos-virtual-cell">Cliente</div>
-          <div className="gpagos-virtual-cell">Sistema</div>
           <div className="gpagos-virtual-cell">Acciones</div>
         </div>
 
@@ -1109,9 +1279,17 @@ function Pagos() {
           itemData={datosFiltradosPaginated}
           width={"100%"}
           outerElementType={Outer}
-          onItemsRendered={({ visibleStopIndex }) => {
+          onItemsRendered={({ visibleStartIndex, visibleStopIndex }) => {
             if (visibleStopIndex >= datosFiltradosPaginated.length - 5 && hasMore) {
               loadMoreItems();
+            }
+
+            if (activeTab === "deudores") {
+              const slice = datosFiltradosPaginated.slice(
+                Math.max(0, visibleStartIndex - 5),
+                Math.min(datosFiltradosPaginated.length, visibleStopIndex + 5)
+              );
+              prefetchFacturaForRows(slice);
             }
           }}
         >
@@ -1128,6 +1306,8 @@ function Pagos() {
                 onTeamClick={onTeamClick}
                 onArcaClick={onArcaClick}
                 arcaLoadingId={arcaLoadingId}
+                canOpenPagoMap={canOpenPagoMap}
+                facturaCheckLoadingMap={facturaCheckLoadingMap}
               />
             );
           }}
@@ -1150,6 +1330,9 @@ function Pagos() {
     listKey,
     isClient,
     arcaLoadingId,
+    canOpenPagoMap,
+    facturaCheckLoadingMap,
+    prefetchFacturaForRows,
   ]);
 
   return (
@@ -1396,7 +1579,7 @@ function Pagos() {
               <FontAwesomeIcon icon={faSearch} className="gpagos-search-icon" />
               <input
                 type="text"
-                placeholder="Buscar cliente o sistema..."
+                placeholder="Buscar cliente..."
                 value={searchTerm}
                 onChange={handleSearchChange}
                 disabled={loading.pagos || !selectedYear || !selectedMonthId}

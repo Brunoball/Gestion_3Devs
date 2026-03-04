@@ -1,24 +1,10 @@
+// ✅ REEMPLAZAR COMPLETO
 // frontend/src/components/Pagos/modales/arcaPdfBuilder.js
 import jsPDF from "jspdf";
 import QRCode from "qrcode";
 
 // ✅ Logo local
 import defaultLogoSrc from "../../../imagenes/logo_factura.jpeg";
-
-/**
- * PDF estilo ARCA (A4 pt) con:
- * - ORIGINAL / DUPLICADO / TRIPLICADO
- * - Emisor fijo
- * - PV fijo 0002
- * - Razón Social receptor prioriza DB (cliente_facturacion.razon_social)
- * - Período + VtoPago desde data (lo que elijas en el modal)
- * - TABLA DETALLE: muestra items de data.items_facturacion (planes + mantenimiento/desarrollo)
- *
- * ✅ REQUERIMIENTO:
- * - NO mostrar nunca conversiones (USD -> ARS) en el PDF.
- * - Si el mantenimiento está en USD, igual se transforma a ARS para importes, pero el cliente
- *   solo ve ARS (precio unitario/subtotal).
- */
 
 // =====================
 // ✅ CONSTANTES FIJAS
@@ -28,30 +14,29 @@ const FIX = {
   emisor_domicilio: "Roma 2407 - San Francisco, Córdoba",
   cuit_emisor: "20257525164",
   cond_iva_emisor: "Responsable Monotributo",
-  inicio_actividades: "01/07/2025", // DD/MM/AAAA
+  inicio_actividades: "01/07/2025",
   letra: "C",
   tipoTxt: "FACTURA",
   cod_afip: "011",
-  pto_vta_fijo: "0002",
+  pto_vta_fijo: "00002",
   cond_iva_receptor_default: "IVA Sujeto Exento",
   cond_venta_default: "Contado / Transferencia Bancaria",
+  sistemas_default_label: "Todos los sistemas",
+  sistemas_fallback_na: "N/D",
 };
 
 // =====================
-// Text sanitization (CRÍTICO para jsPDF)
+// Text sanitization
 // =====================
 function sanitizePdfText(input) {
   let t = input == null ? "" : String(input);
   t = t.replace(/\s+/g, " ").trim();
-
-  // Reemplazos típicos
   t = t
-    .replace(/[“”]/g, '"')
-    .replace(/[’‘]/g, "'")
+    .replace(/[""]/g, '"')
+    .replace(/['']/g, "'")
     .replace(/[–—]/g, "-")
-    .replace(/→/g, "->"); // por si aparece en algún texto igual
+    .replace(/→/g, "->");
 
-  // Quitar chars fuera de Latin-1
   let out = "";
   for (let i = 0; i < t.length; i++) {
     const code = t.charCodeAt(i);
@@ -76,9 +61,7 @@ function isYMD8(v) {
 function ymdToHuman(ymd) {
   if (!ymd) return "";
   const str = String(ymd);
-
   if (isYMD8(str)) return `${str.slice(6, 8)}/${str.slice(4, 6)}/${str.slice(0, 4)}`;
-
   if (str.length >= 10 && str.includes("-")) {
     const [y, m, d] = str.slice(0, 10).split("-");
     return `${d}/${m}/${y}`;
@@ -105,6 +88,13 @@ function toBool(v) {
   if (typeof v === "number") return v !== 0;
   const t = String(v || "").toLowerCase().trim();
   return t === "1" || t === "true" || t === "yes" || t === "si";
+}
+function firstFinite(...vals) {
+  for (const v of vals) {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
 }
 
 // =====================
@@ -134,7 +124,6 @@ function clampToWidth(doc, str, maxW) {
   const t = sanitizePdfText(str);
   if (!t) return "";
   if (doc.getTextWidth(t) <= maxW) return t;
-
   let out = t;
   while (out.length > 0 && doc.getTextWidth(out + "...") > maxW) out = out.slice(0, -1);
   return out.length ? out + "..." : "";
@@ -145,7 +134,6 @@ function wrapByWidth(doc, str, maxW) {
   const words = t.split(" ");
   const lines = [];
   let cur = "";
-
   for (const w of words) {
     const test = cur ? cur + " " + w : w;
     if (doc.getTextWidth(test) <= maxW) cur = test;
@@ -178,93 +166,257 @@ async function toDataUrlFromSrc(src) {
 }
 
 // =====================
+// ✅ Normalización items
+// =====================
+function splitDescAndSystem(descRaw) {
+  const desc = sanitizePdfText(s(descRaw).trim());
+  if (!desc) return { baseDesc: "", systemLabel: "" };
+  const m = desc.match(/^(.*)\s\(([^()]{1,80})\)\s*$/);
+  if (!m) return { baseDesc: desc, systemLabel: "" };
+  const base = sanitizePdfText(s(m[1]).trim());
+  const sys = sanitizePdfText(s(m[2]).trim());
+  return { baseDesc: base || desc, systemLabel: sys || "" };
+}
+
+function uniqClean(arr) {
+  const out = [];
+  const seen = new Set();
+  for (const v of arr) {
+    const t = sanitizePdfText(s(v).trim());
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
+
+/**
+ * ✅ FIX PRINCIPAL: getSystemsFromData
+ *
+ * Resuelve SIEMPRE los sistemas a mostrar en el PDF.
+ * Prioridad:
+ * 1) data.sistemas_labels / data.sistemas_aplicados / data.sistemas / data.sistemas_nombres (array en RAÍZ)
+ *    → ModalFacturaArca.jsx ahora pasa sistemas_labels en el raíz de data ✅
+ * 2) Extraer desde data.items_facturacion[*].sistemas_labels (fallback por si algo falla en 1)
+ * 3) aplicar_a_todos_sistemas => "Todos los sistemas"
+ * 4) labelSistema / sistema (string)
+ * 5) "N/D"
+ */
+function getSystemsFromData(data) {
+  const d = data || {};
+
+  const pickArray = (...vals) => {
+    for (const v of vals) {
+      if (Array.isArray(v) && v.length) return v;
+    }
+    return null;
+  };
+
+  // 1) Campos raíz — ModalFacturaArca.jsx ahora envía sistemas_labels aquí ✅
+  const arr = pickArray(
+    d.sistemas_labels,
+    d.sistemas_aplicados,
+    d.sistemas,
+    d.sistemas_nombres
+  );
+  if (arr) {
+    const cleaned = uniqClean(arr);
+    if (cleaned.length) return cleaned;
+  }
+
+  // 2) ✅ FIX FALLBACK: extraer desde items_facturacion (modo global y por_sistema)
+  if (Array.isArray(d.items_facturacion) && d.items_facturacion.length) {
+    const fromItems = [];
+    for (const it of d.items_facturacion) {
+      // modo global: sistemas_labels es array con todos los sistemas
+      if (Array.isArray(it.sistemas_labels) && it.sistemas_labels.length) {
+        fromItems.push(...it.sistemas_labels);
+      }
+      // modo por_sistema: sistema_label es string
+      if (it.sistema_label && typeof it.sistema_label === "string") {
+        fromItems.push(it.sistema_label);
+      }
+    }
+    const cleaned = uniqClean(fromItems);
+    if (cleaned.length) return cleaned;
+  }
+
+  // 3) flag aplicar_a_todos_sistemas
+  if (
+    toBool(d.aplicar_a_todos_sistemas) ||
+    toBool(d.aplicarATodosSistemas) ||
+    toBool(d.todosLosSistemas)
+  ) {
+    return [FIX.sistemas_default_label];
+  }
+
+  // 4) labelSistema / sistema como string
+  const one = sanitizePdfText(s(d.labelSistema || d.sistema || "").trim());
+  if (one) return [one];
+
+  // 5) fallback final
+  return [FIX.sistemas_fallback_na];
+}
+
+// =====================
 // Items (DETALLE)
 // =====================
-/**
- * Prioridad:
- * 1) data.items_facturacion (lo del modal)
- * 2) fact.items (si backend manda)
- * 3) fallback 1 línea con total
- *
- * ✅ Regla: EN EL PDF SOLO ARS.
- * - Si item tiene {ars}, se usa.
- * - Si no, se usa {subtotal|precio_unitario|precio|importe} como ARS.
- */
 function computeItems(fact, data, totalArs) {
   const total = safeNumber(
     totalArs,
     safeNumber(fact?.importe ?? data?.monto ?? data?.importe ?? 0, 0)
   );
 
-  // 1) data.items_facturacion
   const fromModal = Array.isArray(data?.items_facturacion) ? data.items_facturacion : [];
-  const modalNorm = fromModal
+
+  const modalRaw = fromModal
     .map((it, idx) => {
-      const descBase = sanitizePdfText(s(it?.descripcion).trim());
-      if (!descBase) return null;
+      const descRaw =
+        it?.descripcion ??
+        it?.detalle ??
+        it?.nombre ??
+        it?.label ??
+        it?.titulo ??
+        it?.plan ??
+        "";
 
-      // ✅ SOLO ARS (aunque venga usd, no se muestra)
-      const ars =
-        safeNumber(it?.ars, NaN);
-      const fallbackArs =
-        safeNumber(it?.subtotal, NaN) ??
-        safeNumber(it?.precio, NaN) ??
-        safeNumber(it?.importe, NaN);
+      const { baseDesc, systemLabel } = splitDescAndSystem(descRaw);
+      if (!baseDesc) return null;
 
-      const valueArs = Number.isFinite(ars) ? ars : (Number.isFinite(fallbackArs) ? fallbackArs : 0);
+      const cant = safeNumber(it?.cantidad ?? it?.qty ?? 1, 1);
+      const unidad = "unidades";
+
+      const unitArs = firstFinite(
+        it?.ars_unit,
+        it?.precio_unitario_ars,
+        it?.precio_ars,
+        it?.precio_unitario,
+        it?.precio
+      );
+
+      const subArs = firstFinite(
+        it?.ars,
+        it?.subtotal_ars,
+        it?.ars_total,
+        it?.subtotal,
+        it?.importe,
+        it?.monto
+      );
+
+      const precioUnit = unitArs != null ? unitArs : subArs != null ? subArs : 0;
+      const subtotal = subArs != null ? subArs : precioUnit * cant;
+
+      const unitKey = Number(unitArs != null ? unitArs : precioUnit).toFixed(2);
+      const key = `${sanitizePdfText(baseDesc).toLowerCase()}|${unidad.toLowerCase()}|${unitKey}`;
+
+      // ✅ Recopilar sistemas_labels del item (modo global) + sistema_label (modo por_sistema)
+      const itemSystems = [];
+      if (Array.isArray(it.sistemas_labels) && it.sistemas_labels.length) {
+        itemSystems.push(...it.sistemas_labels);
+      }
+      if (it.sistema_label && typeof it.sistema_label === "string") {
+        itemSystems.push(it.sistema_label);
+      }
+      // fallback: sufijo en descripción
+      if (systemLabel) itemSystems.push(systemLabel);
 
       return {
+        _key: key,
+        _idx: idx,
+        _title: sanitizePdfText(baseDesc),
+        _systems: itemSystems,
         codigo: String(idx + 1),
-        descripcion: descBase, // ✅ SIN conversiones
-        cantidad: 1,
-        unidad: "serv.",
-        precio: valueArs,
+        descripcion: sanitizePdfText(baseDesc),
+        cantidad: cant,
+        unidad,
+        precio: precioUnit,
         bonifPct: 0,
         impBonif: 0,
-        subtotal: valueArs,
+        subtotal,
       };
     })
     .filter(Boolean);
 
-  if (modalNorm.length) {
-    // Ajuste para que cierre con el total
-    const sum = modalNorm.reduce((acc, it) => acc + safeNumber(it.subtotal, 0), 0);
-    const diff = total - sum;
+  if (modalRaw.length) {
+    const map = new Map();
 
-    if (Number.isFinite(diff) && Math.abs(diff) >= 0.01) {
-      const last = modalNorm[modalNorm.length - 1];
-      const newSub = safeNumber(last.subtotal, 0) + diff;
-      last.subtotal = newSub;
-      last.precio = newSub; // cantidad 1
+    for (const it of modalRaw) {
+      const prev = map.get(it._key);
+      if (!prev) {
+        map.set(it._key, { ...it, _systems: [...(it._systems || [])] });
+      } else {
+        prev.cantidad = safeNumber(prev.cantidad, 0) + safeNumber(it.cantidad, 0);
+        prev.subtotal = safeNumber(prev.subtotal, 0) + safeNumber(it.subtotal, 0);
+        prev._systems = uniqClean([...(prev._systems || []), ...(it._systems || [])]);
+      }
     }
-    return modalNorm;
+
+    const grouped = Array.from(map.values()).sort((a, b) => (a._idx ?? 0) - (b._idx ?? 0));
+
+    // ✅ Para cada item agrupado: si _systems sigue vacío, usar getSystemsFromData(data)
+    const dataSystems = getSystemsFromData(data);
+
+    for (const g of grouped) {
+      const systems = uniqClean(g._systems || []);
+      g._systems = systems.length ? systems : dataSystems;
+
+      const cant = safeNumber(g.cantidad ?? 1, 1);
+      const sub = safeNumber(g.subtotal ?? 0, 0);
+      if (!Number.isFinite(g.precio) || g.precio <= 0) {
+        g.precio = cant > 0 ? sub / cant : sub;
+      }
+    }
+
+    // Ajuste cierre con total
+    const sum = grouped.reduce((acc, it) => acc + safeNumber(it.subtotal, 0), 0);
+    const diff = total - sum;
+    if (Number.isFinite(diff) && Math.abs(diff) >= 0.01) {
+      const last = grouped[grouped.length - 1];
+      last.subtotal = safeNumber(last.subtotal, 0) + diff;
+      const cant = safeNumber(last.cantidad ?? 1, 1);
+      if (cant === 1) last.precio = safeNumber(last.subtotal, 0);
+    }
+
+    return grouped.map((it, i) => ({ ...it, codigo: String(i + 1) }));
   }
 
-  // 2) fact.items
+  // fallback fact.items
   const raw = fact?.items;
   if (Array.isArray(raw) && raw.length) {
     const norm = raw
       .map((it, idx) => {
-        const desc = sanitizePdfText(s(it.descripcion || it.detalle || it.nombre || ""));
-        if (!desc) return null;
+        const descRaw = it.descripcion || it.detalle || it.nombre || "";
+        const { baseDesc, systemLabel } = splitDescAndSystem(descRaw);
+        const title = sanitizePdfText(baseDesc);
+        if (!title) return null;
 
         const cant = safeNumber(it.cantidad ?? 1, 1);
+        const unidad = "unidades";
 
-        // ✅ Solo ARS (si viene ars explícito, se usa; si no, se asume que precio/subtotal ya es ARS)
-        const precio = Number.isFinite(safeNumber(it.ars, NaN))
-          ? safeNumber(it.ars, 0)
-          : safeNumber(it.precio_unitario ?? it.precio ?? it.importe ?? 0, 0);
+        const precioUnit =
+          firstFinite(it?.ars_unit, it?.ars, it?.precio_unitario, it?.precio, it?.importe) ?? 0;
 
-        const subtotal = Number.isFinite(safeNumber(it.subtotal, NaN))
-          ? safeNumber(it.subtotal, 0)
-          : precio * cant;
+        const subtotal =
+          firstFinite(it?.subtotal, it?.subtotal_ars, it?.ars_total) ?? precioUnit * cant;
+
+        const itemSystems = [];
+        if (Array.isArray(it.sistemas_labels) && it.sistemas_labels.length) {
+          itemSystems.push(...it.sistemas_labels);
+        }
+        if (it.sistema_label) itemSystems.push(it.sistema_label);
+        if (systemLabel) itemSystems.push(systemLabel);
+
+        const systems = uniqClean(itemSystems);
 
         return {
           codigo: sanitizePdfText(s(it.codigo ?? it.cod ?? idx + 1) || String(idx + 1)),
-          descripcion: desc,
+          descripcion: title,
+          _systems: systems.length ? systems : getSystemsFromData(data),
           cantidad: cant,
-          unidad: sanitizePdfText(s(it.unidad || it.u_medida || "serv.")),
-          precio,
+          unidad,
+          precio: precioUnit,
           bonifPct: safeNumber(it.bonif_pct ?? 0, 0),
           impBonif: safeNumber(it.imp_bonif ?? 0, 0),
           subtotal,
@@ -275,14 +427,18 @@ function computeItems(fact, data, totalArs) {
     if (norm.length) return norm;
   }
 
-  // 3) fallback
-  const desc = sanitizePdfText(s(data?.detalle || data?.labelSistema || data?.sistema || "Servicio"));
+  // fallback 1 línea con total
+  const fallbackTitle = sanitizePdfText(
+    s(data?.detalle || data?.labelSistema || data?.sistema || "Servicio")
+  );
+
   return [
     {
       codigo: "1",
-      descripcion: desc,
+      descripcion: fallbackTitle,
+      _systems: getSystemsFromData(data),
       cantidad: 1,
-      unidad: "serv.",
+      unidad: "unidades",
       precio: total,
       bonifPct: 0,
       impBonif: 0,
@@ -327,17 +483,11 @@ function getEmisor() {
   };
 }
 
-/**
- * ✅ Prioriza datos de DB:
- * data.cliente_facturacion = { doc_tipo, doc_nro, razon_social, domicilio, cond_iva, cond_venta }
- */
 function getReceptor(fact, data) {
   const cf = data?.cliente_facturacion || null;
-
   const docTipo = Number(fact?.doc_tipo ?? cf?.doc_tipo ?? data?.doc_tipo ?? 0) || 0;
   const docNro = s(fact?.doc_nro ?? cf?.doc_nro ?? data?.doc_nro ?? "").replace(/\D/g, "");
   const nroParaCaja = docNro || s(fact?.receptor_cuit || data?.receptor_cuit || "");
-
   const razonDB = s(cf?.razon_social || "").trim();
 
   return {
@@ -354,30 +504,16 @@ function getReceptor(fact, data) {
     ),
     dom: sanitizePdfText(s(fact?.receptor_domicilio || cf?.domicilio || data?.cliente_domicilio || "")),
     condIva: sanitizePdfText(
-      s(
-        fact?.cond_iva_receptor ||
-          cf?.cond_iva ||
-          data?.cond_iva_receptor ||
-          FIX.cond_iva_receptor_default
-      )
+      s(fact?.cond_iva_receptor || cf?.cond_iva || data?.cond_iva_receptor || FIX.cond_iva_receptor_default)
     ),
     condVenta: sanitizePdfText(
-      s(
-        fact?.condicion_venta ||
-          cf?.cond_venta ||
-          data?.condicion_venta ||
-          FIX.cond_venta_default
-      )
+      s(fact?.condicion_venta || cf?.cond_venta || data?.condicion_venta || FIX.cond_venta_default)
     ),
     docTipo,
     docNro,
   };
 }
 
-/**
- * ✅ Período (tolerante):
- * - Prioriza lo elegido en el modal: data.periodo_desde / data.periodo_hasta / data.vto_pago
- */
 function getPeriodo(fact, data) {
   const pick = (...vals) => {
     for (const v of vals) {
@@ -388,28 +524,16 @@ function getPeriodo(fact, data) {
   };
 
   const desdeRaw = pick(
-    data?.periodo_desde,
-    data?.periodo_desde_iso,
-    fact?.periodo_desde,
-    fact?.FchServDesde,
-    fact?.fch_serv_desde
+    data?.periodo_desde, data?.periodo_desde_iso,
+    fact?.periodo_desde, fact?.FchServDesde, fact?.fch_serv_desde
   );
-
   const hastaRaw = pick(
-    data?.periodo_hasta,
-    data?.periodo_hasta_iso,
-    fact?.periodo_hasta,
-    fact?.FchServHasta,
-    fact?.fch_serv_hasta
+    data?.periodo_hasta, data?.periodo_hasta_iso,
+    fact?.periodo_hasta, fact?.FchServHasta, fact?.fch_serv_hasta
   );
-
   const vtoRaw = pick(
-    data?.vto_pago,
-    data?.vto_pago_iso,
-    fact?.vto_pago,
-    fact?.FchVtoPago,
-    fact?.fch_vto_pago,
-    fact?.fecha_vto_pago
+    data?.vto_pago, data?.vto_pago_iso,
+    fact?.vto_pago, fact?.FchVtoPago, fact?.fch_vto_pago, fact?.fecha_vto_pago
   );
 
   return {
@@ -492,7 +616,7 @@ async function drawBottomAnchored(doc, ctx, layout) {
   set(doc, "helvetica", "italic", 6.7);
   text(
     doc,
-    "Esta Agencia no se responsabiliza por los datos ingresados en el detalle de la operación",
+    "Esta Agencia no se responsabiliza por los datos ingresados en el detalle de la operacion",
     arcaX,
     footY + 110
   );
@@ -501,11 +625,11 @@ async function drawBottomAnchored(doc, ctx, layout) {
   const lineGap = 12;
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Pág. 1/1", W / 2 - 40, statusY, { align: "center" });
+  text(doc, "Pag. 1/1", W / 2 - 40, statusY, { align: "center" });
 
   const caeY = statusY + lineGap;
   set(doc, "helvetica", "bold", 9);
-  text(doc, "CAE N°:", W / 2 + 10, caeY, { align: "left" });
+  text(doc, "CAE N:", W / 2 + 10, caeY, { align: "left" });
   set(doc, "helvetica", "normal", 9);
   text(doc, meta.cae, W / 2 + 55, caeY, { align: "left" });
 
@@ -529,7 +653,6 @@ async function drawPage(doc, pageName, ctx) {
 
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-
   const B = 10;
   const innerW = W - 2 * B;
 
@@ -551,7 +674,6 @@ async function drawPage(doc, pageName, ctx) {
 
   const splitX = B + innerW * 0.52;
 
-  // Caja central C + COD
   const boxW = 50;
   const boxH = 50;
   const boxX = splitX - boxW / 2;
@@ -569,25 +691,33 @@ async function drawPage(doc, pageName, ctx) {
   set(doc, "helvetica", "bold", 9);
   text(doc, `COD. ${meta.cod}`, boxX + boxW / 2, boxY + 34, { align: "center" });
 
-  // ✅ IZQ: logo
   const leftX = B + 12;
-  const logoW = 140;
-  const logoH = 40;
-  const logoY = headerY + 5;
+  const logoY = headerY + 4;
+
+  // ✅ Caja máxima del logo (más grande que antes)
+  const LOGO_MAX_W = 230;
+  const LOGO_MAX_H = 60;
 
   if (logoDataUrl) {
     try {
       const isJpeg = String(logoDataUrl).startsWith("data:image/jpeg");
-      doc.addImage(logoDataUrl, isJpeg ? "JPEG" : "PNG", leftX, logoY, logoW, logoH);
+
+      // Escalado proporcional dentro de la caja
+      const props = doc.getImageProperties(logoDataUrl);
+      const scale = Math.min(LOGO_MAX_W / props.width, LOGO_MAX_H / props.height);
+
+      const w = props.width * scale;
+      const h = props.height * scale;
+
+      doc.addImage(logoDataUrl, isJpeg ? "JPEG" : "PNG", leftX, logoY, w, h);
     } catch {}
   }
 
-  // Emisor fijo
   const lx = leftX;
   const ly = headerY + 72;
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Razón Social:", lx, ly);
+  text(doc, "Razon Social:", lx, ly);
   set(doc, "helvetica", "normal", 9);
   text(doc, clampToWidth(doc, em.razon, splitX - lx - 12), lx + 78, ly);
 
@@ -597,11 +727,10 @@ async function drawPage(doc, pageName, ctx) {
   text(doc, clampToWidth(doc, em.domComercial, splitX - lx - 12), lx + 118, ly + 24);
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Condición frente al IVA:", lx, ly + 48);
+  text(doc, "Condicion frente al IVA:", lx, ly + 48);
   set(doc, "helvetica", "normal", 9);
   text(doc, clampToWidth(doc, em.condIva, splitX - lx - 12), lx + 130, ly + 48);
 
-  // ✅ DERECHA
   const rx = splitX + 1;
 
   set(doc, "helvetica", "bold", 20);
@@ -619,7 +748,7 @@ async function drawPage(doc, pageName, ctx) {
   text(doc, meta.cbteNro, rx + 230, yPV, { align: "left" });
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Fecha de Emisión:", rx + 40, yFechaEmi);
+  text(doc, "Fecha de Emision:", rx + 40, yFechaEmi);
   set(doc, "helvetica", "normal", 9);
   text(doc, meta.fechaEmision, rx + 185, yFechaEmi);
 
@@ -643,13 +772,12 @@ async function drawPage(doc, pageName, ctx) {
   set(doc, "helvetica", "normal", 9);
   text(doc, s(em.inicioAct), W - B - 18, yIni, { align: "right" });
 
-  // ===== Periodo
   const periodY = headerY + headerH;
   const periodH = 30;
   rect(doc, B, periodY, innerW, periodH, 0.55);
 
   set(doc, "helvetica", "bold", 10);
-  text(doc, "Período Facturado Desde:", B + 10, periodY + 20);
+  text(doc, "Periodo Facturado Desde:", B + 10, periodY + 20);
   set(doc, "helvetica", "normal", 10);
   text(doc, per.desde, B + 145, periodY + 20);
 
@@ -663,7 +791,6 @@ async function drawPage(doc, pageName, ctx) {
   set(doc, "helvetica", "normal", 10);
   text(doc, per.vtoPago, B + 545, periodY + 20, { align: "right" });
 
-  // ===== Receptor
   const recY = periodY + periodH;
   const recH = 78;
   rect(doc, B, recY, innerW, recH, 0.55);
@@ -675,18 +802,18 @@ async function drawPage(doc, pageName, ctx) {
   text(doc, rc.cuit, recLx + 38, recY + 18);
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Condición frente al IVA:", recLx, recY + 46);
+  text(doc, "Condicion frente al IVA:", recLx, recY + 46);
   set(doc, "helvetica", "normal", 9);
   text(doc, clampToWidth(doc, rc.condIva, 190), recLx + 110, recY + 46);
 
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Condición de venta:", recLx, recY + 62);
+  text(doc, "Condicion de venta:", recLx, recY + 62);
   set(doc, "helvetica", "normal", 9);
   text(doc, clampToWidth(doc, rc.condVenta, 220), recLx + 90, recY + 62);
 
   const recRx = B + innerW * 0.46;
   set(doc, "helvetica", "bold", 9);
-  text(doc, "Apellido y Nombre / Razón Social:", 150, recY + 18);
+  text(doc, "Apellido y Nombre / Razon Social:", 150, recY + 18);
 
   set(doc, "helvetica", "normal", 9);
   const razonLines = wrapByWidth(doc, rc.razon, innerW - (recRx - B) - 12);
@@ -703,7 +830,6 @@ async function drawPage(doc, pageName, ctx) {
   set(doc, "helvetica", "normal", 9);
   text(doc, meta.remito, recRx + 45, recY + 62);
 
-  // ===== Bottom anclado
   const layout = { W, H, B, innerW };
   const bottom = await drawBottomAnchored(
     doc,
@@ -711,11 +837,11 @@ async function drawPage(doc, pageName, ctx) {
     layout
   );
 
-  // ===== Tabla items
+  // ===== Tabla items =====
   const tblY = recY + recH + 14;
   const gapBeforeTotals = 18;
   const tblBottomLimit = bottom.totY - gapBeforeTotals;
-  const tblH = Math.max(140, tblBottomLimit - tblY);
+  const tblH = Math.max(170, tblBottomLimit - tblY);
 
   rect(doc, B, tblY, innerW, tblH, 0.55);
 
@@ -734,11 +860,7 @@ async function drawPage(doc, pageName, ctx) {
   const wImpBon = 80;
   const wSubt = 52;
   const minProd = 10;
-
-  const wProd = Math.max(
-    minProd,
-    innerW - (wCodigo + wCant + wUM + wPU + wBonif + wImpBon + wSubt)
-  );
+  const wProd = Math.max(minProd, innerW - (wCodigo + wCant + wUM + wPU + wBonif + wImpBon + wSubt));
 
   const x0 = left;
   const x1 = x0 + wCodigo;
@@ -755,7 +877,6 @@ async function drawPage(doc, pageName, ctx) {
 
   const xCodigo = x0 + padL;
   const xProd = x1 + padL;
-
   const xCant = x3 - padR;
   const xUM = x4 - padR;
   const xPU = x5 - padR;
@@ -772,7 +893,7 @@ async function drawPage(doc, pageName, ctx) {
   line(doc, x7, tblY, x7, tblY + tblH, 0.45);
 
   set(doc, "helvetica", "bold", 8.6);
-  text(doc, "Código", xCodigo, tblY + 15);
+  text(doc, "Codigo", xCodigo, tblY + 15);
   text(doc, "Producto / Servicio", xProd, tblY + 15);
   text(doc, "Cantidad", xCant, tblY + 15, { align: "right" });
   text(doc, "U. Medida", xUM, tblY + 15, { align: "right" });
@@ -786,35 +907,54 @@ async function drawPage(doc, pageName, ctx) {
   const total = toBool(forceTestAmount) ? totalTest : totalReal;
 
   const items = computeItems({ ...fact, importe: total }, data, total);
+  const dataSystems = getSystemsFromData(data);
 
   set(doc, "helvetica", "normal", 9);
 
-  let y = tblY + headerRowH + 18;
-  const maxBodyY = tblY + tblH - 12;
+  let y = tblY + headerRowH + 16;
+  const maxBodyY = tblY + tblH - 8;
 
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
 
+    const title = sanitizePdfText(it.descripcion || "");
+
+    // ✅ Sistemas: prioriza _systems del item, fallback a dataSystems
+    let systemsArr = Array.isArray(it._systems) ? uniqClean(it._systems) : [];
+    if (!systemsArr.length) systemsArr = dataSystems;
+
+    const sysLine = sanitizePdfText(`Sistemas: ${systemsArr.join(", ") || FIX.sistemas_fallback_na}`);
+
     const descMaxW = x2 - padR - xProd;
-    const descLines = wrapByWidth(doc, it.descripcion, Math.max(20, descMaxW)).slice(0, 3);
-    const blockH = Math.max(14, descLines.length * 12);
+    const titleLines = wrapByWidth(doc, title, Math.max(20, descMaxW));
+    const sysLines = wrapByWidth(doc, sysLine, Math.max(20, descMaxW));
+
+    const lines = [
+      ...(titleLines.length ? titleLines.slice(0, 2) : [""]),
+      ...(sysLines.length ? sysLines.slice(0, 2) : [sysLine]),
+    ];
+
+    const finalLines = lines.slice(0, 4);
+
+    const lh = 11;
+    const blockH = Math.max(14, finalLines.length * lh);
 
     if (y + blockH > maxBodyY) break;
 
     text(doc, s(it.codigo || String(i + 1)), xCodigo, y);
 
-    for (let li = 0; li < descLines.length; li++) {
-      text(doc, descLines[li], xProd, y + li * 12);
+    for (let li = 0; li < finalLines.length; li++) {
+      text(doc, finalLines[li], xProd, y + li * lh);
     }
 
     text(doc, numEs(it.cantidad ?? 1, 2), xCant, y, { align: "right" });
-    text(doc, s(it.unidad || "serv."), xUM, y, { align: "right" });
+    text(doc, s(it.unidad || "unidades"), xUM, y, { align: "right" });
     text(doc, moneyEs(it.precio || 0), xPU, y, { align: "right" });
     text(doc, numEs(it.bonifPct || 0, 2), xBonif, y, { align: "right" });
     text(doc, moneyEs(it.impBonif || 0), xImpBon, y, { align: "right" });
     text(doc, moneyEs(it.subtotal || 0), xSubt, y, { align: "right" });
 
-    y += blockH + 8;
+    y += blockH + 4;
   }
 }
 
@@ -837,32 +977,20 @@ export async function buildArcaInvoicePdf({
   const doc = new jsPDF({ unit: "pt", format: "a4" });
 
   await drawPage(doc, "ORIGINAL", {
-    fact,
-    data,
-    forceTestAmount,
-    testAmount,
-    logoDataUrl: finalLogo,
-    arcaLogoDataUrl,
+    fact, data, forceTestAmount, testAmount,
+    logoDataUrl: finalLogo, arcaLogoDataUrl,
   });
 
   doc.addPage();
   await drawPage(doc, "DUPLICADO", {
-    fact,
-    data,
-    forceTestAmount,
-    testAmount,
-    logoDataUrl: finalLogo,
-    arcaLogoDataUrl,
+    fact, data, forceTestAmount, testAmount,
+    logoDataUrl: finalLogo, arcaLogoDataUrl,
   });
 
   doc.addPage();
   await drawPage(doc, "TRIPLICADO", {
-    fact,
-    data,
-    forceTestAmount,
-    testAmount,
-    logoDataUrl: finalLogo,
-    arcaLogoDataUrl,
+    fact, data, forceTestAmount, testAmount,
+    logoDataUrl: finalLogo, arcaLogoDataUrl,
   });
 
   return doc;
@@ -871,10 +999,6 @@ export async function buildArcaInvoicePdf({
 // =====================
 // ✅ MAIN EXPORT FUNCTION
 // =====================
-/**
- * Genera un PDF estilo ARCA y SIEMPRE devuelve { blob, filename }.
- * Si download=true, además dispara la descarga automática.
- */
 export async function saveArcaInvoicePdf({
   fact,
   data,
@@ -886,15 +1010,9 @@ export async function saveArcaInvoicePdf({
   filename: filenameIn,
 } = {}) {
   const doc = await buildArcaInvoicePdf({
-    fact,
-    data,
-    forceTestAmount,
-    testAmount,
-    logoDataUrl,
-    arcaLogoDataUrl,
+    fact, data, forceTestAmount, testAmount, logoDataUrl, arcaLogoDataUrl,
   });
 
-  // ✅ SIEMPRE blob
   const blob = doc.output("blob");
 
   const safe = (x) =>
@@ -902,7 +1020,7 @@ export async function saveArcaInvoicePdf({
       .replace(/[^\w\-]+/g, "_")
       .slice(0, 60);
 
-  const pv = String(fact?.pto_vta ?? FIX.pto_vta_fijo).padStart(4, "0");
+  const pv = String(fact?.pto_vta ?? FIX.pto_vta_fijo).padStart(5, "0");
   const nro = String(fact?.cbte_nro ?? "0").padStart(8, "0");
   const cli = safe(data?.labelCliente || data?.cliente || "CLIENTE");
   const sys = safe(data?.labelSistema || data?.sistema || "SISTEMA");

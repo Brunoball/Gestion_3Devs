@@ -1,4 +1,5 @@
 <?php
+// ✅ REEMPLAZAR COMPLETO
 // backend/modules/pagos/route.php
 declare(strict_types=1);
 
@@ -13,7 +14,7 @@ declare(strict_types=1);
  *
  * ✅ Modal:
  * - GET/POST /api.php?action=pagos&op=detalle_sistema&id_sistema=5
- * - GET      /api.php?action=pagos&op=detalle_periodo&id_sistema=5&anio=2026&id_mes=1   ✅ NUEVO
+ * - GET      /api.php?action=pagos&op=detalle_periodo&id_sistema=5&anio=2026&id_mes=1
  * - GET/POST /api.php?action=pagos&op=equipo_sistema&id_sistema=5&anio=2026&mes=ENERO
  * - POST     /api.php?action=pagos&op=registrar_pago
  * - POST     /api.php?action=pagos&op=eliminar_pago
@@ -21,6 +22,9 @@ declare(strict_types=1);
  * ✅ Datos facturación:
  * - POST     /api.php?action=pagos&op=cliente_facturacion            (por id_pago)
  * - POST     /api.php?action=pagos&op=cliente_facturacion_sistema    (por id_sistema)
+ *
+ * ✅ NUEVO:
+ * - POST     /api.php?action=pagos&op=cliente_sistemas               (lista sistemas del cliente)
  *
  * ✅ ARCA (REAL):
  * - POST /api.php?action=pagos&op=factura_arca
@@ -50,14 +54,14 @@ function route_pagos(string $action): bool
     return true;
   }
 
-  $op = (string)($_GET['op'] ?? '');
+  $op = strtolower(trim((string)($_GET['op'] ?? '')));
 
   switch ($op) {
     case 'detalle_sistema':
       pagos_detalle_sistema();
       return true;
 
-    case 'detalle_periodo':                 // ✅ NUEVO
+    case 'detalle_periodo':
       pagos_detalle_periodo();
       return true;
 
@@ -79,6 +83,11 @@ function route_pagos(string $action): bool
 
     case 'cliente_facturacion_sistema':
       pagos_cliente_facturacion_sistema();
+      return true;
+
+    // ✅ NUEVO (lo necesita ModalFacturaArca.jsx)
+    case 'cliente_sistemas':
+      pagos_cliente_sistemas();
       return true;
 
     case 'factura_arca':
@@ -109,7 +118,7 @@ function route_pagos(string $action): bool
   http_response_code(200);
   echo json_encode([
     'exito' => false,
-    'mensaje' => 'Parámetros inválidos. Usá: ?estado=pagado|deudor o ?op=detalle_sistema|detalle_periodo|equipo_sistema|registrar_pago|eliminar_pago|cliente_facturacion|cliente_facturacion_sistema|factura_arca|factura_guardar_pdf|planes_mantenimiento'
+    'mensaje' => 'Parámetros inválidos. Usá: ?estado=pagado|deudor o ?op=detalle_sistema|detalle_periodo|equipo_sistema|registrar_pago|eliminar_pago|cliente_facturacion|cliente_facturacion_sistema|cliente_sistemas|factura_arca|factura_guardar_pdf|planes_mantenimiento'
   ], JSON_UNESCAPED_UNICODE);
 
   return true;

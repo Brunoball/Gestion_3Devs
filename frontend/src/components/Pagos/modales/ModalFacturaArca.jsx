@@ -1,3 +1,4 @@
+// ✅ REEMPLAZAR COMPLETO
 // frontend/src/components/Pagos/modales/ModalFacturaArca.jsx
 import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { FaCheck } from "react-icons/fa";
@@ -143,32 +144,46 @@ export default function ModalFacturaArca({
   const [clienteFact, setClienteFact] = useState(null);
   const [loadingCliente, setLoadingCliente] = useState(false);
 
+  // ✅ sistemas del cliente (DB)
+  const [sistemasCliente, setSistemasCliente] = useState([]); // [{id_sistema,nombre,descripcion,activo}]
+  const [loadingSistemas, setLoadingSistemas] = useState(false);
+  const [sistemasErr, setSistemasErr] = useState("");
+
+  // ✅ modo mantenimiento
+  const [mantMode, setMantMode] = useState("global");
+
+  // ✅ sistemas seleccionados para facturar
+  const [sistemasSel, setSistemasSel] = useState([]); // ids
+
   // ✅ fechas período
   const [periodoDesde, setPeriodoDesde] = useState("");
   const [periodoHasta, setPeriodoHasta] = useState("");
   const [vtoPago, setVtoPago] = useState("");
 
   // ✅ USD -> ARS
-  const [usdRate, setUsdRate] = useState(null); // ARS por 1 USD (venta)
+  const [usdRate, setUsdRate] = useState(null);
   const [loadingUsd, setLoadingUsd] = useState(false);
   const [usdErr, setUsdErr] = useState("");
 
   // ✅ PLANES MANTENIMIENTO (DB)
-  const [planesMant, setPlanesMant] = useState([]); // [{id,nombre,descripcion,monto,activo}]
+  const [planesMant, setPlanesMant] = useState([]);
   const [loadingPlanes, setLoadingPlanes] = useState(false);
   const [planesErr, setPlanesErr] = useState("");
 
-  // ✅ selector mantenimiento (multi) -> ids (number)
+  // ✅ selector mantenimiento (multi) -> ids (number) — GLOBAL
   const [mantSel, setMantSel] = useState([]);
 
-  // ✅ dropdown UI
+  // ✅ selector mantenimiento por sistema
+  const [mantSelBySistema, setMantSelBySistema] = useState({});
+
+  // ✅ dropdown UI (global)
   const [mantOpen, setMantOpen] = useState(false);
   const [mantSearch, setMantSearch] = useState("");
   const mantWrapRef = useRef(null);
 
-  // ✅ desarrollo manual
+  // ✅ desarrollo manual (global)
   const [devDesc, setDevDesc] = useState("");
-  const [devUsd, setDevUsd] = useState(""); // string input
+  const [devUsd, setDevUsd] = useState("");
 
   const firstRef = useRef(null);
 
@@ -218,19 +233,13 @@ export default function ModalFacturaArca({
         inputEl.showPicker();
         return;
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
     try {
       inputEl.focus();
-    } catch {
-      // ignore
-    }
+    } catch {}
     try {
       inputEl.click();
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, []);
 
   // ✅ fetch helper robusto
@@ -250,8 +259,7 @@ export default function ModalFacturaArca({
       j = null;
     }
 
-    const pickErr = () =>
-      j?.mensaje || j?.error || j?.message || j?.detail || "";
+    const pickErr = () => j?.mensaje || j?.error || j?.message || j?.detail || "";
 
     if (!res.ok) {
       const msg = pickErr();
@@ -267,9 +275,7 @@ export default function ModalFacturaArca({
   }, []);
 
   /* =========================================
-     ✅ DÓLAR OFICIAL (tu endpoint real)
-     GET  api.php?action=dolar_oficial
-     JSON: { ok:true, venta: float, compra: float, fecha: ... }
+     ✅ DÓLAR OFICIAL
   ========================================= */
   const getUsdOficialVenta = useCallback(async () => {
     const maybe =
@@ -300,7 +306,6 @@ export default function ModalFacturaArca({
 
   /* =========================================
      ✅ PLANES MANTENIMIENTO (DB)
-     GET /api.php?action=pagos&op=planes_mantenimiento
   ========================================= */
   const fetchPlanesMantenimiento = useCallback(async () => {
     const url = `${apiBase}?action=${action}&op=planes_mantenimiento`;
@@ -324,7 +329,31 @@ export default function ModalFacturaArca({
     return norm;
   }, [apiBase, action, fetchJSON]);
 
-  // ✅ mantenimiento seleccionado (ahora desde DB)
+  /* =========================================
+     ✅ SISTEMAS DEL CLIENTE (DB)
+  ========================================= */
+  const fetchSistemasCliente = useCallback(async () => {
+    const url = `${apiBase}?action=${action}&op=cliente_sistemas`;
+    const j = await fetchJSON(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ id_sistema: Number(idSistemaReal) }),
+    });
+
+    const arr = Array.isArray(j?.sistemas) ? j.sistemas : [];
+    const norm = arr
+      .map((s) => ({
+        id_sistema: Number(s?.id_sistema) || 0,
+        nombre: safeStr(s?.nombre),
+        descripcion: safeStr(s?.descripcion),
+        activo: Number(s?.activo) || 0,
+      }))
+      .filter((s) => s.id_sistema > 0 && s.nombre);
+
+    return norm;
+  }, [apiBase, action, fetchJSON, idSistemaReal]);
+
+  // ✅ mantenimiento seleccionado (GLOBAL)
   const mantenimientoSeleccionado = useMemo(() => {
     const set = new Set((mantSel || []).map((x) => Number(x)));
     const base = Array.isArray(planesMant) ? planesMant : [];
@@ -336,13 +365,67 @@ export default function ModalFacturaArca({
     return Number.isFinite(n) && n > 0 ? n : 0;
   }, [devUsd]);
 
-  const totalUSD = useMemo(() => {
-    const mant = mantenimientoSeleccionado.reduce(
-      (acc, it) => acc + (Number(it.monto) || 0),
-      0
+  // ✅ cantidad de sistemas elegidos
+  const cantSistemasSeleccionados = useMemo(() => {
+    const n = (sistemasSel || []).length;
+    return n > 0 ? n : 0;
+  }, [sistemasSel]);
+
+  // ✅ sistemas activos
+  const sistemasActivos = useMemo(() => {
+    return (sistemasCliente || []).filter((s) => Number(s.activo) === 1);
+  }, [sistemasCliente]);
+
+  // ✅ FIX: labels de los sistemas SELECCIONADOS (para pasar al PDF)
+  const sistemasSelLabels = useMemo(() => {
+    const map = new Map(
+      (sistemasCliente || []).map((s) => [Number(s.id_sistema), s])
     );
-    return mant + devUsdNum;
-  }, [mantenimientoSeleccionado, devUsdNum]);
+    return (sistemasSel || [])
+      .map((sid) => {
+        const s = map.get(Number(sid));
+        return s ? safeStr(s.nombre) : null;
+      })
+      .filter(Boolean);
+  }, [sistemasSel, sistemasCliente]);
+
+  // ✅ total USD mantenimiento según modo
+  const totalMantUSD = useMemo(() => {
+    const base = Array.isArray(planesMant) ? planesMant : [];
+
+    if (mantMode === "global") {
+      const sumPlan = mantenimientoSeleccionado.reduce(
+        (acc, it) => acc + (Number(it.monto) || 0),
+        0
+      );
+      const mult = cantSistemasSeleccionados || 0;
+      return sumPlan * mult;
+    }
+
+    // personalizado por sistema
+    let total = 0;
+    for (const sid of sistemasSel || []) {
+      const sel = mantSelBySistema?.[sid] || [];
+      const set = new Set(sel.map((x) => Number(x)));
+      const sum = base
+        .filter((p) => set.has(Number(p.id)))
+        .reduce((acc, it) => acc + (Number(it.monto) || 0), 0);
+      total += sum;
+    }
+    return total;
+  }, [
+    mantMode,
+    mantenimientoSeleccionado,
+    cantSistemasSeleccionados,
+    planesMant,
+    sistemasSel,
+    mantSelBySistema,
+  ]);
+
+  // ✅ total USD FINAL (mant + desarrollo global)
+  const totalUSD = useMemo(() => {
+    return totalMantUSD + devUsdNum;
+  }, [totalMantUSD, devUsdNum]);
 
   const totalARS = useMemo(() => {
     const r = Number(usdRate);
@@ -350,37 +433,141 @@ export default function ModalFacturaArca({
     return totalUSD * r;
   }, [totalUSD, usdRate]);
 
+  // ✅ items (detalle) para guardar en DB / mostrar resumen
   const itemsDetalle = useMemo(() => {
     const out = [];
+    const r = Number(usdRate);
+    const rateOk = Number.isFinite(r) && r > 0;
 
-    for (const it of mantenimientoSeleccionado) {
-      const labelBase = safeStr(it.nombre);
-      const desc = safeStr(it.descripcion);
-      const label = desc ? `${labelBase} — ${desc}` : labelBase;
+    const sistMap = new Map(
+      (sistemasCliente || []).map((s) => [Number(s.id_sistema), s])
+    );
 
-      out.push({
-        tipo: "mantenimiento",
-        id: Number(it.id),
-        descripcion: label,
-        usd: Number(it.monto) || 0,
-      });
+    // ✅ labels de sistemas seleccionados
+    const selectedSystemsLabels = (sistemasSel || [])
+      .map((sid) => {
+        const s = sistMap.get(Number(sid));
+        return s ? safeStr(s.nombre) : `Sistema ${sid}`;
+      })
+      .filter(Boolean);
+
+    // ===== mantenimiento =====
+    if (mantMode === "global") {
+      const mult = cantSistemasSeleccionados || 0;
+
+      for (const it of mantenimientoSeleccionado) {
+        const planNombre = safeStr(it.nombre) || "Mantenimiento";
+
+        const usdUnit = Number(it.monto) || 0;
+        const usdTotal = usdUnit * mult;
+
+        const arsUnit = rateOk ? usdUnit * r : 0;
+        const arsTotal = rateOk ? arsUnit * mult : 0;
+
+        out.push({
+          tipo: "mantenimiento",
+          modo: "global",
+          plan_id: Number(it.id),
+          descripcion: planNombre,
+          cantidad: mult,
+          unidad: "serv.",
+          usd_unit: usdUnit,
+          usd: usdTotal,
+          ars_unit: arsUnit,
+          ars: arsTotal,
+          cantidad_sistemas: mult,
+          sistemas_ids: [...(sistemasSel || [])],
+          // ✅ labels siempre presentes
+          sistemas_labels: selectedSystemsLabels,
+        });
+      }
+    } else {
+      // personalizado por sistema
+      const base = Array.isArray(planesMant) ? planesMant : [];
+      const byId = new Map(base.map((p) => [Number(p.id), p]));
+
+      for (const sid of sistemasSel || []) {
+        const s = sistMap.get(Number(sid));
+        const sLabel = s ? safeStr(s.nombre) : `Sistema ${sid}`;
+
+        const sel = mantSelBySistema?.[sid] || [];
+        const uniq = Array.from(
+          new Set(sel.map((x) => Number(x)).filter((n) => n > 0))
+        );
+
+        for (const pid of uniq) {
+          const p = byId.get(pid);
+          if (!p) continue;
+
+          const planNombre = safeStr(p.nombre) || "Mantenimiento";
+
+          const usd = Number(p.monto) || 0;
+          const ars = rateOk ? usd * r : 0;
+
+          out.push({
+            tipo: "mantenimiento",
+            modo: "por_sistema",
+            sistema_id: Number(sid),
+            sistema_label: sLabel,
+            // ✅ también en sistemas_labels para consistencia
+            sistemas_labels: [sLabel],
+            plan_id: Number(p.id),
+            descripcion: planNombre,
+            cantidad: 1,
+            unidad: "serv.",
+            usd,
+            ars_unit: ars,
+            ars,
+          });
+        }
+      }
     }
 
+    // ===== desarrollo (global) =====
     if (devUsdNum > 0 || String(devDesc || "").trim() !== "") {
+      const arsUnit = rateOk ? devUsdNum * r : 0;
+
       out.push({
         tipo: "desarrollo",
+        modo: "global",
         id: "desarrollo_manual",
         descripcion: String(devDesc || "").trim() || "Desarrollo",
+        cantidad: 1,
+        unidad: "serv.",
         usd: devUsdNum,
+        ars_unit: arsUnit,
+        ars: arsUnit,
+        // ✅ también lleva los sistemas
+        sistemas_labels: selectedSystemsLabels,
       });
     }
 
-    const r = Number(usdRate);
-    return out.map((x) => ({
-      ...x,
-      ars: Number.isFinite(r) && r > 0 ? x.usd * r : 0,
-    }));
-  }, [mantenimientoSeleccionado, devUsdNum, devDesc, usdRate]);
+    return out;
+  }, [
+    mantMode,
+    mantenimientoSeleccionado,
+    cantSistemasSeleccionados,
+    sistemasSel,
+    mantSelBySistema,
+    planesMant,
+    sistemasCliente,
+    devUsdNum,
+    devDesc,
+    usdRate,
+  ]);
+
+  // ✅ helper selectedSystemsLabels para itemsDetalle desarrollo
+  const selectedSystemsLabels = useMemo(() => {
+    const sistMap = new Map(
+      (sistemasCliente || []).map((s) => [Number(s.id_sistema), s])
+    );
+    return (sistemasSel || [])
+      .map((sid) => {
+        const s = sistMap.get(Number(sid));
+        return s ? safeStr(s.nombre) : `Sistema ${sid}`;
+      })
+      .filter(Boolean);
+  }, [sistemasSel, sistemasCliente]);
 
   const toggleMant = useCallback((id) => {
     const nid = Number(id);
@@ -395,7 +582,27 @@ export default function ModalFacturaArca({
     setError("");
   }, []);
 
-  // ===== dropdown helpers (NO van debajo del if (!open)) =====
+  const toggleMantSistema = useCallback((id_sistema, plan_id) => {
+    const sid = Number(id_sistema);
+    const pid = Number(plan_id);
+    if (!sid || !pid) return;
+
+    setMantSelBySistema((prev) => {
+      const next = { ...(prev || {}) };
+      const arr = Array.isArray(next[sid]) ? next[sid] : [];
+      const set = new Set(arr.map((x) => Number(x)));
+
+      if (set.has(pid)) set.delete(pid);
+      else set.add(pid);
+
+      next[sid] = Array.from(set);
+      return next;
+    });
+
+    setError("");
+  }, []);
+
+  // ===== dropdown helpers =====
   const planesFiltrados = useMemo(() => {
     const q = safeStr(mantSearch).toLowerCase();
     const base = Array.isArray(planesMant) ? planesMant : [];
@@ -418,37 +625,59 @@ export default function ModalFacturaArca({
     return `${n} seleccionados`;
   }, [mantSel, planesMant]);
 
-  // ✅ al abrir: reset + precarga + dólar + cliente_facturacion + planes mantenimiento
+  const toggleSistemaSel = useCallback((sid) => {
+    const id = Number(sid);
+    if (!id) return;
+    setSistemasSel((prev) => {
+      const set = new Set((prev || []).map((x) => Number(x)));
+      if (set.has(id)) set.delete(id);
+      else set.add(id);
+      return Array.from(set);
+    });
+    setError("");
+  }, []);
+
+  const selectAllSistemas = useCallback(() => {
+    setSistemasSel(sistemasActivos.map((s) => Number(s.id_sistema)));
+  }, [sistemasActivos]);
+
+  const clearAllSistemas = useCallback(() => {
+    setSistemasSel([]);
+  }, []);
+
+  // ✅ al abrir: reset + precarga
   useEffect(() => {
     if (!open) return;
 
     setError("");
     setOpenResumen(false);
 
-    // defaults
     setDocTipo(80);
     setCbteTipo(11);
     setDocNro("");
     setClienteFact(null);
 
-    // reset selector
     setMantSel([]);
+    setMantSelBySistema({});
+    setMantMode("global");
     setMantOpen(false);
     setMantSearch("");
     setDevDesc("");
     setDevUsd("");
 
-    // ✅ reset planes
+    setSistemasCliente([]);
+    setSistemasSel([]);
+    setSistemasErr("");
+
     setPlanesMant([]);
     setPlanesErr("");
 
-    // fechas default mes seleccionado
     const { desde, hasta } = monthFirstLastISO(data?.anio, data?.mes);
     setPeriodoDesde(desde);
     setPeriodoHasta(hasta);
     setVtoPago(hasta);
 
-    // ✅ traer dólar oficial (venta)
+    // dólar oficial
     (async () => {
       setLoadingUsd(true);
       setUsdErr("");
@@ -463,7 +692,7 @@ export default function ModalFacturaArca({
       }
     })();
 
-    // ✅ traer planes mantenimiento desde DB
+    // planes mantenimiento
     (async () => {
       setLoadingPlanes(true);
       setPlanesErr("");
@@ -478,7 +707,33 @@ export default function ModalFacturaArca({
       }
     })();
 
-    // ✅ si viene cliente_facturacion del padre, no pedimos
+    // sistemas del cliente
+    if (idSistemaReal > 0) {
+      (async () => {
+        setLoadingSistemas(true);
+        setSistemasErr("");
+        try {
+          const sis = await fetchSistemasCliente();
+          setSistemasCliente(sis);
+
+          const activos = sis
+            .filter((s) => Number(s.activo) === 1)
+            .map((s) => Number(s.id_sistema));
+          setSistemasSel(activos);
+
+          const init = {};
+          for (const id of activos) init[id] = [];
+          setMantSelBySistema(init);
+        } catch (e) {
+          setSistemasCliente([]);
+          setSistemasSel([]);
+          setSistemasErr(e?.message || "No se pudieron obtener sistemas del cliente.");
+        } finally {
+          setLoadingSistemas(false);
+        }
+      })();
+    }
+
     const cfFromParent = data?.cliente_facturacion;
     if (cfFromParent !== undefined) {
       setClienteFact(cfFromParent || null);
@@ -489,7 +744,6 @@ export default function ModalFacturaArca({
       return;
     }
 
-    // si no hay id_pago, NO pedimos por id_pago (deudores)
     if (!idPagoReal) {
       setTimeout(() => firstRef.current?.focus?.(), 0);
       return;
@@ -532,7 +786,9 @@ export default function ModalFacturaArca({
     fetchJSON,
     getUsdOficialVenta,
     idPagoReal,
+    idSistemaReal,
     fetchPlanesMantenimiento,
+    fetchSistemasCliente,
   ]);
 
   useEffect(() => {
@@ -545,7 +801,6 @@ export default function ModalFacturaArca({
   const validarInputs = useCallback(() => {
     const doc = String(docNro || "").replace(/\D/g, "");
 
-    // ✅ permitimos facturar con id_pago O id_sistema
     if (!(idPagoReal > 0 || idSistemaReal > 0)) {
       return { ok: false, msg: "Falta id_sistema / id_pago (registro inválido)." };
     }
@@ -568,15 +823,22 @@ export default function ModalFacturaArca({
     if (!Number.isFinite(docN) || docN <= 0) return { ok: false, msg: "Documento inválido." };
     if (!Number.isFinite(pvN) || pvN <= 0) return { ok: false, msg: "Punto de venta inválido." };
 
-    // dólar requerido
     const r = Number(usdRate);
     if (!Number.isFinite(r) || r <= 0) {
       return { ok: false, msg: "No hay cotización USD válida (dólar oficial)." };
     }
 
-    // al menos 1 item o desarrollo con monto
-    const hasMant = (mantSel?.length || 0) > 0;
+    if ((sistemasSel?.length || 0) === 0) {
+      return { ok: false, msg: "Seleccioná al menos 1 sistema del cliente para facturar." };
+    }
+
+    const hasMant =
+      mantMode === "global"
+        ? (mantSel?.length || 0) > 0
+        : Object.values(mantSelBySistema || {}).some((arr) => (arr?.length || 0) > 0);
+
     const hasDevMonto = devUsdNum > 0;
+
     if (!hasMant && !hasDevMonto) {
       return {
         ok: false,
@@ -591,7 +853,6 @@ export default function ModalFacturaArca({
       };
     }
 
-    // fechas
     const d = dateToYMD8(periodoDesde);
     const h = dateToYMD8(periodoHasta);
     const v = dateToYMD8(vtoPago);
@@ -609,11 +870,14 @@ export default function ModalFacturaArca({
     periodoHasta,
     vtoPago,
     usdRate,
+    mantMode,
     mantSel,
+    mantSelBySistema,
     devUsdNum,
     totalARS,
     idPagoReal,
     idSistemaReal,
+    sistemasSel,
   ]);
 
   const irAResumen = useCallback(() => {
@@ -625,16 +889,13 @@ export default function ModalFacturaArca({
 
   const cerrar = useCallback(() => onClose?.(), [onClose]);
 
-  // ✅ IMPORTANTE: el return condicional va DESPUÉS de TODOS los hooks
   if (!open) return null;
 
   return (
     <>
       <div
         className="mi-modal__overlay"
-        onClick={(e) =>
-          e.target.classList.contains("mi-modal__overlay") && cerrar()
-        }
+        onClick={(e) => e.target.classList.contains("mi-modal__overlay") && cerrar()}
       >
         <div
           className="mi-modal__container"
@@ -656,15 +917,7 @@ export default function ModalFacturaArca({
               aria-label="Cerrar"
               type="button"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="22"
-                height="22"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
@@ -709,6 +962,16 @@ export default function ModalFacturaArca({
                 </div>
               ) : null}
 
+              {loadingSistemas ? (
+                <div className="arca-alert arca-alert--info" role="status">
+                  Cargando sistemas del cliente...
+                </div>
+              ) : sistemasErr ? (
+                <div className="arca-alert arca-alert--error" role="alert">
+                  {sistemasErr}
+                </div>
+              ) : null}
+
               <div className="mi-grid">
                 <article className="mi-card">
                   <h3 className="mi-card__title">Cliente / Servicio</h3>
@@ -718,9 +981,15 @@ export default function ModalFacturaArca({
                       <span className="arca-kv__k">Cliente</span>
                       <span className="arca-kv__v">{nombreCliente}</span>
                     </div>
+
                     <div className="arca-kv__row">
                       <span className="arca-kv__k">Sistema</span>
                       <span className="arca-kv__v">{nombreSistema}</span>
+                    </div>
+
+                    <div className="arca-kv__row">
+                      <span className="arca-kv__k">Sistemas a facturar</span>
+                      <span className="arca-kv__v">{cantSistemasSeleccionados || 0}</span>
                     </div>
 
                     <div className="arca-kv__row">
@@ -743,18 +1012,23 @@ export default function ModalFacturaArca({
                     {itemsDetalle.length ? (
                       <>
                         <b>Detalle:</b>{" "}
-                        {itemsDetalle.map((it, idx) => (
-                          <span key={`${it.id}_${idx}`}>
-                            {it.descripcion} ({moneyUSD(it.usd)}
-                            {usdRate ? ` → ${moneyARS(it.ars)}` : ""})
-                            {idx < itemsDetalle.length - 1 ? " • " : ""}
-                          </span>
-                        ))}
+                        {itemsDetalle.map((it, idx) => {
+                          const uiLabel =
+                            it?.tipo === "mantenimiento" && it?.modo === "por_sistema" && it?.sistema_label
+                              ? `${it.descripcion} (${it.sistema_label})`
+                              : it.descripcion;
+
+                          return (
+                            <span key={`${it.plan_id || it.id}_${idx}`}>
+                              {uiLabel} ({moneyUSD(it.usd)}
+                              {usdRate ? ` → ${moneyARS(it.ars)}` : ""})
+                              {idx < itemsDetalle.length - 1 ? " • " : ""}
+                            </span>
+                          );
+                        })}
                       </>
                     ) : (
-                      <span>
-                        Seleccioná planes o cargá desarrollo para armar el monto.
-                      </span>
+                      <span>Seleccioná planes o cargá desarrollo para armar el monto.</span>
                     )}
                   </div>
                 </article>
@@ -812,20 +1086,14 @@ export default function ModalFacturaArca({
                     </div>
 
                     <div className="fl-field fl-col-full">
-                      <input
-                        className="fl-input"
-                        value={DEFAULT_PTO_VTA}
-                        disabled
-                        readOnly
-                      />
+                      <input className="fl-input" value={DEFAULT_PTO_VTA} disabled readOnly />
                       <label className="fl-label">Punto de venta *</label>
                     </div>
                   </div>
 
                   {clienteFact ? (
                     <div className="arca-mini" style={{ marginTop: 10 }}>
-                      {clienteFact.razon_social || "—"} •{" "}
-                      {clienteFact.cond_iva || "—"}
+                      {clienteFact.razon_social || "—"} • {clienteFact.cond_iva || "—"}
                     </div>
                   ) : (
                     <div className="arca-mini" style={{ marginTop: 10 }}>
@@ -834,105 +1102,223 @@ export default function ModalFacturaArca({
                   )}
                 </article>
 
-{/* ✅ Mantenimiento (DB) -> Dropdown multi-select */}
-<article className="mi-card mi-card--full">
-  <h3 className="mi-card__title">
-    Mantenimiento (USD) • Desde DB (selección múltiple)
-  </h3>
+                {/* ✅ seleccionar sistemas del cliente */}
+                <article className="mi-card mi-card--full">
+                  <h3 className="mi-card__title">Sistemas del cliente</h3>
 
-  <div ref={mantWrapRef} className="arca-dd">
-    <button
-      type="button"
-      className={`arca-dd__trigger ${mantOpen ? "is-open" : ""}`}
-      onClick={() => setMantOpen((v) => !v)}
-      disabled={loadingPlanes || !!planesErr}
-      title="Seleccionar planes de mantenimiento"
-    >
-      <span className="arca-dd__label">{selectedLabel}</span>
-      <span className="arca-dd__chev">{mantOpen ? "▲" : "▼"}</span>
-    </button>
+                  {sistemasActivos.length === 0 ? (
+                    <div className="arca-mini">No hay sistemas activos para este cliente.</div>
+                  ) : (
+                    <>
+                      <div className="arca-mini" style={{ marginBottom: 10 }}>
+                        Seleccioná a qué sistemas querés aplicar la factura (por defecto: todos los activos).
+                      </div>
 
-    {mantOpen && (
-      <div className="arca-dd__panel">
-        <div className="arca-dd__search">
-          <input
-            className="fl-input arca-dd__search-input"
-            placeholder="Buscar plan..."
-            value={mantSearch}
-            onChange={(e) => setMantSearch(e.target.value)}
-          />
-        </div>
+                      <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                        <button type="button" className="mit-btn mit-btn--ghost" onClick={selectAllSistemas}>
+                          Seleccionar todos
+                        </button>
+                        <button type="button" className="mit-btn mit-btn--ghost" onClick={clearAllSistemas}>
+                          Limpiar
+                        </button>
+                      </div>
 
-        {planesFiltrados.length === 0 ? (
-          <div className="arca-dd__empty">No hay planes para mostrar.</div>
-        ) : (
-          <div className="arca-dd__list">
-            {planesFiltrados.map((p) => {
-              const checked = mantSel.includes(Number(p.id));
-              return (
-                <label
-                  key={p.id}
-                  className={`arca-dd__item ${checked ? "is-checked" : ""}`}
-                >
-                  <input
-                    className="arca-dd__cb"
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleMant(p.id)}
-                  />
+                      <div className="arca-dd__list" style={{ maxHeight: 220, overflow: "auto", borderRadius: 12 }}>
+                        {sistemasActivos.map((s) => {
+                          const checked = (sistemasSel || []).includes(Number(s.id_sistema));
+                          const label = `${s.nombre}${s.descripcion ? " • " + s.descripcion : ""}`;
+                          return (
+                            <label key={s.id_sistema} className={`arca-dd__item ${checked ? "is-checked" : ""}`}>
+                              <input
+                                className="arca-dd__cb"
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleSistemaSel(s.id_sistema)}
+                              />
+                              <span className="arca-dd__fakecb" aria-hidden="true" />
+                              <div className="arca-dd__meta">
+                                <div className="arca-dd__top">
+                                  <span className="arca-dd__name">{label}</span>
+                                </div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </article>
 
-                  <span className="arca-dd__fakecb" aria-hidden="true" />
+                {/* ✅ modo mantenimiento */}
+                <article className="mi-card mi-card--full">
+                  <h3 className="mi-card__title">Mantenimiento (USD)</h3>
 
-                  <div className="arca-dd__meta">
-                    <div className="arca-dd__top">
-                      <span className="arca-dd__name">{p.nombre}</span>
-                      <span className="arca-dd__amount">{moneyUSD(p.monto)}</span>
+                  <div className="fl-grid" style={{ marginBottom: 10 }}>
+                    <div className="fl-field fl-col-full">
+                      <select
+                        className="fl-input fl-select"
+                        value={mantMode}
+                        onChange={(e) => {
+                          setMantMode(e.target.value);
+                          setError("");
+                        }}
+                      >
+                        <option value="global">
+                          Mismo mantenimiento para todos los sistemas seleccionados (x{cantSistemasSeleccionados || 0})
+                        </option>
+                        <option value="por_sistema">Personalizado por sistema</option>
+                      </select>
+                      <label className="fl-label">Modo de mantenimiento</label>
                     </div>
-
-                    {p.descripcion ? (
-                      <div className="arca-dd__desc">{p.descripcion}</div>
-                    ) : null}
                   </div>
-                </label>
-              );
-            })}
-          </div>
-        )}
 
-        <div className="arca-dd__actions">
-          <button
-            type="button"
-            className="mit-btn mit-btn--ghost"
-            onClick={() => setMantSel([])}
-            title="Limpiar selección"
-          >
-            Limpiar
-          </button>
+                  {/* ===== GLOBAL ===== */}
+                  {mantMode === "global" ? (
+                    <>
+                      <div ref={mantWrapRef} className="arca-dd">
+                        <button
+                          type="button"
+                          className={`arca-dd__trigger ${mantOpen ? "is-open" : ""}`}
+                          onClick={() => setMantOpen((v) => !v)}
+                          disabled={loadingPlanes || !!planesErr}
+                          title="Seleccionar planes de mantenimiento"
+                        >
+                          <span className="arca-dd__label">{selectedLabel}</span>
+                          <span className="arca-dd__chev">{mantOpen ? "▲" : "▼"}</span>
+                        </button>
 
-          <button
-            type="button"
-            className="mit-btn mit-btn--solid"
-            onClick={() => setMantOpen(false)}
-            title="Cerrar"
-            style={{ marginLeft: "auto" }}
-          >
-            Listo <FaCheck style={{ marginLeft: 8 }} />
-          </button>
-        </div>
-      </div>
-    )}
-  </div>
+                        {mantOpen && (
+                          <div className="arca-dd__panel">
+                            <div className="arca-dd__search">
+                              <input
+                                className="fl-input arca-dd__search-input"
+                                placeholder="Buscar plan..."
+                                value={mantSearch}
+                                onChange={(e) => setMantSearch(e.target.value)}
+                              />
+                            </div>
 
-  <div className="arca-mini" style={{ marginTop: 10 }}>
-    Se listan desde DB (nombre, descripción, monto). Se convierte a ARS con dólar
-    oficial (venta).
-  </div>
-</article>
+                            {planesFiltrados.length === 0 ? (
+                              <div className="arca-dd__empty">No hay planes para mostrar.</div>
+                            ) : (
+                              <div className="arca-dd__list">
+                                {planesFiltrados.map((p) => {
+                                  const checked = mantSel.includes(Number(p.id));
+                                  return (
+                                    <label key={p.id} className={`arca-dd__item ${checked ? "is-checked" : ""}`}>
+                                      <input
+                                        className="arca-dd__cb"
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => toggleMant(p.id)}
+                                      />
+                                      <span className="arca-dd__fakecb" aria-hidden="true" />
+                                      <div className="arca-dd__meta">
+                                        <div className="arca-dd__top">
+                                          <span className="arca-dd__name">{p.nombre}</span>
+                                          <span className="arca-dd__amount">{moneyUSD(p.monto)}</span>
+                                        </div>
+                                        {p.descripcion ? <div className="arca-dd__desc">{p.descripcion}</div> : null}
+                                      </div>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
 
+                            <div className="arca-dd__actions">
+                              <button type="button" className="mit-btn mit-btn--ghost" onClick={() => setMantSel([])} title="Limpiar selección">
+                                Limpiar
+                              </button>
+
+                              <button
+                                type="button"
+                                className="mit-btn mit-btn--solid"
+                                onClick={() => setMantOpen(false)}
+                                title="Cerrar"
+                                style={{ marginLeft: "auto" }}
+                              >
+                                Listo <FaCheck style={{ marginLeft: 8 }} />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="arca-mini" style={{ marginTop: 10 }}>
+                        Se aplican los planes seleccionados a <b>{cantSistemasSeleccionados || 0}</b> sistemas (multiplicador).
+                        {sistemasSelLabels.length > 0 && (
+                          <> Sistemas: <b>{sistemasSelLabels.join(", ")}</b></>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    /* ===== PERSONALIZADO POR SISTEMA ===== */
+                    <>
+                      <div className="arca-mini" style={{ marginBottom: 10 }}>
+                        Elegí planes por cada sistema seleccionado.
+                      </div>
+
+                      {(sistemasSel || []).length === 0 ? (
+                        <div className="arca-alert arca-alert--error">Seleccioná al menos 1 sistema arriba.</div>
+                      ) : (
+                        <div style={{ display: "grid", gap: 12 }}>
+                          {(sistemasSel || []).map((sid) => {
+                            const s = (sistemasCliente || []).find((x) => Number(x.id_sistema) === Number(sid));
+                            const sLabel = s ? `${s.nombre}${s.descripcion ? " • " + s.descripcion : ""}` : `Sistema ${sid}`;
+
+                            const sel = mantSelBySistema?.[sid] || [];
+
+                            return (
+                              <div
+                                key={`s_${sid}`}
+                                style={{
+                                  border: "1px solid rgba(255,255,255,0.08)",
+                                  borderRadius: 12,
+                                  padding: 12,
+                                }}
+                              >
+                                <div style={{ fontWeight: 700, marginBottom: 8 }}>{sLabel}</div>
+
+                                <div className="arca-dd__list" style={{ maxHeight: 220, overflow: "auto" }}>
+                                  {planesMant.map((p) => {
+                                    const checked = sel.includes(Number(p.id));
+                                    return (
+                                      <label key={`p_${sid}_${p.id}`} className={`arca-dd__item ${checked ? "is-checked" : ""}`}>
+                                        <input
+                                          className="arca-dd__cb"
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={() => toggleMantSistema(sid, p.id)}
+                                        />
+                                        <span className="arca-dd__fakecb" aria-hidden="true" />
+                                        <div className="arca-dd__meta">
+                                          <div className="arca-dd__top">
+                                            <span className="arca-dd__name">{p.nombre}</span>
+                                            <span className="arca-dd__amount">{moneyUSD(p.monto)}</span>
+                                          </div>
+                                          {p.descripcion ? <div className="arca-dd__desc">{p.descripcion}</div> : null}
+                                        </div>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+
+                                <div className="arca-mini" style={{ marginTop: 8 }}>
+                                  Seleccionados: <b>{sel.length}</b>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </article>
 
                 {/* ✅ Desarrollo manual */}
                 <article className="mi-card mi-card--full">
-                  <h3 className="mi-card__title">Desarrollo (USD) • Manual</h3>
+                  <h3 className="mi-card__title">Desarrollo (USD) • Manual (global)</h3>
 
                   <div className="fl-grid">
                     <div className="fl-field fl-col-full">
@@ -966,11 +1352,7 @@ export default function ModalFacturaArca({
                     <div className="fl-field">
                       <input
                         className="fl-input"
-                        value={
-                          usdRate && devUsdNum > 0
-                            ? moneyARS(devUsdNum * Number(usdRate))
-                            : "$0,00"
-                        }
+                        value={usdRate && devUsdNum > 0 ? moneyARS(devUsdNum * Number(usdRate)) : "$0,00"}
                         disabled
                         readOnly
                       />
@@ -986,99 +1368,57 @@ export default function ModalFacturaArca({
                   <div className="fl-grid">
                     <div
                       className="fl-field"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        openNativePicker(refDesde.current);
-                      }}
+                      onMouseDown={(e) => { e.preventDefault(); openNativePicker(refDesde.current); }}
                       onClick={() => openNativePicker(refDesde.current)}
                       role="button"
                       tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          openNativePicker(refDesde.current);
-                        }
-                      }}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNativePicker(refDesde.current); } }}
                     >
                       <input
                         ref={refDesde}
                         className="fl-input"
                         type="date"
                         value={periodoDesde}
-                        onChange={(e) => {
-                          setPeriodoDesde(e.target.value);
-                          setError("");
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openNativePicker(e.currentTarget);
-                        }}
+                        onChange={(e) => { setPeriodoDesde(e.target.value); setError(""); }}
+                        onClick={(e) => { e.stopPropagation(); openNativePicker(e.currentTarget); }}
                       />
                       <label className="fl-label">Período desde *</label>
                     </div>
 
                     <div
                       className="fl-field"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        openNativePicker(refHasta.current);
-                      }}
+                      onMouseDown={(e) => { e.preventDefault(); openNativePicker(refHasta.current); }}
                       onClick={() => openNativePicker(refHasta.current)}
                       role="button"
                       tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          openNativePicker(refHasta.current);
-                        }
-                      }}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNativePicker(refHasta.current); } }}
                     >
                       <input
                         ref={refHasta}
                         className="fl-input"
                         type="date"
                         value={periodoHasta}
-                        onChange={(e) => {
-                          setPeriodoHasta(e.target.value);
-                          setError("");
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openNativePicker(e.currentTarget);
-                        }}
+                        onChange={(e) => { setPeriodoHasta(e.target.value); setError(""); }}
+                        onClick={(e) => { e.stopPropagation(); openNativePicker(e.currentTarget); }}
                       />
                       <label className="fl-label">Período hasta *</label>
                     </div>
 
                     <div
                       className="fl-field"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        openNativePicker(refVto.current);
-                      }}
+                      onMouseDown={(e) => { e.preventDefault(); openNativePicker(refVto.current); }}
                       onClick={() => openNativePicker(refVto.current)}
                       role="button"
                       tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          openNativePicker(refVto.current);
-                        }
-                      }}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNativePicker(refVto.current); } }}
                     >
                       <input
                         ref={refVto}
                         className="fl-input"
                         type="date"
                         value={vtoPago}
-                        onChange={(e) => {
-                          setVtoPago(e.target.value);
-                          setError("");
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openNativePicker(e.currentTarget);
-                        }}
+                        onChange={(e) => { setVtoPago(e.target.value); setError(""); }}
+                        onClick={(e) => { e.stopPropagation(); openNativePicker(e.currentTarget); }}
                       />
                       <label className="fl-label">Vto. para el pago *</label>
                     </div>
@@ -1088,20 +1428,11 @@ export default function ModalFacturaArca({
             </div>
 
             <div className="mit-actions">
-              <button
-                type="button"
-                className="mit-btn mit-btn--ghost"
-                onClick={cerrar}
-              >
+              <button type="button" className="mit-btn mit-btn--ghost" onClick={cerrar}>
                 Cancelar
               </button>
 
-              <button
-                type="button"
-                className="mit-btn mit-btn--solid"
-                onClick={irAResumen}
-                title="Continuar al resumen"
-              >
+              <button type="button" className="mit-btn mit-btn--solid" onClick={irAResumen} title="Continuar al resumen">
                 Continuar <FaCheck style={{ marginLeft: 8 }} />
               </button>
             </div>
@@ -1118,28 +1449,31 @@ export default function ModalFacturaArca({
         action={action}
         data={{
           ...data,
-          // ✅ siempre mandar id_sistema (para deudores)
+
           id_sistema: idSistemaReal || data?.id_sistema || null,
-          // ✅ id_pago puede ser null
           id_pago: idPagoReal > 0 ? idPagoReal : null,
+
+          sistemas_facturar_ids: [...(sistemasSel || [])],
+          mant_mode: mantMode,
+
+          // ✅ FIX PRINCIPAL: pasar labels de sistemas seleccionados al raíz de data
+          // Así arcaPdfBuilder los encuentra con getSystemsFromData(data)
+          sistemas_labels: sistemasSelLabels,
 
           cliente_facturacion: clienteFact,
 
-          // ✅ dólar oficial + totales
           usd_rate: usdRate,
           total_usd: totalUSD,
           total_ars: totalARS,
+
           items_facturacion: itemsDetalle,
 
-          // ✅ monto final que viaja para ARCA (ARS)
           monto: totalARS,
 
-          // ✅ fechas
           periodo_desde: dateToYMD8(periodoDesde),
           periodo_hasta: dateToYMD8(periodoHasta),
           vto_pago: dateToYMD8(vtoPago),
 
-          // opcional iso
           periodo_desde_iso: periodoDesde,
           periodo_hasta_iso: periodoHasta,
           vto_pago_iso: vtoPago,

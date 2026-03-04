@@ -1,4 +1,5 @@
 <?php
+// ✅ REEMPLAZAR COMPLETO
 // backend/modules/reportes/registro.php
 declare(strict_types=1);
 
@@ -7,12 +8,23 @@ global $pdo;
 $op = $_GET['op'] ?? '';
 
 /* =========================
-   Helpers JSON
+   Headers + Helpers JSON
 ========================= */
+if (!headers_sent()) {
+  header('Content-Type: application/json; charset=utf-8');
+  header('Access-Control-Allow-Origin: *');
+  header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+  header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+}
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
+  http_response_code(204);
+  exit;
+}
+
 if (!function_exists('repreg_json_ok')) {
   function repreg_json_ok(array $extra = []): void {
     http_response_code(200);
-    header('Content-Type: application/json; charset=utf-8');
+    if (!headers_sent()) header('Content-Type: application/json; charset=utf-8');
     echo json_encode(array_merge(['exito' => true], $extra), JSON_UNESCAPED_UNICODE);
     exit;
   }
@@ -20,7 +32,7 @@ if (!function_exists('repreg_json_ok')) {
 if (!function_exists('repreg_json_fail')) {
   function repreg_json_fail(string $mensaje, array $extra = []): void {
     http_response_code(200);
-    header('Content-Type: application/json; charset=utf-8');
+    if (!headers_sent()) header('Content-Type: application/json; charset=utf-8');
     echo json_encode(array_merge(['exito' => false, 'mensaje' => $mensaje], $extra), JSON_UNESCAPED_UNICODE);
     exit;
   }
@@ -117,17 +129,13 @@ if (!function_exists('repreg_extract_uploads_rel')) {
       $u = parse_url($p);
       $path = (string)($u['path'] ?? '');
       $ix = stripos($path, '/uploads/');
-      if ($ix !== false) {
-        return ltrim(substr($path, $ix + 1), '/'); // uploads/...
-      }
+      if ($ix !== false) return ltrim(substr($path, $ix + 1), '/'); // uploads/...
       return '';
     }
 
     $p = ltrim($p, '/');
     $ix2 = stripos($p, 'uploads/');
-    if ($ix2 !== false) {
-      return substr($p, $ix2);
-    }
+    if ($ix2 !== false) return substr($p, $ix2);
 
     return $p;
   }
@@ -139,29 +147,23 @@ if (!function_exists('repreg_delete_file_if_exists')) {
     if ($rel === '') return;
 
     $abs = repreg_abs_path_from_api_rel($rel);
-    if (file_exists($abs)) {
-      @unlink($abs);
-    }
+    if (file_exists($abs)) @unlink($abs);
   }
 }
 
 /* =========================
    Upload genérico a subcarpeta
-   Guarda URL pública completa en DB
+   Guarda URL pública completa
 ========================= */
 if (!function_exists('repreg_upload_to_subdir')) {
   function repreg_upload_to_subdir(string $subdir, string $fieldName = 'comprobante'): ?string {
     if (!isset($_FILES[$fieldName])) return null;
 
     $f = $_FILES[$fieldName];
-    if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
-      return null;
-    }
+    if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) return null;
 
     $err = (int)($f['error'] ?? UPLOAD_ERR_OK);
-    if ($err !== UPLOAD_ERR_OK) {
-      throw new RuntimeException('Error subiendo archivo. Código: ' . $err);
-    }
+    if ($err !== UPLOAD_ERR_OK) throw new RuntimeException('Error subiendo archivo. Código: ' . $err);
 
     $tmp  = (string)($f['tmp_name'] ?? '');
     $orig = (string)($f['name'] ?? 'archivo');
@@ -187,12 +189,7 @@ if (!function_exists('repreg_upload_to_subdir')) {
     if (function_exists('mime_content_type')) {
       $mime = (string)(mime_content_type($tmp) ?: '');
     }
-    $allowedMime = [
-      'application/pdf',
-      'image/jpeg',
-      'image/png',
-      'image/webp',
-    ];
+    $allowedMime = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
     if ($mime !== '' && !in_array($mime, $allowedMime, true)) {
       throw new RuntimeException('Tipo MIME no permitido: ' . $mime);
     }
@@ -221,15 +218,12 @@ if (!function_exists('repreg_upload_to_subdir')) {
     }
 
     $publicBase = repreg_public_api_base(); // https://dominio.com/api
-    $publicUrl  = $publicBase . '/uploads/' . $subdir . '/' . $fileName;
-
-    return $publicUrl;
+    return $publicBase . '/uploads/' . $subdir . '/' . $fileName;
   }
 }
 
 try {
   if (!($pdo instanceof PDO)) repreg_json_fail('Conexión PDO no disponible.');
-
   $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
   $pdo->exec("SET NAMES utf8mb4");
 
@@ -237,17 +231,27 @@ try {
 
   if (!in_array($op, [
     'movimientos',
-    'registros',
     'crear_egreso',
     'editar_movimiento',
     'eliminar_egreso',
-    'pago_comprobante', // ✅ NUEVO
+    'pago_comprobante',
+    'trabajadores',
   ], true)) {
-    repreg_json_fail('op no válida en registros: ' . $op);
+    repreg_json_fail('op no válida en registro: ' . $op);
   }
 
   /* =========================
-     ✅ NUEVO: COMPROBANTE DE PAGO (POST multipart)
+     TRABAJADORES (por ahora vacío)
+  ========================= */
+  if ($op === 'trabajadores') {
+    if (repreg_req_method() !== 'GET') repreg_json_fail('Método no permitido. Se esperaba GET');
+    repreg_json_ok(['trabajadores' => []]);
+  }
+
+  /* =========================
+     ✅ COMPROBANTE DE PAGO
+     ✅ pagos NO tiene comprobante -> se guarda en facturas.pdf_path
+     POST multipart: id (id_pago) + comprobante(file) o delete_comprobante=1
   ========================= */
   if ($op === 'pago_comprobante') {
     if (repreg_req_method() !== 'POST') repreg_json_fail('Método no permitido. Se esperaba POST');
@@ -257,50 +261,65 @@ try {
 
     $id = $body['id'] ?? null;
     if (!is_numeric($id)) repreg_json_fail('ID inválido.');
-    $idInt = (int)$id;
-    if ($idInt <= 0) repreg_json_fail('ID inválido.');
+    $idPago = (int)$id;
+    if ($idPago <= 0) repreg_json_fail('ID inválido.');
 
-    $stCur = $pdo->prepare("SELECT comprobante FROM pagos WHERE id_pago = :id LIMIT 1");
-    $stCur->execute([':id' => $idInt]);
+    // Buscar factura asociada al pago
+    $stCur = $pdo->prepare("
+      SELECT p.id_factura, f.pdf_path
+      FROM pagos p
+      LEFT JOIN facturas f ON f.id_factura = p.id_factura
+      WHERE p.id_pago = :id
+      LIMIT 1
+    ");
+    $stCur->execute([':id' => $idPago]);
     $cur = $stCur->fetch(PDO::FETCH_ASSOC);
     if (!$cur) repreg_json_fail('El pago no existe.');
 
-    $curComp = (string)($cur['comprobante'] ?? '');
-    $newComp = $curComp !== '' ? $curComp : null;
+    $idFactura = (int)($cur['id_factura'] ?? 0);
+    if ($idFactura <= 0) {
+      repreg_json_fail('Este pago no tiene factura asociada (id_factura). No se puede adjuntar comprobante.');
+    }
+
+    $curPath = (string)($cur['pdf_path'] ?? '');
+    $newPath = ($curPath !== '') ? $curPath : null;
 
     $deleteComp = (string)($body['delete_comprobante'] ?? '0');
     $wantsDelete = ($deleteComp === '1' || strtolower($deleteComp) === 'true');
 
     $uploadedUrl = null;
     try {
-      $uploadedUrl = repreg_upload_to_subdir('pagos', 'comprobante'); // ✅ api/uploads/pagos
+      $uploadedUrl = repreg_upload_to_subdir('pagos', 'comprobante'); // api/uploads/pagos
     } catch (Throwable $upErr) {
-      repreg_json_fail('Comprobante: ' . $upErr->getMessage());
+      $uploadedUrl = null;
+      if (!$wantsDelete) {
+        repreg_json_fail('Comprobante: ' . $upErr->getMessage());
+      }
     }
 
     if ($wantsDelete) {
-      if ($curComp !== '') repreg_delete_file_if_exists($curComp);
-      $newComp = null;
+      if ($curPath !== '') repreg_delete_file_if_exists($curPath);
+      $newPath = null;
     }
 
     if ($uploadedUrl) {
-      if ($curComp !== '') repreg_delete_file_if_exists($curComp);
-      $newComp = $uploadedUrl;
+      if ($curPath !== '') repreg_delete_file_if_exists($curPath);
+      $newPath = $uploadedUrl;
     }
 
     if (!$wantsDelete && !$uploadedUrl) {
       repreg_json_fail('No se recibió archivo ni se solicitó eliminar.');
     }
 
-    $stUp = $pdo->prepare("UPDATE pagos SET comprobante = :c WHERE id_pago = :id");
+    $stUp = $pdo->prepare("UPDATE facturas SET pdf_path = :p WHERE id_factura = :id");
     $stUp->execute([
-      ':c' => $newComp,
-      ':id' => $idInt,
+      ':p' => ($newPath ?? ''),
+      ':id' => $idFactura,
     ]);
 
     repreg_json_ok([
       'mensaje' => 'Comprobante de pago actualizado.',
-      'comprobante' => $newComp ?? '',
+      'comprobante' => $newPath ?? '',
     ]);
   }
 
@@ -482,10 +501,6 @@ try {
       repreg_json_ok(['mensaje' => 'Pago actualizado.']);
     }
 
-    if ($tipo === 'trabajador') {
-      repreg_json_fail('Edición de trabajador aún no implementada en backend.');
-    }
-
     repreg_json_fail('Tipo inválido: ' . $tipo);
   }
 
@@ -508,9 +523,7 @@ try {
     if (!$row) repreg_json_fail('El egreso no existe o ya fue eliminado.');
 
     $comp = (string)($row['comprobante'] ?? '');
-    if ($comp !== '') {
-      repreg_delete_file_if_exists($comp);
-    }
+    if ($comp !== '') repreg_delete_file_if_exists($comp);
 
     $st = $pdo->prepare("DELETE FROM egresos WHERE id_egreso = :id");
     $st->execute([':id' => $idInt]);
@@ -525,11 +538,14 @@ try {
   ========================= */
   if (repreg_req_method() !== 'GET') repreg_json_fail('Método no permitido. Se esperaba GET');
 
-  $mes  = repreg_int('mes', 0);
+  $mes  = repreg_int('mes', 0);   // 1..12
   $anio = repreg_int('anio', 0);
 
   /* =========================
-     PAGOS (✅ ARREGLO MESES: usa MONTH(p.fecha_pago) para el nombre del mes)
+     ✅ PAGOS (ARREGLADO)
+     - Mes: SE CALCULA POR fecha_pago (MONTH(p.fecha_pago))
+       (porque en pagos.id_mes vos guardás "período del sistema", no el mes del movimiento)
+     - Comprobante: viene de facturas.pdf_path
   ========================= */
   $sqlP = "
     SELECT
@@ -538,28 +554,39 @@ try {
       c.nombre     AS cliente_nombre,
       cs.nombre    AS sistema_nombre,
       CONCAT(c.nombre, ' - ', cs.nombre) AS concepto,
+
+      -- ✅ Mes mostrado en reportes según la FECHA del pago
       COALESCE(m.mes, '')        AS categoria,
+
       COALESCE(mp.nombre, '')   AS medio,
       p.id_medio_pago           AS id_medio_pago,
       COALESCE(p.monto, 0)      AS monto,
-      COALESCE(p.comprobante, '') AS comprobante
+      COALESCE(f.pdf_path, '')  AS comprobante,
+
+      -- (opcional) por si lo querés en el front para debug
+      p.id_mes                  AS id_mes_periodo
     FROM pagos p
     JOIN clientes_sistemas cs ON cs.id_sistema = p.id_sistema
     JOIN clientes c          ON c.id_cliente  = cs.id_cliente
-    LEFT JOIN meses m        ON m.id_mes      = MONTH(p.fecha_pago)   -- ✅ FIX CLAVE
+
+    -- ✅ JOIN por MES DE LA FECHA (no por p.id_mes)
+    LEFT JOIN meses m        ON m.id_mes      = MONTH(p.fecha_pago)
+
     LEFT JOIN medios_pago mp ON mp.id_medio_pago = p.id_medio_pago
+    LEFT JOIN facturas f     ON f.id_factura = p.id_factura
     WHERE 1=1
   ";
 
   $paramsP = [];
-  if ($mes > 0) {
-    $sqlP .= " AND MONTH(p.fecha_pago) = :mes ";
-    $paramsP[':mes'] = $mes;
-  }
   if ($anio > 0) {
     $sqlP .= " AND YEAR(p.fecha_pago) = :anio ";
     $paramsP[':anio'] = $anio;
   }
+  if ($mes > 0) {
+    $sqlP .= " AND MONTH(p.fecha_pago) = :mes ";
+    $paramsP[':mes'] = $mes;
+  }
+
   $sqlP .= " ORDER BY p.fecha_pago DESC, p.id_pago DESC ";
 
   $stP = $pdo->prepare($sqlP);
@@ -568,6 +595,7 @@ try {
 
   /* =========================
      EGRESOS
+     (no tienen id_mes, entonces mes por MONTH(fecha))
   ========================= */
   $sqlE = "
     SELECT

@@ -1,3 +1,4 @@
+// ✅ REEMPLAZAR COMPLETO
 // frontend/src/components/Pagos/modales/ModalFacturaArcaResumen.jsx
 import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { FaCheck } from "react-icons/fa";
@@ -15,17 +16,13 @@ function ymdToHuman(ymd) {
   if (!ymd) return "";
   const s = String(ymd);
 
-  // YYYYMMDD
   if (s.length === 8 && /^\d{8}$/.test(s)) {
     return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
   }
-
-  // YYYY-MM-DD (o ISO)
   if (s.length >= 10 && s.includes("-")) {
     const [y, m, d] = s.slice(0, 10).split("-");
     return `${d}/${m}/${y}`;
   }
-
   return s;
 }
 
@@ -148,10 +145,15 @@ export default function ModalFacturaArcaResumen({
     async (url, opts) => {
       const res = await fetch(url, opts);
       const raw = await res.text();
+      const trimmed = (raw || "").trim();
+
+      if (trimmed.startsWith("<")) {
+        throw new Error("Backend devolvió HTML (error PHP).");
+      }
 
       let j = null;
       try {
-        j = raw ? JSON.parse(raw) : null;
+        j = trimmed ? JSON.parse(trimmed) : null;
       } catch {
         j = null;
       }
@@ -165,29 +167,14 @@ export default function ModalFacturaArcaResumen({
 
       if (!res.ok) {
         const msg = pickErr();
-        if (msg) throw new Error(msg);
-
-        const preview = (raw || "").slice(0, 300).replace(/\s+/g, " ").trim();
-        throw new Error(
-          `HTTP ${res.status} ${res.statusText || ""}`.trim() +
-            (preview ? ` • Resp: ${preview}` : "")
-        );
+        throw new Error(msg || `HTTP ${res.status}`);
       }
 
       if (j && typeof j === "object" && j.exito === false) {
-        const msg = pickErr() || "Error servidor (exito=false)";
-        throw new Error(msg);
+        throw new Error(pickErr() || "Error servidor (exito=false)");
       }
 
-      if (j == null) {
-        const preview = (raw || "").slice(0, 300).replace(/\s+/g, " ").trim();
-        throw new Error(
-          preview
-            ? `Respuesta inválida (no JSON): ${preview}`
-            : "Respuesta inválida (no JSON)"
-        );
-      }
-
+      if (j == null) throw new Error("Respuesta inválida (no JSON)");
       return j;
     },
     [toText]
@@ -234,20 +221,21 @@ export default function ModalFacturaArcaResumen({
     };
   }, [data, docNro, ptoVta, docTipo, idPago, idSistema]);
 
-  // ✅ sube PDF + inserta en tabla facturas
   const guardarFacturaEnDB = useCallback(
     async ({ blob, filename, fact, estado }) => {
       const url = `${apiBase}?action=${action}&op=factura_guardar_pdf`;
 
       const payload = {
         estado: estado || "solo_pdf",
+
         id_pago: data?.id_pago ?? null,
         id_sistema: data?.id_sistema ?? null,
+
         anio: Number(data?.anio || 0),
         id_mes: Number(data?.id_mes || 0),
+
         monto_ars: Number(fact?.importe ?? data?.monto ?? data?.importe ?? 0),
 
-        // datos extra (si después querés ampliar tabla)
         doc_tipo: Number(docTipo),
         doc_nro: String(docNro || "").replace(/\D/g, ""),
         cbte_tipo: Number(cbteTipo),
@@ -265,6 +253,8 @@ export default function ModalFacturaArcaResumen({
         periodo_desde: data?.periodo_desde ?? null,
         periodo_hasta: data?.periodo_hasta ?? null,
         vto_pago: data?.vto_pago ?? null,
+
+        aplicar_a_todos_sistemas: true,
       };
 
       const fd = new FormData();
@@ -326,7 +316,6 @@ export default function ModalFacturaArcaResumen({
         doc_nro: v.docN,
       };
 
-      // ✅ ARREGLADO: Manejo tolerante del retorno del PDF
       const out = await saveArcaInvoicePdf({
         fact: factMock,
         data: {
@@ -341,20 +330,23 @@ export default function ModalFacturaArcaResumen({
         download: true,
       });
 
-      // ✅ ARREGLADO: Compatibilidad con builder viejo (que podría devolver blob directo)
-      const blob = out?.blob instanceof Blob 
-        ? out.blob 
-        : (out instanceof Blob ? out : null);
-      
-      const filename = out?.filename || "factura.pdf";
+      const blob =
+        out?.blob instanceof Blob ? out.blob : out instanceof Blob ? out : null;
 
-      if (!blob) {
-        throw new Error("No se pudo generar el PDF (blob vacío).");
-      }
+      const filename = out?.filename || "factura_prueba.pdf";
 
-      // 2) subir PDF + insertar en facturas
-      await guardarFacturaEnDB({ blob, filename, fact: factMock, estado: "solo_pdf" });
-      
+      if (!blob) throw new Error("No se pudo generar el PDF (blob vacío).");
+
+      const saved = await guardarFacturaEnDB({
+        blob,
+        filename,
+        fact: factMock,
+        estado: "solo_pdf",
+      });
+
+      onDone?.(saved);
+      onClose?.();
+      onCloseAll?.();
     } catch (e) {
       setError(e?.message || "No se pudo exportar el PDF.");
     } finally {
@@ -372,6 +364,9 @@ export default function ModalFacturaArcaResumen({
     nombreCliente,
     nombreSistema,
     guardarFacturaEnDB,
+    onDone,
+    onClose,
+    onCloseAll,
   ]);
 
   const emitir = useCallback(async () => {
@@ -385,7 +380,6 @@ export default function ModalFacturaArcaResumen({
       const url = `${apiBase}?action=${action}&op=factura_arca`;
 
       const body = {
-        // ✅ soporta id_pago o id_sistema
         id_pago: v.id_pago,
         id_sistema: v.id_sistema,
 
@@ -394,12 +388,14 @@ export default function ModalFacturaArcaResumen({
         cbte_tipo: Number(cbteTipo),
         pto_vta: v.pvN,
 
-        // monto final ARS (si querés que backend lo use cuando no hay id_pago)
         importe: forceTestAmount ? Number(testAmount) : Number(monto),
 
-        // para registrar en facturas luego
         anio: v.anio,
         id_mes: v.id_mes,
+
+        periodo_desde: data?.periodo_desde ?? "",
+        periodo_hasta: data?.periodo_hasta ?? "",
+        vto_pago: data?.vto_pago ?? "",
       };
 
       const resp = await fetchJSON(url, {
@@ -410,31 +406,20 @@ export default function ModalFacturaArcaResumen({
 
       const fact = resp?.factura || resp;
 
-      // ✅ ARREGLADO: Manejo tolerante del retorno del PDF
       const out = await saveArcaInvoicePdf({
         fact,
-        data: {
-          ...data,
-          labelCliente: nombreCliente,
-          labelSistema: nombreSistema,
-        },
+        data: { ...data, labelCliente: nombreCliente, labelSistema: nombreSistema },
         forceTestAmount,
         testAmount,
         download: true,
       });
 
-      // ✅ ARREGLADO: Compatibilidad con builder viejo
-      const blob = out?.blob instanceof Blob 
-        ? out.blob 
-        : (out instanceof Blob ? out : null);
-      
+      const blob =
+        out?.blob instanceof Blob ? out.blob : out instanceof Blob ? out : null;
+
       const filename = out?.filename || "factura.pdf";
+      if (!blob) throw new Error("No se pudo generar el PDF (blob vacío).");
 
-      if (!blob) {
-        throw new Error("No se pudo generar el PDF (blob vacío).");
-      }
-
-      // 2) subir PDF + insertar en facturas (estado emitida)
       await guardarFacturaEnDB({ blob, filename, fact, estado: "emitida" });
 
       onFacturada?.(fact);
@@ -492,15 +477,7 @@ export default function ModalFacturaArcaResumen({
           </div>
 
           <button className="mi-modal__close" onClick={cerrar} aria-label="Cerrar" type="button">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -509,11 +486,7 @@ export default function ModalFacturaArcaResumen({
 
         <div className="mit-modal__body">
           <div className="mit-modal__content">
-            {error && (
-              <div className="arca-alert arca-alert--error" role="alert">
-                {error}
-              </div>
-            )}
+            {error && <div className="arca-alert arca-alert--error" role="alert">{error}</div>}
 
             <div className="arca-alert arca-alert--info">
               <div className="arca-alert__title">
@@ -521,23 +494,11 @@ export default function ModalFacturaArcaResumen({
               </div>
 
               <div className="arca-resumen arca-resumen--2col">
-                <div className="arca-row">
-                  <b>Pago:</b>
-                  <span>{resumen.pago}</span>
-                </div>
-                <div className="arca-row">
-                  <b>Sistema ID:</b>
-                  <span>{resumen.sistemaId}</span>
-                </div>
+                <div className="arca-row"><b>Pago:</b><span>{resumen.pago}</span></div>
+                <div className="arca-row"><b>Sistema ID:</b><span>{resumen.sistemaId}</span></div>
 
-                <div className="arca-row">
-                  <b>Cliente:</b>
-                  <span>{resumen.cliente}</span>
-                </div>
-                <div className="arca-row">
-                  <b>Sistema:</b>
-                  <span>{resumen.sistema}</span>
-                </div>
+                <div className="arca-row"><b>Cliente:</b><span>{resumen.cliente}</span></div>
+                <div className="arca-row"><b>Sistema:</b><span>{resumen.sistema}</span></div>
 
                 <div className="arca-row">
                   <b>Monto:</b>
@@ -547,28 +508,14 @@ export default function ModalFacturaArcaResumen({
                   </span>
                 </div>
 
-                <div className="arca-row">
-                  <b>Comprobante:</b>
-                  <span>{resumen.comprobante}</span>
-                </div>
+                <div className="arca-row"><b>Comprobante:</b><span>{resumen.comprobante}</span></div>
 
                 {resumen.fechaISO ? (
-                  <div className="arca-row">
-                    <b>Fecha pago:</b>
-                    <span>{ymdToHuman(resumen.fechaISO)}</span>
-                  </div>
-                ) : (
-                  <div />
-                )}
+                  <div className="arca-row"><b>Fecha pago:</b><span>{ymdToHuman(resumen.fechaISO)}</span></div>
+                ) : <div />}
 
-                <div className="arca-row">
-                  <b>Receptor:</b>
-                  <span>{resumen.receptorTxt}</span>
-                </div>
-                <div className="arca-row">
-                  <b>Punto de venta:</b>
-                  <span>{resumen.pvTxt}</span>
-                </div>
+                <div className="arca-row"><b>Receptor:</b><span>{resumen.receptorTxt}</span></div>
+                <div className="arca-row"><b>Punto de venta:</b><span>{resumen.pvTxt}</span></div>
 
                 <div className="arca-row">
                   <b>Período:</b>
@@ -622,7 +569,7 @@ export default function ModalFacturaArcaResumen({
               className="mit-btn mit-btn--ghost"
               onClick={exportarSoloPDF}
               disabled={loading || loadingPdf || !confirm}
-              title={!confirm ? "Marcá la confirmación para habilitar." : "Exporta y guarda el PDF sin emitir."}
+              title={!confirm ? "Marcá la confirmación para habilitar." : "Exporta el PDF (PRUEBA) y lo guarda en DB como solo_pdf."}
             >
               {loadingPdf ? "Generando PDF..." : "Solo PDF (sin emitir)"}
             </button>
@@ -634,13 +581,7 @@ export default function ModalFacturaArcaResumen({
               disabled={loading || loadingPdf || !confirm}
               title={!confirm ? "Marcá la confirmación para habilitar." : ""}
             >
-              {loading ? (
-                "Emitiendo..."
-              ) : (
-                <>
-                  Emitir + PDF <FaCheck style={{ marginLeft: 8 }} />
-                </>
-              )}
+              {loading ? "Emitiendo..." : <>Emitir + PDF <FaCheck style={{ marginLeft: 8 }} /></>}
             </button>
           </div>
         </div>

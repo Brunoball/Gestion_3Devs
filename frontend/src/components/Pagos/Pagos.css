@@ -73,6 +73,17 @@ html, body {
   overflow: hidden;
 }
 
+/* Disabled visual */
+.gpagos-action-disabled,
+.gpagos-action-button:disabled,
+.gpagos-mobile-pay-button:disabled {
+  opacity: 0.45;
+  filter: grayscale(1);
+  cursor: not-allowed !important;
+  pointer-events: auto; /* para que muestre tooltip igual */
+}
+
+
 /* ===========================
    LEFT (Filtros)
    =========================== */
@@ -671,3 +682,5 @@ html, body {
 .gpagos-action-button svg {
   font-size: 16px;
 }
+
+
