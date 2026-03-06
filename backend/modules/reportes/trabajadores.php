@@ -1,4 +1,5 @@
 <?php
+// ✅ REEMPLAZAR COMPLETO
 // backend/modules/reportes/trabajadores.php
 declare(strict_types=1);
 
@@ -6,9 +7,6 @@ global $pdo;
 
 $op = $_GET['op'] ?? '';
 
-/* =========================
-   Helpers JSON
-========================= */
 if (!function_exists('reptra_json_ok')) {
   function reptra_json_ok(array $extra = []): void {
     http_response_code(200);
@@ -44,18 +42,45 @@ try {
   $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
   $pdo->exec("SET NAMES utf8mb4");
 
-  if ($op !== 'trabajadores') reptra_json_fail('op no válida en trabajadores: ' . $op);
-  if (reptra_req_method() !== 'GET') reptra_json_fail('Método no permitido. Se esperaba GET');
+  if (!in_array($op, ['trabajadores', 'trabajadores_activos'], true)) {
+    reptra_json_fail('op no válida en trabajadores: ' . $op);
+  }
 
-  // Filtros que vienen desde Reportes.jsx
-  // mes: 1..12 (selección del selector)
-  // anio: YYYY
+  if (reptra_req_method() !== 'GET') {
+    reptra_json_fail('Método no permitido. Se esperaba GET');
+  }
+
+  /* =========================================================
+     ✅ NUEVO: LISTA SIMPLE DE TRABAJADORES ACTIVOS
+     GET /api.php?action=reportes&op=trabajadores_activos
+  ========================================================= */
+  if ($op === 'trabajadores_activos') {
+    $sql = "
+      SELECT
+        t.id,
+        t.nombre,
+        t.apellido,
+        t.email,
+        t.rol,
+        t.alias_pago
+      FROM trabajadores t
+      WHERE t.activo = 1
+      ORDER BY t.apellido ASC, t.nombre ASC
+    ";
+
+    $st = $pdo->prepare($sql);
+    $st->execute();
+
+    $trabajadores = $st->fetchAll(PDO::FETCH_ASSOC);
+
+    reptra_json_ok([
+      'trabajadores' => $trabajadores,
+    ]);
+  }
+
   $mes  = reptra_int('mes', 0);
   $anio = reptra_int('anio', 0);
 
-  /* =========================================================
-     1) Sistemas con pagos en el período (usar MES REAL de fecha_pago)
-  ========================================================= */
   $sqlSys = "
     SELECT
       p.id_sistema,
@@ -68,7 +93,6 @@ try {
 
   $paramsSys = [];
 
-  // ✅ FIX: antes era p.id_mes = :mes (si id_mes está mal cargado, rompe)
   if ($mes > 0) {
     $sqlSys .= " AND MONTH(p.fecha_pago) = :mes ";
     $paramsSys[':mes'] = $mes;
@@ -88,18 +112,88 @@ try {
   $stSys->execute($paramsSys);
   $sistemasPagados = $stSys->fetchAll(PDO::FETCH_ASSOC);
 
-  // Acumulador por trabajador
+  $sqlEg = "
+    SELECT
+      e.id_trabajador,
+      t.nombre,
+      t.apellido,
+      t.email,
+      t.rol,
+      t.alias_pago,
+      SUM(e.monto) AS total_egresos
+    FROM egresos e
+    JOIN trabajadores t ON t.id = e.id_trabajador
+    WHERE e.id_trabajador IS NOT NULL
+      AND t.activo = 1
+  ";
+
+  $paramsEg = [];
+
+  if ($mes > 0) {
+    $sqlEg .= " AND MONTH(e.fecha) = :mes ";
+    $paramsEg[':mes'] = $mes;
+  }
+  if ($anio > 0) {
+    $sqlEg .= " AND YEAR(e.fecha) = :anio ";
+    $paramsEg[':anio'] = $anio;
+  }
+
+  $sqlEg .= "
+    GROUP BY
+      e.id_trabajador,
+      t.nombre,
+      t.apellido,
+      t.email,
+      t.rol,
+      t.alias_pago
+    ORDER BY t.apellido, t.nombre
+  ";
+
+  $stEg = $pdo->prepare($sqlEg);
+  $stEg->execute($paramsEg);
+  $egresosPorTrabajador = $stEg->fetchAll(PDO::FETCH_ASSOC);
+
   $acc = [];
-
-  // Para debug/admin: sistemas con pagos pero sin trabajadores asignados
   $sinAsignar = [];
+  $detalleSistemas = [];
 
-  /* =========================================================
-     2) Por cada sistema con pagos:
-        - buscar trabajadores asignados
-        - dividir total del sistema por cantidad de trabajadores
-        - acumular en cada trabajador
-  ========================================================= */
+  foreach ($egresosPorTrabajador as $eg) {
+    $idT = (int)($eg['id_trabajador'] ?? 0);
+    if ($idT <= 0) continue;
+
+    if (!isset($acc[$idT])) {
+      $acc[$idT] = [
+        'id' => $idT,
+        'nombre' => (string)($eg['nombre'] ?? ''),
+        'apellido' => (string)($eg['apellido'] ?? ''),
+        'email' => (string)($eg['email'] ?? ''),
+        'rol' => (string)($eg['rol'] ?? ''),
+        'alias_pago' => (string)($eg['alias_pago'] ?? ''),
+        'sistemas_cobrados' => 0,
+        'monto_reembolso' => 0.0,
+        'monto_sistemas' => 0.0,
+        'monto' => 0.0,
+      ];
+    }
+
+    $reembolso = (float)($eg['total_egresos'] ?? 0);
+    $acc[$idT]['monto_reembolso'] += $reembolso;
+    $acc[$idT]['monto'] += $reembolso;
+  }
+
+  $totalIngresos = 0.0;
+  foreach ($sistemasPagados as $sys) {
+    $totalIngresos += (float)($sys['total_monto'] ?? 0);
+  }
+
+  $totalEgresosReembolsables = 0.0;
+  foreach ($egresosPorTrabajador as $eg) {
+    $totalEgresosReembolsables += (float)($eg['total_egresos'] ?? 0);
+  }
+
+  $ingresoLimpio = $totalIngresos - $totalEgresosReembolsables;
+  if ($ingresoLimpio < 0) $ingresoLimpio = 0.0;
+
   $sqlTrab = "
     SELECT
       st.id_trabajador,
@@ -113,15 +207,14 @@ try {
     WHERE st.id_sistema = :id_sistema
       AND t.activo = 1
   ";
-
   $stTrab = $pdo->prepare($sqlTrab);
 
   foreach ($sistemasPagados as $sys) {
     $idSistema = (int)($sys['id_sistema'] ?? 0);
     $sistemaNombre = (string)($sys['sistema_nombre'] ?? '');
-    $totalMonto = (float)($sys['total_monto'] ?? 0);
+    $totalMontoSistema = (float)($sys['total_monto'] ?? 0);
 
-    if ($idSistema <= 0 || $totalMonto <= 0) continue;
+    if ($idSistema <= 0 || $totalMontoSistema <= 0) continue;
 
     $stTrab->execute([':id_sistema' => $idSistema]);
     $trabDelSistema = $stTrab->fetchAll(PDO::FETCH_ASSOC);
@@ -132,13 +225,26 @@ try {
       $sinAsignar[] = [
         'id_sistema' => $idSistema,
         'sistema' => $sistemaNombre,
-        'total_monto' => $totalMonto,
+        'total_monto' => $totalMontoSistema,
         'motivo' => 'Sin trabajadores asignados en sistemas_trabajadores',
       ];
       continue;
     }
 
-    $share = $totalMonto / $cantTrab;
+    $montoSistemaLimpio = $totalIngresos > 0
+      ? ($ingresoLimpio * ($totalMontoSistema / $totalIngresos))
+      : 0.0;
+
+    $share = $cantTrab > 0 ? ($montoSistemaLimpio / $cantTrab) : 0.0;
+
+    $detalleSistemas[] = [
+      'id_sistema' => $idSistema,
+      'sistema' => $sistemaNombre,
+      'ingreso_bruto' => round($totalMontoSistema, 2),
+      'ingreso_limpio_asignado' => round($montoSistemaLimpio, 2),
+      'cantidad_trabajadores' => $cantTrab,
+      'share_por_trabajador' => round($share, 2),
+    ];
 
     foreach ($trabDelSistema as $t) {
       $idT = (int)($t['id_trabajador'] ?? 0);
@@ -153,16 +259,26 @@ try {
           'rol' => (string)($t['rol'] ?? ''),
           'alias_pago' => (string)($t['alias_pago'] ?? ''),
           'sistemas_cobrados' => 0,
+          'monto_reembolso' => 0.0,
+          'monto_sistemas' => 0.0,
           'monto' => 0.0,
         ];
       }
 
-      $acc[$idT]['monto'] = (float)$acc[$idT]['monto'] + (float)$share;
+      $acc[$idT]['monto_sistemas'] += $share;
+      $acc[$idT]['monto'] += $share;
       $acc[$idT]['sistemas_cobrados'] = (int)$acc[$idT]['sistemas_cobrados'] + 1;
     }
   }
 
   $trabajadores = array_values($acc);
+
+  foreach ($trabajadores as &$tr) {
+    $tr['monto_reembolso'] = round((float)$tr['monto_reembolso'], 2);
+    $tr['monto_sistemas'] = round((float)$tr['monto_sistemas'], 2);
+    $tr['monto'] = round((float)$tr['monto'], 2);
+  }
+  unset($tr);
 
   usort($trabajadores, function ($a, $b) {
     return ($b['monto'] <=> $a['monto']);
@@ -173,8 +289,14 @@ try {
       'mes'  => $mes > 0 ? $mes : null,
       'anio' => $anio > 0 ? $anio : null,
     ],
+    'resumen' => [
+      'total_ingresos' => round($totalIngresos, 2),
+      'total_egresos_reembolsables' => round($totalEgresosReembolsables, 2),
+      'ingreso_limpio' => round($ingresoLimpio, 2),
+    ],
     'trabajadores' => $trabajadores,
     'sistemas_sin_asignar' => $sinAsignar,
+    'detalle_sistemas' => $detalleSistemas,
   ]);
 
 } catch (Throwable $e) {

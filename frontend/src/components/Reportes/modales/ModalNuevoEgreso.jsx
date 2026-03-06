@@ -1,3 +1,4 @@
+// ✅ REEMPLAZAR COMPLETO
 // src/components/Contable/modales/ModalNuevoEgreso.jsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -8,6 +9,7 @@ import {
   faPaperclip,
   faFilePdf,
   faImage,
+  faUser,
 } from "@fortawesome/free-solid-svg-icons";
 
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
@@ -19,6 +21,7 @@ export default function ModalNuevoEgreso({
   onConfirm,
   loading,
   medios = [],
+  trabajadores = [],
 }) {
   const firstRef = useRef(null);
 
@@ -33,18 +36,15 @@ export default function ModalNuevoEgreso({
   const [descripcion, setDescripcion] = useState("");
   const [monto, setMonto] = useState("");
   const [idMedio, setIdMedio] = useState("");
+  const [idTrabajador, setIdTrabajador] = useState("");
   const [comprobanteFile, setComprobanteFile] = useState(null);
 
-  // ✅ helper: MAYÚSCULAS “en vivo”
   const toUpperLive = (v) => String(v ?? "").toUpperCase();
 
-  /* =========================
-     ✅ TOAST (solo errores)
-  ========================= */
   const [toast, setToast] = useState({
     open: false,
     type: "danger",
-    message: "", // string siempre
+    message: "",
   });
 
   const closeToast = useCallback(() => {
@@ -56,6 +56,14 @@ export default function ModalNuevoEgreso({
     if (!m) return;
     setToast({ open: true, type: "danger", message: m });
   }, []);
+
+  const trabajadoresOrdenados = useMemo(() => {
+    return [...(Array.isArray(trabajadores) ? trabajadores : [])].sort((a, b) => {
+      const aa = `${a?.apellido || ""} ${a?.nombre || ""}`.trim().toLowerCase();
+      const bb = `${b?.apellido || ""} ${b?.nombre || ""}`.trim().toLowerCase();
+      return aa.localeCompare(bb, "es");
+    });
+  }, [trabajadores]);
 
   const subtitle = useMemo(() => {
     const c = (concepto || "").trim();
@@ -73,6 +81,7 @@ export default function ModalNuevoEgreso({
     setDescripcion("");
     setMonto("");
     setIdMedio("");
+    setIdTrabajador("");
     setComprobanteFile(null);
 
     setTimeout(() => firstRef.current?.focus(), 0);
@@ -118,7 +127,6 @@ export default function ModalNuevoEgreso({
   const submit = (e) => {
     e?.preventDefault?.();
 
-    // ✅ mensaje “completar campos”
     if (!fecha || !concepto.trim() || monto === "" || monto === null) {
       return showError("Completá todos los campos obligatorios (*).");
     }
@@ -134,6 +142,7 @@ export default function ModalNuevoEgreso({
     fd.append("descripcion", (descripcion || "").trim());
     fd.append("monto", String(montoNum));
     fd.append("id_medio_pago", idMedio ? String(Number(idMedio)) : "");
+    fd.append("id_trabajador", idTrabajador ? String(Number(idTrabajador)) : "");
     if (comprobanteFile) fd.append("comprobante", comprobanteFile);
 
     onConfirm?.(fd);
@@ -149,7 +158,6 @@ export default function ModalNuevoEgreso({
       className="mi-modal__overlay"
       onClick={(e) => e.target.classList.contains("mi-modal__overlay") && cerrar()}
     >
-      {/* ✅ Toast: pasamos duración + mensaje en VARIOS nombres */}
       {toast.open && toast.message ? (
         <Toast
           open
@@ -158,7 +166,6 @@ export default function ModalNuevoEgreso({
           variant={toast.type}
           duration={3200}
           duracion={3200}
-          // texto/mensaje/message por compatibilidad
           text={toast.message}
           texto={toast.message}
           message={toast.message}
@@ -192,7 +199,15 @@ export default function ModalNuevoEgreso({
             type="button"
             title="Cerrar"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -278,6 +293,25 @@ export default function ModalNuevoEgreso({
                     </select>
                     <label className="fl-label">Medio de pago (opcional)</label>
                   </div>
+
+                  <div className="fl-field fl-col-full">
+                    <select
+                      className="fl-input fl-select"
+                      value={idTrabajador}
+                      onChange={(e) => setIdTrabajador(e.target.value)}
+                      disabled={loading || !trabajadoresOrdenados.length}
+                    >
+                      <option value="">(Sin trabajador asignado)</option>
+                      {trabajadoresOrdenados.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {`${t.apellido || ""} ${t.nombre || ""}`.trim()}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="fl-label">
+                      <FontAwesomeIcon icon={faUser} /> Trabajador que pagó el gasto
+                    </label>
+                  </div>
                 </div>
               </article>
 
@@ -319,14 +353,18 @@ export default function ModalNuevoEgreso({
                         <div className="cmp-file">
                           <div className="cmp-file__left">
                             <div className={`cmp-badge ${isPdf ? "is-pdf" : isImg ? "is-img" : ""}`}>
-                              <FontAwesomeIcon icon={isPdf ? faFilePdf : isImg ? faImage : faPaperclip} />
+                              <FontAwesomeIcon
+                                icon={isPdf ? faFilePdf : isImg ? faImage : faPaperclip}
+                              />
                             </div>
 
                             <div className="cmp-file__meta">
                               <div className="cmp-file__name" title={comprobanteFile.name}>
                                 {comprobanteFile.name}
                               </div>
-                              <div className="cmp-file__size">{Math.round(comprobanteFile.size / 1024)} KB</div>
+                              <div className="cmp-file__size">
+                                {Math.round(comprobanteFile.size / 1024)} KB
+                              </div>
                             </div>
                           </div>
 
@@ -351,7 +389,12 @@ export default function ModalNuevoEgreso({
           </div>
 
           <div className="mit-actions">
-            <button type="button" className="mit-btn mit-btn--ghost" onClick={cerrar} disabled={loading}>
+            <button
+              type="button"
+              className="mit-btn mit-btn--ghost"
+              onClick={cerrar}
+              disabled={loading}
+            >
               <FontAwesomeIcon icon={faTimes} /> Cancelar
             </button>
 

@@ -1,4 +1,5 @@
 <?php
+// ✅ REEMPLAZAR COMPLETO
 // backend/modules/reportes/route.php
 declare(strict_types=1);
 
@@ -8,27 +9,24 @@ function route_reportes(string $action): bool
 
   $op = $_GET['op'] ?? '';
 
-  // 👉 funciones de reportes (estadísticas)
   if (in_array($op, ['anios', 'estadisticas'], true)) {
     require_once __DIR__ . '/reportes.php';
     return true;
   }
 
-  // 👉 registros/listados + egresos + ediciones
   if (in_array($op, [
     'movimientos',
     'registros',
     'crear_egreso',
     'editar_movimiento',
     'eliminar_egreso',
-    'pago_comprobante', // ✅ NUEVO
+    'pago_comprobante',
   ], true)) {
-    require_once __DIR__ . '/registro.php'; // ✅ tu archivo real
+    require_once __DIR__ . '/registro.php';
     return true;
   }
 
-  // ✅ pagos por trabajador
-  if ($op === 'trabajadores') {
+  if (in_array($op, ['trabajadores', 'trabajadores_activos'], true)) {
     require_once __DIR__ . '/trabajadores.php';
     return true;
   }

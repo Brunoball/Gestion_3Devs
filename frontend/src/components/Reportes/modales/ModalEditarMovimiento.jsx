@@ -14,8 +14,6 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
-
-// ✅ TOAST (ruta que pasaste)
 import Toast from "../../Global/Toast";
 
 function isPdfPath(pathOrUrl) {
@@ -23,7 +21,6 @@ function isPdfPath(pathOrUrl) {
   return p.includes(".pdf") || p.startsWith("data:application/pdf");
 }
 
-// ✅ helper: convierte a MAYÚSCULAS “en vivo”
 const toUpperLive = (v) => String(v ?? "").toUpperCase();
 
 function fileNameFromPath(p) {
@@ -42,17 +39,13 @@ export default function ModalEditarMovimiento({
   tipo = "pago",
   item = null,
   medios = [],
+  trabajadores = [],
   buildFileUrl,
   onVerComprobante,
 }) {
   const firstRef = useRef(null);
   const fileRef = useRef(null);
 
-  /* =========================
-     ✅ TOAST STATE (solo errores por toast)
-     - arranca con message: null para evitar “toast vacío”
-     - Toast se renderiza SOLO si open && message
-  ========================= */
   const [toast, setToast] = useState({
     open: false,
     type: "danger",
@@ -88,6 +81,15 @@ export default function ModalEditarMovimiento({
     return v === 0 || v ? String(v) : "";
   }, [item]);
 
+  const itemTrabajadorId = useMemo(() => {
+    const v =
+      item?.id_trabajador ??
+      item?.idTrabajador ??
+      item?.trabajador_id ??
+      "";
+    return v === 0 || v ? String(v) : "";
+  }, [item]);
+
   const itemNombre = useMemo(() => String(item?.nombre || ""), [item]);
   const itemApellido = useMemo(() => String(item?.apellido || ""), [item]);
   const itemRol = useMemo(() => String(item?.rol || ""), [item]);
@@ -104,6 +106,7 @@ export default function ModalEditarMovimiento({
   const [concepto, setConcepto] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [idMedio, setIdMedio] = useState("");
+  const [idTrabajador, setIdTrabajador] = useState("");
 
   const [nombre, setNombre] = useState("");
   const [apellido, setApellido] = useState("");
@@ -113,6 +116,14 @@ export default function ModalEditarMovimiento({
 
   const [deleteComp, setDeleteComp] = useState(false);
   const [newFile, setNewFile] = useState(null);
+
+  const trabajadoresOrdenados = useMemo(() => {
+    return [...(Array.isArray(trabajadores) ? trabajadores : [])].sort((a, b) => {
+      const aa = `${a?.apellido || ""} ${a?.nombre || ""}`.trim().toLowerCase();
+      const bb = `${b?.apellido || ""} ${b?.nombre || ""}`.trim().toLowerCase();
+      return aa.localeCompare(bb, "es");
+    });
+  }, [trabajadores]);
 
   const meta = useMemo(() => {
     if (tipo === "egreso") return { icon: faMoneyBillTransfer, title: "Editar egreso" };
@@ -144,15 +155,14 @@ export default function ModalEditarMovimiento({
   useEffect(() => {
     if (!open) return;
 
-    // ✅ opcional: al abrir, cerramos cualquier toast colgado
     closeToast();
 
-    // ✅ Carga en MAYÚSCULAS para que al abrir también quede uniforme
     setFecha(itemFecha);
     setMonto(itemMonto);
     setConcepto(toUpperLive(itemConcepto));
     setDescripcion(toUpperLive(itemDescripcion));
     setIdMedio(itemMedioId);
+    setIdTrabajador(itemTrabajadorId);
 
     setNombre(toUpperLive(itemNombre));
     setApellido(toUpperLive(itemApellido));
@@ -173,6 +183,7 @@ export default function ModalEditarMovimiento({
     itemConcepto,
     itemDescripcion,
     itemMedioId,
+    itemTrabajadorId,
     itemNombre,
     itemApellido,
     itemRol,
@@ -206,6 +217,7 @@ export default function ModalEditarMovimiento({
       setNewFile(null);
       return;
     }
+
     const okExt = /\.(pdf|jpg|jpeg|png|webp)$/i.test(f.name || "");
     if (!okExt) {
       showError("Comprobante: formato inválido. Solo PDF/JPG/PNG/WEBP.");
@@ -213,12 +225,14 @@ export default function ModalEditarMovimiento({
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
+
     if (f.size > 8 * 1024 * 1024) {
       showError("Comprobante: el archivo supera 8MB.");
       setNewFile(null);
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
+
     setNewFile(f);
     setDeleteComp(false);
   };
@@ -226,7 +240,9 @@ export default function ModalEditarMovimiento({
   const submit = (e) => {
     e?.preventDefault?.();
 
-    if (!item?.id && item?.id !== 0) return showError("No se encontró el ID del registro a editar.");
+    if (!item?.id && item?.id !== 0) {
+      return showError("No se encontró el ID del registro a editar.");
+    }
 
     if (tipo === "trabajador") {
       if (!String(nombre || "").trim()) return showError("El nombre es obligatorio.");
@@ -269,6 +285,7 @@ export default function ModalEditarMovimiento({
       fd.append("descripcion", String(descripcion || "").trim());
       fd.append("monto", String(montoNum));
       fd.append("id_medio_pago", idMedio ? String(Number(idMedio)) : "");
+      fd.append("id_trabajador", idTrabajador ? String(Number(idTrabajador)) : "");
       fd.append("delete_comprobante", deleteComp ? "1" : "0");
       if (newFile) fd.append("comprobante", newFile);
 
@@ -302,7 +319,6 @@ export default function ModalEditarMovimiento({
       className="mi-modal__overlay"
       onClick={(e) => e.target.classList.contains("mi-modal__overlay") && cerrar()}
     >
-      {/* ✅ Toast se monta SOLO si hay mensaje (evita toast vacío) */}
       {toast.open && toast.message ? (
         <Toast
           open
@@ -338,7 +354,15 @@ export default function ModalEditarMovimiento({
             type="button"
             title="Cerrar"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -489,7 +513,7 @@ export default function ModalEditarMovimiento({
                       <div className="fl-field fl-col-full">
                         <textarea
                           className="fl-input"
-                          style={{  resize: "vertical" }}
+                          style={{ resize: "vertical" }}
                           placeholder=" "
                           value={descripcion}
                           onChange={(e) => setDescripcion(toUpperLive(e.target.value))}
@@ -514,6 +538,27 @@ export default function ModalEditarMovimiento({
                         </select>
                         <label className="fl-label">Medio de pago (opcional)</label>
                       </div>
+
+                      {tipo === "egreso" && (
+                        <div className="fl-field fl-col-full">
+                          <select
+                            className="fl-input fl-select"
+                            value={idTrabajador}
+                            onChange={(e) => setIdTrabajador(e.target.value)}
+                            disabled={loading || !trabajadoresOrdenados.length}
+                          >
+                            <option value="">(Sin trabajador asignado)</option>
+                            {trabajadoresOrdenados.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {`${t.apellido || ""} ${t.nombre || ""}`.trim()}
+                              </option>
+                            ))}
+                          </select>
+                          <label className="fl-label">
+                            <FontAwesomeIcon icon={faUser} /> Trabajador que pagó el gasto
+                          </label>
+                        </div>
+                      )}
                     </div>
                   </article>
 
@@ -551,15 +596,23 @@ export default function ModalEditarMovimiento({
                             {newFile ? (
                               <div className="cmp-file">
                                 <div className="cmp-file__left">
-                                  <div className={`cmp-badge ${newIsPdf ? "is-pdf" : newIsImg ? "is-img" : ""}`}>
-                                    <FontAwesomeIcon icon={newIsPdf ? faFilePdf : newIsImg ? faImage : faPaperclip} />
+                                  <div
+                                    className={`cmp-badge ${
+                                      newIsPdf ? "is-pdf" : newIsImg ? "is-img" : ""
+                                    }`}
+                                  >
+                                    <FontAwesomeIcon
+                                      icon={newIsPdf ? faFilePdf : newIsImg ? faImage : faPaperclip}
+                                    />
                                   </div>
 
                                   <div className="cmp-file__meta">
                                     <div className="cmp-file__name" title={newFile.name}>
                                       {newFile.name}
                                     </div>
-                                    <div className="cmp-file__size">{Math.round(newFile.size / 1024)} KB</div>
+                                    <div className="cmp-file__size">
+                                      {Math.round(newFile.size / 1024)} KB
+                                    </div>
                                   </div>
                                 </div>
 
@@ -594,15 +647,29 @@ export default function ModalEditarMovimiento({
                                     </div>
                                   </div>
 
-                                  <button
-                                    type="button"
-                                    className="cmp-remove"
-                                    onClick={() => setDeleteComp(true)}
-                                    disabled={loading}
-                                    title="Marcar para eliminar"
-                                  >
-                                    <FontAwesomeIcon icon={faTrash} />
-                                  </button>
+                                  <div style={{ display: "flex", gap: 8 }}>
+                                    {typeof onVerComprobante === "function" ? (
+                                      <button
+                                        type="button"
+                                        className="cmp-remove"
+                                        onClick={() => onVerComprobante(currentCompPath)}
+                                        disabled={loading}
+                                        title="Ver comprobante"
+                                      >
+                                        <FontAwesomeIcon icon={faPaperclip} />
+                                      </button>
+                                    ) : null}
+
+                                    <button
+                                      type="button"
+                                      className="cmp-remove"
+                                      onClick={() => setDeleteComp(true)}
+                                      disabled={loading}
+                                      title="Marcar para eliminar"
+                                    >
+                                      <FontAwesomeIcon icon={faTrash} />
+                                    </button>
+                                  </div>
                                 </div>
                               )
                             ) : (
@@ -620,12 +687,21 @@ export default function ModalEditarMovimiento({
                                 }}
                               >
                                 {isPdfPath(currentCompUrl) ? (
-                                  <iframe title="Comprobante PDF" src={currentCompUrl} style={{ width: "100%", height: 340, border: 0 }} />
+                                  <iframe
+                                    title="Comprobante PDF"
+                                    src={currentCompUrl}
+                                    style={{ width: "100%", height: 340, border: 0 }}
+                                  />
                                 ) : (
                                   <img
                                     src={currentCompUrl}
                                     alt="Comprobante"
-                                    style={{ width: "100%", maxHeight: 340, objectFit: "contain", display: "block" }}
+                                    style={{
+                                      width: "100%",
+                                      maxHeight: 340,
+                                      objectFit: "contain",
+                                      display: "block",
+                                    }}
                                   />
                                 )}
                               </div>
@@ -645,7 +721,12 @@ export default function ModalEditarMovimiento({
           </div>
 
           <div className="mit-actions">
-            <button type="button" className="mit-btn mit-btn--ghost" onClick={cerrar} disabled={loading}>
+            <button
+              type="button"
+              className="mit-btn mit-btn--ghost"
+              onClick={cerrar}
+              disabled={loading}
+            >
               <FontAwesomeIcon icon={faTimes} /> Cancelar
             </button>
 

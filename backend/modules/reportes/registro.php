@@ -75,7 +75,7 @@ if (!function_exists('repreg_is_multipart')) {
 ========================= */
 if (!function_exists('repreg_api_root')) {
   function repreg_api_root(): string {
-    $apiRoot = realpath(__DIR__ . '/../../'); // api/
+    $apiRoot = realpath(__DIR__ . '/../../');
     if (!$apiRoot) $apiRoot = __DIR__ . '/../../';
     return rtrim($apiRoot, DIRECTORY_SEPARATOR);
   }
@@ -90,7 +90,7 @@ if (!function_exists('repreg_abs_path_from_api_rel')) {
 }
 
 /* =========================
-   Public base URL: https://dominio.com/api
+   Public base URL
 ========================= */
 if (!function_exists('repreg_public_api_base')) {
   function repreg_public_api_base(): string {
@@ -118,7 +118,7 @@ if (!function_exists('repreg_public_api_base')) {
 }
 
 /* =========================
-   Extraer "uploads/..." aunque en DB haya URL completa
+   Extraer uploads/...
 ========================= */
 if (!function_exists('repreg_extract_uploads_rel')) {
   function repreg_extract_uploads_rel(?string $pathOrUrl): string {
@@ -129,7 +129,7 @@ if (!function_exists('repreg_extract_uploads_rel')) {
       $u = parse_url($p);
       $path = (string)($u['path'] ?? '');
       $ix = stripos($path, '/uploads/');
-      if ($ix !== false) return ltrim(substr($path, $ix + 1), '/'); // uploads/...
+      if ($ix !== false) return ltrim(substr($path, $ix + 1), '/');
       return '';
     }
 
@@ -152,8 +152,7 @@ if (!function_exists('repreg_delete_file_if_exists')) {
 }
 
 /* =========================
-   Upload genérico a subcarpeta
-   Guarda URL pública completa
+   Upload genérico
 ========================= */
 if (!function_exists('repreg_upload_to_subdir')) {
   function repreg_upload_to_subdir(string $subdir, string $fieldName = 'comprobante'): ?string {
@@ -173,7 +172,7 @@ if (!function_exists('repreg_upload_to_subdir')) {
       throw new RuntimeException('Archivo inválido o no subido correctamente.');
     }
 
-    $maxBytes = 8 * 1024 * 1024; // 8MB
+    $maxBytes = 8 * 1024 * 1024;
     if ($size <= 0 || $size > $maxBytes) {
       throw new RuntimeException('El archivo debe pesar entre 1 byte y 8MB.');
     }
@@ -217,8 +216,43 @@ if (!function_exists('repreg_upload_to_subdir')) {
       throw new RuntimeException('No se pudo guardar el archivo en el servidor.');
     }
 
-    $publicBase = repreg_public_api_base(); // https://dominio.com/api
+    $publicBase = repreg_public_api_base();
     return $publicBase . '/uploads/' . $subdir . '/' . $fileName;
+  }
+}
+
+/* =========================
+   Helpers trabajadores
+========================= */
+if (!function_exists('repreg_parse_nullable_uint')) {
+  function repreg_parse_nullable_uint($value, string $label): ?int {
+    if ($value === null || $value === '') return null;
+    if (!is_numeric($value)) repreg_json_fail("El campo {$label} debe ser numérico.");
+    $n = (int)$value;
+    if ($n <= 0) return null;
+    return $n;
+  }
+}
+
+if (!function_exists('repreg_validar_trabajador_activo')) {
+  function repreg_validar_trabajador_activo(PDO $pdo, ?int $idTrabajador): ?int {
+    if ($idTrabajador === null) return null;
+
+    $st = $pdo->prepare("
+      SELECT id
+      FROM trabajadores
+      WHERE id = :id
+        AND activo = 1
+      LIMIT 1
+    ");
+    $st->execute([':id' => $idTrabajador]);
+    $ok = $st->fetchColumn();
+
+    if (!$ok) {
+      repreg_json_fail('El trabajador seleccionado no existe o está inactivo.');
+    }
+
+    return $idTrabajador;
   }
 }
 
@@ -241,7 +275,7 @@ try {
   }
 
   /* =========================
-     TRABAJADORES (por ahora vacío)
+     TRABAJADORES (compatibilidad)
   ========================= */
   if ($op === 'trabajadores') {
     if (repreg_req_method() !== 'GET') repreg_json_fail('Método no permitido. Se esperaba GET');
@@ -249,9 +283,7 @@ try {
   }
 
   /* =========================
-     ✅ COMPROBANTE DE PAGO
-     ✅ pagos NO tiene comprobante -> se guarda en facturas.pdf_path
-     POST multipart: id (id_pago) + comprobante(file) o delete_comprobante=1
+     COMPROBANTE DE PAGO
   ========================= */
   if ($op === 'pago_comprobante') {
     if (repreg_req_method() !== 'POST') repreg_json_fail('Método no permitido. Se esperaba POST');
@@ -264,7 +296,6 @@ try {
     $idPago = (int)$id;
     if ($idPago <= 0) repreg_json_fail('ID inválido.');
 
-    // Buscar factura asociada al pago
     $stCur = $pdo->prepare("
       SELECT p.id_factura, f.pdf_path
       FROM pagos p
@@ -289,7 +320,7 @@ try {
 
     $uploadedUrl = null;
     try {
-      $uploadedUrl = repreg_upload_to_subdir('pagos', 'comprobante'); // api/uploads/pagos
+      $uploadedUrl = repreg_upload_to_subdir('pagos', 'comprobante');
     } catch (Throwable $upErr) {
       $uploadedUrl = null;
       if (!$wantsDelete) {
@@ -336,6 +367,7 @@ try {
     $descripcion = trim((string)($body['descripcion'] ?? ''));
     $monto       = $body['monto'] ?? null;
     $idMedio     = $body['id_medio_pago'] ?? null;
+    $idTrabajador = $body['id_trabajador'] ?? null;
 
     if ($fecha === '') repreg_json_fail('La fecha es obligatoria.');
     if ($concepto === '') repreg_json_fail('El concepto es obligatorio.');
@@ -344,12 +376,9 @@ try {
     $montoNum = (float)$monto;
     if ($montoNum <= 0) repreg_json_fail('El monto debe ser mayor a 0.');
 
-    $idMedioInt = null;
-    if ($idMedio !== null && $idMedio !== '') {
-      if (!is_numeric($idMedio)) repreg_json_fail('El id_medio_pago debe ser numérico o null.');
-      $idMedioInt = (int)$idMedio;
-      if ($idMedioInt <= 0) $idMedioInt = null;
-    }
+    $idMedioInt = repreg_parse_nullable_uint($idMedio, 'id_medio_pago');
+    $idTrabajadorInt = repreg_parse_nullable_uint($idTrabajador, 'id_trabajador');
+    $idTrabajadorInt = repreg_validar_trabajador_activo($pdo, $idTrabajadorInt);
 
     $rutaComprobante = null;
     if (repreg_is_multipart()) {
@@ -360,8 +389,25 @@ try {
       }
     }
 
-    $sql = "INSERT INTO egresos (fecha, concepto, descripcion, monto, id_medio_pago, comprobante)
-            VALUES (:fecha, :concepto, :descripcion, :monto, :id_medio_pago, :comprobante)";
+    $sql = "
+      INSERT INTO egresos (
+        fecha,
+        concepto,
+        descripcion,
+        monto,
+        id_medio_pago,
+        id_trabajador,
+        comprobante
+      ) VALUES (
+        :fecha,
+        :concepto,
+        :descripcion,
+        :monto,
+        :id_medio_pago,
+        :id_trabajador,
+        :comprobante
+      )
+    ";
     $st = $pdo->prepare($sql);
     $st->execute([
       ':fecha' => $fecha,
@@ -369,6 +415,7 @@ try {
       ':descripcion' => ($descripcion !== '' ? $descripcion : null),
       ':monto' => $montoNum,
       ':id_medio_pago' => $idMedioInt,
+      ':id_trabajador' => $idTrabajadorInt,
       ':comprobante' => $rutaComprobante,
     ]);
 
@@ -377,6 +424,7 @@ try {
     repreg_json_ok([
       'id' => $newId,
       'comprobante' => $rutaComprobante,
+      'id_trabajador' => $idTrabajadorInt,
       'mensaje' => 'Egreso creado correctamente.'
     ]);
   }
@@ -400,18 +448,14 @@ try {
     if ($idInt <= 0) repreg_json_fail('ID inválido.');
 
     $idMedio = $body['id_medio_pago'] ?? null;
-    $idMedioInt = null;
-    if ($idMedio !== null && $idMedio !== '') {
-      if (!is_numeric($idMedio)) repreg_json_fail('El id_medio_pago debe ser numérico o null.');
-      $idMedioInt = (int)$idMedio;
-      if ($idMedioInt <= 0) $idMedioInt = null;
-    }
+    $idMedioInt = repreg_parse_nullable_uint($idMedio, 'id_medio_pago');
 
     if ($tipo === 'egreso') {
       $fecha = (string)($body['fecha'] ?? '');
       $concepto = trim((string)($body['concepto'] ?? ''));
       $descripcion = trim((string)($body['descripcion'] ?? ''));
       $monto = $body['monto'] ?? null;
+      $idTrabajador = $body['id_trabajador'] ?? null;
 
       if ($fecha === '') repreg_json_fail('La fecha es obligatoria.');
       if ($concepto === '') repreg_json_fail('El concepto es obligatorio.');
@@ -420,7 +464,15 @@ try {
       $montoNum = (float)$monto;
       if ($montoNum <= 0) repreg_json_fail('El monto debe ser mayor a 0.');
 
-      $stCur = $pdo->prepare("SELECT comprobante FROM egresos WHERE id_egreso = :id LIMIT 1");
+      $idTrabajadorInt = repreg_parse_nullable_uint($idTrabajador, 'id_trabajador');
+      $idTrabajadorInt = repreg_validar_trabajador_activo($pdo, $idTrabajadorInt);
+
+      $stCur = $pdo->prepare("
+        SELECT comprobante
+        FROM egresos
+        WHERE id_egreso = :id
+        LIMIT 1
+      ");
       $stCur->execute([':id' => $idInt]);
       $cur = $stCur->fetch(PDO::FETCH_ASSOC);
       if (!$cur) repreg_json_fail('El egreso no existe.');
@@ -450,14 +502,17 @@ try {
         $newComp = $uploadedUrl;
       }
 
-      $sql = "UPDATE egresos
-              SET fecha = :fecha,
-                  concepto = :concepto,
-                  descripcion = :descripcion,
-                  monto = :monto,
-                  id_medio_pago = :id_medio_pago,
-                  comprobante = :comprobante
-              WHERE id_egreso = :id";
+      $sql = "
+        UPDATE egresos
+        SET fecha = :fecha,
+            concepto = :concepto,
+            descripcion = :descripcion,
+            monto = :monto,
+            id_medio_pago = :id_medio_pago,
+            id_trabajador = :id_trabajador,
+            comprobante = :comprobante
+        WHERE id_egreso = :id
+      ";
       $st = $pdo->prepare($sql);
       $st->execute([
         ':fecha' => $fecha,
@@ -465,6 +520,7 @@ try {
         ':descripcion' => ($descripcion !== '' ? $descripcion : null),
         ':monto' => $montoNum,
         ':id_medio_pago' => $idMedioInt,
+        ':id_trabajador' => $idTrabajadorInt,
         ':comprobante' => $newComp,
         ':id' => $idInt,
       ]);
@@ -472,6 +528,7 @@ try {
       repreg_json_ok([
         'mensaje' => 'Egreso actualizado.',
         'comprobante' => $newComp ?? '',
+        'id_trabajador' => $idTrabajadorInt,
       ]);
     }
 
@@ -485,11 +542,13 @@ try {
       $montoNum = (float)$monto;
       if ($montoNum <= 0) repreg_json_fail('El monto debe ser mayor a 0.');
 
-      $sql = "UPDATE pagos
-              SET fecha_pago = :fecha,
-                  monto = :monto,
-                  id_medio_pago = :id_medio_pago
-              WHERE id_pago = :id";
+      $sql = "
+        UPDATE pagos
+        SET fecha_pago = :fecha,
+            monto = :monto,
+            id_medio_pago = :id_medio_pago
+        WHERE id_pago = :id
+      ";
       $st = $pdo->prepare($sql);
       $st->execute([
         ':fecha' => $fecha,
@@ -517,7 +576,12 @@ try {
     $idInt = (int)$id;
     if ($idInt <= 0) repreg_json_fail('ID inválido.');
 
-    $stChk = $pdo->prepare("SELECT id_egreso, comprobante FROM egresos WHERE id_egreso = :id LIMIT 1");
+    $stChk = $pdo->prepare("
+      SELECT id_egreso, comprobante
+      FROM egresos
+      WHERE id_egreso = :id
+      LIMIT 1
+    ");
     $stChk->execute([':id' => $idInt]);
     $row = $stChk->fetch(PDO::FETCH_ASSOC);
     if (!$row) repreg_json_fail('El egreso no existe o ya fue eliminado.');
@@ -538,14 +602,11 @@ try {
   ========================= */
   if (repreg_req_method() !== 'GET') repreg_json_fail('Método no permitido. Se esperaba GET');
 
-  $mes  = repreg_int('mes', 0);   // 1..12
+  $mes  = repreg_int('mes', 0);
   $anio = repreg_int('anio', 0);
 
   /* =========================
-     ✅ PAGOS (ARREGLADO)
-     - Mes: SE CALCULA POR fecha_pago (MONTH(p.fecha_pago))
-       (porque en pagos.id_mes vos guardás "período del sistema", no el mes del movimiento)
-     - Comprobante: viene de facturas.pdf_path
+     PAGOS
   ========================= */
   $sqlP = "
     SELECT
@@ -554,24 +615,16 @@ try {
       c.nombre     AS cliente_nombre,
       cs.nombre    AS sistema_nombre,
       CONCAT(c.nombre, ' - ', cs.nombre) AS concepto,
-
-      -- ✅ Mes mostrado en reportes según la FECHA del pago
       COALESCE(m.mes, '')        AS categoria,
-
-      COALESCE(mp.nombre, '')   AS medio,
-      p.id_medio_pago           AS id_medio_pago,
-      COALESCE(p.monto, 0)      AS monto,
-      COALESCE(f.pdf_path, '')  AS comprobante,
-
-      -- (opcional) por si lo querés en el front para debug
-      p.id_mes                  AS id_mes_periodo
+      COALESCE(mp.nombre, '')    AS medio,
+      p.id_medio_pago            AS id_medio_pago,
+      COALESCE(p.monto, 0)       AS monto,
+      COALESCE(f.pdf_path, '')   AS comprobante,
+      p.id_mes                   AS id_mes_periodo
     FROM pagos p
     JOIN clientes_sistemas cs ON cs.id_sistema = p.id_sistema
     JOIN clientes c          ON c.id_cliente  = cs.id_cliente
-
-    -- ✅ JOIN por MES DE LA FECHA (no por p.id_mes)
     LEFT JOIN meses m        ON m.id_mes      = MONTH(p.fecha_pago)
-
     LEFT JOIN medios_pago mp ON mp.id_medio_pago = p.id_medio_pago
     LEFT JOIN facturas f     ON f.id_factura = p.id_factura
     WHERE 1=1
@@ -595,7 +648,6 @@ try {
 
   /* =========================
      EGRESOS
-     (no tienen id_mes, entonces mes por MONTH(fecha))
   ========================= */
   $sqlE = "
     SELECT
@@ -603,14 +655,17 @@ try {
       e.fecha     AS fecha,
       e.concepto  AS concepto,
       COALESCE(e.descripcion, '') AS descripcion,
-      COALESCE(m.mes, '')      AS categoria,
-      COALESCE(mp.nombre, '') AS medio,
-      e.id_medio_pago         AS id_medio_pago,
-      COALESCE(e.monto, 0)    AS monto,
+      COALESCE(m.mes, '')         AS categoria,
+      COALESCE(mp.nombre, '')     AS medio,
+      e.id_medio_pago             AS id_medio_pago,
+      e.id_trabajador             AS id_trabajador,
+      COALESCE(CONCAT(t.apellido, ' ', t.nombre), '') AS trabajador,
+      COALESCE(e.monto, 0)        AS monto,
       COALESCE(e.comprobante, '') AS comprobante
     FROM egresos e
     LEFT JOIN meses m ON m.id_mes = MONTH(e.fecha)
     LEFT JOIN medios_pago mp ON mp.id_medio_pago = e.id_medio_pago
+    LEFT JOIN trabajadores t ON t.id = e.id_trabajador
     WHERE 1=1
   ";
 

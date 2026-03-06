@@ -87,7 +87,7 @@ function renderSkeletonRows(cols = 5) {
   ));
 }
 
-function GridTable({ title, icon, columns = [], rows = [], loading = false, actions }) {
+function GridTable({ title, columns = [], rows = [], loading = false, actions }) {
   const safeRows = Array.isArray(rows) ? rows : [];
 
   const allCols = useMemo(() => {
@@ -193,6 +193,7 @@ export default function Reportes() {
   const [mesSeleccionado, setMesSeleccionado] = useState("TODOS");
 
   const [mediosDisponibles, setMediosDisponibles] = useState([]);
+  const [trabajadoresActivos, setTrabajadoresActivos] = useState([]);
 
   const didInitAnios = useRef(false);
   const didInitMeses = useRef(false);
@@ -200,9 +201,6 @@ export default function Reportes() {
   const [searchText, setSearchText] = useState("");
   const [loadingData, setLoadingData] = useState(false);
 
-  // ✅ IMPORTANTÍSIMO:
-  // mantenemos pagos/egresos SIEMPRE cargados para las tarjetas,
-  // incluso cuando view === "trabajadores"
   const [pagos, setPagos] = useState([]);
   const [egresos, setEgresos] = useState([]);
   const [trabajadores, setTrabajadores] = useState([]);
@@ -224,12 +222,10 @@ export default function Reportes() {
   const [modalVerCompOpen, setModalVerCompOpen] = useState(false);
   const [compItem, setCompItem] = useState(null);
 
-  // ✅ NUEVO: modal comprobante pago
   const [modalPagoCompOpen, setModalPagoCompOpen] = useState(false);
   const [savingPagoComp, setSavingPagoComp] = useState(false);
   const [pagoItem, setPagoItem] = useState(null);
 
-  // ✅ NUEVO: modal gráficos
   const [modalGraficosOpen, setModalGraficosOpen] = useState(false);
 
   const [reloadKey, setReloadKey] = useState(0);
@@ -344,7 +340,6 @@ export default function Reportes() {
     [view]
   );
 
-  // ✅ Ver comprobante (egresos / pagos)
   const openViewerFromRow = useCallback(
     (row, fallbackTitle = "Comprobante") => {
       const r = row || {};
@@ -365,7 +360,6 @@ export default function Reportes() {
     [buildFileUrl, showToast]
   );
 
-  // ✅ Eliminar: SOLO EGRESOS
   const onEliminarEgreso = useCallback((row) => {
     setEgresoAEliminar(row);
     setModalEliminarOpen(true);
@@ -390,7 +384,6 @@ export default function Reportes() {
 
         showToast("exito", "Editado correctamente.", 3000);
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.error("Error editando:", e);
         const msg = String(e?.message || e);
         setErrorMsg(msg);
@@ -423,7 +416,6 @@ export default function Reportes() {
 
         showToast("exito", "Egreso eliminado correctamente.", 2400);
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.error("Error eliminando egreso:", e);
         const msg = String(e?.message || e);
         setErrorMsg(msg);
@@ -435,7 +427,6 @@ export default function Reportes() {
     [postJSON, showToast]
   );
 
-  // ✅✅ NUEVO: Guardar comprobante de PAGO (FormData)
   const guardarComprobantePago = useCallback(
     async (formData) => {
       try {
@@ -454,7 +445,6 @@ export default function Reportes() {
 
         showToast("exito", "Comprobante guardado.", 2600);
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.error("Error comprobante pago:", e);
         const msg = String(e?.message || e);
         setErrorMsg(msg);
@@ -497,7 +487,6 @@ export default function Reportes() {
           didInitAnios.current = true;
         }
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.error("Error cargando años:", e);
         if (!alive) return;
 
@@ -566,7 +555,6 @@ export default function Reportes() {
           didInitMeses.current = true;
         }
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.error("Error cargando meses:", e);
         if (!alive) return;
 
@@ -589,11 +577,42 @@ export default function Reportes() {
     };
   }, [fetchJSON, showToast]);
 
+  /* ===== TRABAJADORES ACTIVOS PARA EL MODAL DE EGRESOS ===== */
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        const data = await fetchJSON(
+          `${BASE_URL}/api.php?action=reportes&op=trabajadores_activos`
+        );
+
+        if (!alive) return;
+
+        const arr = Array.isArray(data?.trabajadores) ? data.trabajadores : [];
+        const norm = arr.map((r) => ({
+          id: r.id ?? r.id_trabajador ?? null,
+          nombre: r.nombre ?? "",
+          apellido: r.apellido ?? "",
+          rol: r.rol ?? "",
+          alias_pago: r.alias_pago ?? "",
+        }));
+
+        setTrabajadoresActivos(norm);
+      } catch (e) {
+        if (!alive) return;
+        console.error("Error cargando trabajadores activos:", e);
+        setTrabajadoresActivos([]);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [fetchJSON]);
+
   /* =========================================================
-     ✅ CARGA DATOS (ARREGLADO)
-     - Siempre carga movimientos (pagos/egresos) para que
-       las tarjetas muestren valores también en "trabajadores".
-     - Si view === "trabajadores", además carga trabajadores.
+     CARGA DATOS PRINCIPAL
   ========================================================= */
   useEffect(() => {
     let alive = true;
@@ -618,7 +637,6 @@ export default function Reportes() {
         setErrorMsg("");
         setLoadingData(true);
 
-        // 1) ✅ Siempre: movimientos (pagos + egresos) -> tarjetas
         {
           const uMov = buildBaseUrl();
           uMov.searchParams.set("op", "movimientos");
@@ -632,8 +650,8 @@ export default function Reportes() {
 
           const egresosArr = Array.isArray(dataMov?.egresos) ? dataMov.egresos : [];
 
-          const norm = (r) => ({
-            id: r.id ?? r.ID ?? r.id_mov ?? r.id_pago ?? r.id_egreso ?? null,
+          const normPagos = (r) => ({
+            id: r.id ?? r.ID ?? r.id_mov ?? r.id_pago ?? null,
             fecha: r.fecha ?? r.Fecha ?? r.fecha_mov ?? r.fechaPago ?? r.fecha_pago ?? "",
             concepto: r.concepto ?? r.Concepto ?? r.nombre_concepto ?? "",
             descripcion: r.descripcion ?? r.detalle ?? r.Descripcion ?? "",
@@ -646,12 +664,25 @@ export default function Reportes() {
             comprobante: r.comprobante ?? "",
           });
 
+          const normEgresos = (r) => ({
+            id: r.id ?? r.ID ?? r.id_mov ?? r.id_egreso ?? null,
+            fecha: r.fecha ?? r.Fecha ?? "",
+            concepto: r.concepto ?? r.Concepto ?? "",
+            descripcion: r.descripcion ?? r.detalle ?? r.Descripcion ?? "",
+            categoria: r.categoria ?? r.Categoria ?? r.nombre_categoria ?? "",
+            medio: r.medio ?? r.Medio ?? r.medio_pago ?? r.Medio_Pago ?? "",
+            monto: Number(r.monto ?? r.Monto ?? r.importe ?? r.Precio ?? 0) || 0,
+            id_medio_pago: r.id_medio_pago ?? r.idMedio ?? r.id_medio ?? r.medio_id ?? null,
+            comprobante: r.comprobante ?? "",
+            id_trabajador: r.id_trabajador ?? null,
+            trabajador: r.trabajador ?? "",
+          });
+
           if (!alive) return;
-          setPagos(pagosArr.map(norm));
-          setEgresos(egresosArr.map(norm));
+          setPagos(pagosArr.map(normPagos));
+          setEgresos(egresosArr.map(normEgresos));
         }
 
-        // 2) ✅ Si estoy en "trabajadores", cargo trabajadores (tabla)
         if (view === "trabajadores") {
           const uT = buildBaseUrl();
           uT.searchParams.set("op", "trabajadores");
@@ -666,24 +697,23 @@ export default function Reportes() {
             alias_pago: r.alias_pago ?? "",
             sistemas_cobrados: Number(r.sistemas_cobrados ?? 0) || 0,
             monto: Number(r.monto ?? 0) || 0,
+            monto_reembolso: Number(r.monto_reembolso ?? 0) || 0,
+            monto_sistemas: Number(r.monto_sistemas ?? 0) || 0,
           });
 
           if (!alive) return;
           setTrabajadores(arr.map(normT));
         } else {
-          // si no estoy en trabajadores, limpio la tabla de trabajadores
           if (!alive) return;
           setTrabajadores([]);
         }
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.error("Error cargando reportes:", e);
         if (!alive) return;
 
         const msg = String(e?.message || e);
         setErrorMsg(msg);
 
-        // mantenemos consistencia
         setPagos([]);
         setEgresos([]);
         setTrabajadores([]);
@@ -745,7 +775,7 @@ export default function Reportes() {
     return (Array.isArray(egresos) ? egresos : []).filter((r) => {
       const blob = `${r?.fecha ?? ""} ${r?.concepto ?? ""} ${r?.descripcion ?? ""} ${
         r?.categoria ?? ""
-      } ${r?.medio ?? ""} ${r?.monto ?? ""}`.toLowerCase();
+      } ${r?.medio ?? ""} ${r?.monto ?? ""} ${r?.trabajador ?? ""}`.toLowerCase();
       return blob.includes(q);
     });
   }, [egresos, q]);
@@ -811,8 +841,14 @@ export default function Reportes() {
           </span>
         ),
       },
-      { key: "categoria", label: "Mes", fr: "1.1fr", center: true },
-      { key: "medio", label: "Medio", fr: "1.1fr", center: true },
+      {
+        key: "trabajador",
+        label: "Trabajador",
+        fr: "1.2fr",
+        render: (r) => r?.trabajador || "—",
+      },
+      { key: "categoria", label: "Mes", fr: "1fr", center: true },
+      { key: "medio", label: "Medio", fr: "1fr", center: true },
       {
         key: "monto",
         label: "Monto",
@@ -829,21 +865,35 @@ export default function Reportes() {
       {
         key: "trabajador",
         label: "Trabajador",
-        fr: "1.8fr",
+        fr: "1.6fr",
         render: (r) => `${r?.apellido || ""} ${r?.nombre || ""}`.trim() || "—",
       },
       { key: "rol", label: "Rol", fr: "1fr" },
-      { key: "alias_pago", label: "Alias", fr: "1.4fr", render: (r) => r?.alias_pago || "—" },
+      { key: "alias_pago", label: "Alias", fr: "1.3fr", render: (r) => r?.alias_pago || "—" },
       {
         key: "sistemas_cobrados",
         label: "Sistemas",
-        fr: "0.9fr",
+        fr: "0.8fr",
         center: true,
         render: (r) => String(r?.sistemas_cobrados ?? 0),
       },
       {
+        key: "monto_reembolso",
+        label: "Reembolso",
+        fr: "1fr",
+        center: true,
+        render: (r) => `$${nfPesos.format(Number(r?.monto_reembolso || 0))}`,
+      },
+      {
+        key: "monto_sistemas",
+        label: "Por sistemas",
+        fr: "1fr",
+        center: true,
+        render: (r) => `$${nfPesos.format(Number(r?.monto_sistemas || 0))}`,
+      },
+      {
         key: "monto",
-        label: "A pagar",
+        label: "Total a pagar",
         fr: "1fr",
         center: true,
         render: (r) => `$${nfPesos.format(Number(r?.monto || 0))}`,
@@ -871,11 +921,31 @@ export default function Reportes() {
             ROL: r.rol,
             ALIAS: r.alias_pago,
             SISTEMAS: r.sistemas_cobrados,
-            A_PAGAR: r.monto,
+            REEMBOLSO: r.monto_reembolso,
+            POR_SISTEMAS: r.monto_sistemas,
+            TOTAL_A_PAGAR: r.monto,
           })),
-          { header: ["TRABAJADOR", "ROL", "ALIAS", "SISTEMAS", "A_PAGAR"] }
+          {
+            header: [
+              "TRABAJADOR",
+              "ROL",
+              "ALIAS",
+              "SISTEMAS",
+              "REEMBOLSO",
+              "POR_SISTEMAS",
+              "TOTAL_A_PAGAR",
+            ],
+          }
         );
-        ws["!cols"] = [{ wch: 28 }, { wch: 14 }, { wch: 22 }, { wch: 10 }, { wch: 14 }];
+        ws["!cols"] = [
+          { wch: 28 },
+          { wch: 14 },
+          { wch: 22 },
+          { wch: 10 },
+          { wch: 14 },
+          { wch: 14 },
+          { wch: 16 },
+        ];
         XLSX.utils.book_append_sheet(wb, ws, "Trabajadores");
         XLSX.writeFile(wb, `reportes_trabajadores_${anioTxt}_${mesTxt}.xlsx`);
         showToast("exito", "📄 Excel generado (Trabajadores).", 2200);
@@ -888,17 +958,30 @@ export default function Reportes() {
             FECHA: r.fecha,
             CONCEPTO: r.concepto,
             DESCRIPCION: r.descripcion,
+            TRABAJADOR: r.trabajador || "",
             MES: r.categoria,
             MEDIO: r.medio,
             MONTO: r.monto,
             COMPROBANTE: r.comprobante || "",
           })),
-          { header: ["FECHA", "CONCEPTO", "DESCRIPCION", "MES", "MEDIO", "MONTO", "COMPROBANTE"] }
+          {
+            header: [
+              "FECHA",
+              "CONCEPTO",
+              "DESCRIPCION",
+              "TRABAJADOR",
+              "MES",
+              "MEDIO",
+              "MONTO",
+              "COMPROBANTE",
+            ],
+          }
         );
         ws["!cols"] = [
           { wch: 12 },
           { wch: 26 },
           { wch: 34 },
+          { wch: 24 },
           { wch: 14 },
           { wch: 16 },
           { wch: 12 },
@@ -974,7 +1057,6 @@ export default function Reportes() {
 
         showToast("exito", "Egreso creado correctamente.", 3000);
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.error("Error creando egreso:", e);
         const msg = String(e?.message || e);
         setErrorMsg(msg);
@@ -1157,7 +1239,6 @@ export default function Reportes() {
             </div>
           </div>
 
-          {/* Cards resumen */}
           <div
             style={{
               display: "grid",
@@ -1257,12 +1338,10 @@ export default function Reportes() {
             </div>
           </div>
 
-          {/* Tabla */}
           <div style={{ padding: "10px 12px 14px", flex: "1 1 auto", minHeight: 0, overflow: "hidden" }}>
             {view === "pagos" && (
               <GridTable
                 title="Pagos"
-                icon={faMoneyBillTrendUp}
                 columns={colsMov}
                 rows={pagosFiltrados}
                 loading={loadingData}
@@ -1299,7 +1378,6 @@ export default function Reportes() {
             {view === "egresos" && (
               <GridTable
                 title="Egresos"
-                icon={faMoneyBillTransfer}
                 columns={colsEgresos}
                 rows={egresosFiltrados}
                 loading={loadingData}
@@ -1343,7 +1421,6 @@ export default function Reportes() {
             {view === "trabajadores" && (
               <GridTable
                 title="Trabajadores"
-                icon={faUsers}
                 columns={colsTrab}
                 rows={trabajadoresFiltrados}
                 loading={loadingData}
@@ -1353,7 +1430,6 @@ export default function Reportes() {
         </main>
       </div>
 
-      {/* ✅ Modal crear egreso */}
       <ModalNuevoEgreso
         open={modalEgresoOpen}
         onClose={() => {
@@ -1363,9 +1439,9 @@ export default function Reportes() {
         onConfirm={crearEgreso}
         loading={savingEgreso}
         medios={mediosDisponibles}
+        trabajadores={trabajadoresActivos}
       />
 
-      {/* ✅ Modal editar */}
       <ModalEditarMovimiento
         open={modalEditarOpen}
         onClose={() => {
@@ -1379,6 +1455,7 @@ export default function Reportes() {
         item={editarItem}
         medios={mediosDisponibles}
         buildFileUrl={buildFileUrl}
+        trabajadores={trabajadoresActivos}
         onVerComprobante={(path) => {
           const p = String(path || "").trim();
           if (!p) {
@@ -1396,7 +1473,6 @@ export default function Reportes() {
         }}
       />
 
-      {/* ✅ Modal eliminar egreso */}
       <ModalEliminarEgreso
         open={modalEliminarOpen}
         egreso={egresoAEliminar}
@@ -1409,7 +1485,6 @@ export default function Reportes() {
         onConfirm={confirmarEliminarEgreso}
       />
 
-      {/* ✅ Modal ver comprobante */}
       <ModalVerComprobante
         open={modalVerCompOpen}
         onClose={() => {
@@ -1421,7 +1496,6 @@ export default function Reportes() {
         url={compItem?.url || ""}
       />
 
-      {/* ✅✅ NUEVO: Modal comprobante de PAGO */}
       <ModalComprobantePago
         open={modalPagoCompOpen}
         onClose={() => {
@@ -1435,7 +1509,6 @@ export default function Reportes() {
         buildFileUrl={buildFileUrl}
       />
 
-      {/* ✅✅ NUEVO: Modal de Gráficos */}
       <ModalGraficosReportes
         open={modalGraficosOpen}
         onClose={() => setModalGraficosOpen(false)}
