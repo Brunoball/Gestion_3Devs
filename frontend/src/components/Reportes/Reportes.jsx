@@ -72,7 +72,11 @@ assertIsComponent(ModalVerComprobante, "ModalVerComprobante");
 assertIsComponent(ModalComprobantePago, "ModalComprobantePago");
 assertIsComponent(ModalGraficosReportes, "ModalGraficosReportes");
 
-const nfPesos = new Intl.NumberFormat("es-AR");
+const nfPesos = new Intl.NumberFormat("es-AR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 const SKELETON_ROWS = 8;
 
 function renderSkeletonRows(cols = 5) {
@@ -112,7 +116,10 @@ function GridTable({ title, columns = [], rows = [], loading = false, actions })
           style={{ gridTemplateColumns: allCols.map((c) => c.fr).join(" ") }}
         >
           {allCols.map((c) => (
-            <div key={c.key} className={`gridtable-cell ${c.center ? "centers" : ""}`}>
+            <div
+              key={c.key}
+              className={`gridtable-cell ${c.center ? "centers" : ""} ${c.right ? "rights" : ""}`}
+            >
               {c.label}
             </div>
           ))}
@@ -132,7 +139,7 @@ function GridTable({ title, columns = [], rows = [], loading = false, actions })
                   {allCols.map((c) => (
                     <div
                       key={c.key}
-                      className={`gridtable-cell ${c.center ? "centers" : ""}`}
+                      className={`gridtable-cell ${c.center ? "centers" : ""} ${c.right ? "rights" : ""}`}
                       data-label={c.label}
                     >
                       {c.render ? c.render(r) : r?.[c.key] ?? ""}
@@ -796,7 +803,7 @@ export default function Reportes() {
       {
         key: "cliente_nombre",
         label: "Cliente",
-        fr: "1fr",
+        fr: "1.2fr",
         render: (r) => {
           if (r?.cliente_nombre) return r.cliente_nombre;
           const parts = String(r?.concepto || "").split(" - ");
@@ -806,7 +813,7 @@ export default function Reportes() {
       {
         key: "sistema_nombre",
         label: "Sistema",
-        fr: "1.6fr",
+        fr: "1.8fr",
         center: true,
         render: (r) => {
           if (r?.sistema_nombre) return r.sistema_nombre;
@@ -814,8 +821,7 @@ export default function Reportes() {
           return parts[1] || "";
         },
       },
-      { key: "categoria", label: "Mes", fr: "1.1fr", center: true },
-      { key: "medio", label: "Medio", fr: "1.1fr", center: true },
+      { key: "medio", label: "Medio", fr: "1.2fr", center: true },
       {
         key: "monto",
         label: "Monto",
@@ -830,11 +836,11 @@ export default function Reportes() {
   const colsEgresos = useMemo(
     () => [
       { key: "fecha", label: "Fecha", fr: "1fr" },
-      { key: "concepto", label: "Concepto", fr: "1fr", render: (r) => r?.concepto || "—" },
+      { key: "concepto", label: "Concepto", fr: "1.2fr", render: (r) => r?.concepto || "—" },
       {
         key: "descripcion",
         label: "Descripción",
-        fr: "1fr",
+        fr: "1.5fr",
         render: (r) => (
           <span className="truncate" title={r?.descripcion || ""}>
             {r?.descripcion || "—"}
@@ -844,10 +850,9 @@ export default function Reportes() {
       {
         key: "trabajador",
         label: "Trabajador",
-        fr: "1.2fr",
+        fr: "1.3fr",
         render: (r) => r?.trabajador || "—",
       },
-      { key: "categoria", label: "Mes", fr: "1fr", center: true },
       { key: "medio", label: "Medio", fr: "1fr", center: true },
       {
         key: "monto",
@@ -959,7 +964,6 @@ export default function Reportes() {
             CONCEPTO: r.concepto,
             DESCRIPCION: r.descripcion,
             TRABAJADOR: r.trabajador || "",
-            MES: r.categoria,
             MEDIO: r.medio,
             MONTO: r.monto,
             COMPROBANTE: r.comprobante || "",
@@ -970,7 +974,6 @@ export default function Reportes() {
               "CONCEPTO",
               "DESCRIPCION",
               "TRABAJADOR",
-              "MES",
               "MEDIO",
               "MONTO",
               "COMPROBANTE",
@@ -982,7 +985,6 @@ export default function Reportes() {
           { wch: 26 },
           { wch: 34 },
           { wch: 24 },
-          { wch: 14 },
           { wch: 16 },
           { wch: 12 },
           { wch: 28 },
@@ -998,19 +1000,17 @@ export default function Reportes() {
           FECHA: r.fecha,
           CLIENTE: r.cliente_nombre || String(r.concepto || "").split(" - ")[0] || "",
           SISTEMA: r.sistema_nombre || String(r.concepto || "").split(" - ")[1] || "",
-          MES: r.categoria,
           MEDIO: r.medio,
           MONTO: r.monto,
           COMPROBANTE: r.comprobante || "",
         })),
-        { header: ["FECHA", "CLIENTE", "SISTEMA", "MES", "MEDIO", "MONTO", "COMPROBANTE"] }
+        { header: ["FECHA", "CLIENTE", "SISTEMA", "MEDIO", "MONTO", "COMPROBANTE"] }
       );
 
       ws["!cols"] = [
         { wch: 12 },
         { wch: 22 },
         { wch: 28 },
-        { wch: 14 },
         { wch: 16 },
         { wch: 12 },
         { wch: 28 },
