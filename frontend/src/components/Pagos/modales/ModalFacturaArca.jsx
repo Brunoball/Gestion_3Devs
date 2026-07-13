@@ -29,6 +29,16 @@ function moneyARS(v) {
   }
 }
 
+
+function parseMoneyInput(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return 0;
+  // Si el usuario usa coma decimal sin punto, normalizamos a número JS.
+  const normalized = s.includes(",") && !s.includes(".") ? s.replace(",", ".") : s;
+  const n = Number(normalized);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 function moneyUSD(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return "USD 0.00";
@@ -182,8 +192,9 @@ export default function ModalFacturaArca({
   const [mantSearch, setMantSearch] = useState("");
   const mantWrapRef = useRef(null);
 
-  // ✅ desarrollo manual (global)
+  // ✅ desarrollo manual (global): ARS principal + USD como referencia editable
   const [devDesc, setDevDesc] = useState("");
+  const [devArs, setDevArs] = useState("");
   const [devUsd, setDevUsd] = useState("");
 
   const firstRef = useRef(null);
@@ -341,10 +352,8 @@ export default function ModalFacturaArca({
     return base.filter((p) => set.has(Number(p.id)));
   }, [mantSel, planesMant]);
 
-  const devUsdNum = useMemo(() => {
-    const n = Number(String(devUsd || "").replace(",", "."));
-    return Number.isFinite(n) && n > 0 ? n : 0;
-  }, [devUsd]);
+  const devArsNum = useMemo(() => parseMoneyInput(devArs), [devArs]);
+  const devUsdNum = useMemo(() => parseMoneyInput(devUsd), [devUsd]);
 
   // ✅ cantidad de sistemas elegidos
   const cantSistemasSeleccionados = useMemo(() => {
@@ -368,8 +377,8 @@ export default function ModalFacturaArca({
       .filter(Boolean);
   }, [sistemasSel, sistemasCliente]);
 
-  // ✅ total USD mantenimiento según modo
-  const totalMantUSD = useMemo(() => {
+  // ✅ total ARS mantenimiento según modo. Desde ahora planes_mantenimiento.monto se guarda en PESOS.
+  const totalMantARS = useMemo(() => {
     const base = Array.isArray(planesMant) ? planesMant : [];
 
     if (mantMode === "global") {
@@ -398,14 +407,14 @@ export default function ModalFacturaArca({
     mantSelBySistema,
   ]);
 
-  // ✅ total USD FINAL (mant + desarrollo global)
-  const totalUSD = useMemo(() => totalMantUSD + devUsdNum, [totalMantUSD, devUsdNum]);
+  // ✅ Total ARS final. USD queda solo como referencia/histórico si hay cotización.
+  const totalARS = useMemo(() => totalMantARS + devArsNum, [totalMantARS, devArsNum]);
 
-  const totalARS = useMemo(() => {
+  const totalUSD = useMemo(() => {
     const r = Number(usdRate);
     if (!Number.isFinite(r) || r <= 0) return 0;
-    return totalUSD * r;
-  }, [totalUSD, usdRate]);
+    return totalARS / r;
+  }, [totalARS, usdRate]);
 
   // ✅ helper selectedSystemsLabels para itemsDetalle desarrollo
   const selectedSystemsLabels = useMemo(() => {
@@ -432,11 +441,10 @@ export default function ModalFacturaArca({
 
       for (const it of mantenimientoSeleccionado) {
         const planNombre = safeStr(it.nombre) || "Mantenimiento";
-        const usdUnit = Number(it.monto) || 0;
-        const usdTotal = usdUnit * mult;
-
-        const arsUnit = rateOk ? usdUnit * r : 0;
-        const arsTotal = rateOk ? arsUnit * mult : 0;
+        const arsUnit = Number(it.monto) || 0;
+        const arsTotal = arsUnit * mult;
+        const usdUnit = rateOk ? arsUnit / r : 0;
+        const usdTotal = rateOk ? arsTotal / r : 0;
 
         out.push({
           tipo: "mantenimiento",
@@ -471,9 +479,8 @@ export default function ModalFacturaArca({
           if (!p) continue;
 
           const planNombre = safeStr(p.nombre) || "Mantenimiento";
-
-          const usd = Number(p.monto) || 0;
-          const ars = rateOk ? usd * r : 0;
+          const ars = Number(p.monto) || 0;
+          const usd = rateOk ? ars / r : 0;
 
           out.push({
             tipo: "mantenimiento",
@@ -494,8 +501,8 @@ export default function ModalFacturaArca({
     }
 
     // ===== desarrollo (global) =====
-    if (devUsdNum > 0 || String(devDesc || "").trim() !== "") {
-      const arsUnit = rateOk ? devUsdNum * r : 0;
+    if (devArsNum > 0 || String(devDesc || "").trim() !== "") {
+      const usdRef = rateOk ? devArsNum / r : devUsdNum;
 
       out.push({
         tipo: "desarrollo",
@@ -504,9 +511,9 @@ export default function ModalFacturaArca({
         descripcion: String(devDesc || "").trim() || "Desarrollo",
         cantidad: 1,
         unidad: "serv.",
-        usd: devUsdNum,
-        ars_unit: arsUnit,
-        ars: arsUnit,
+        usd: usdRef,
+        ars_unit: devArsNum,
+        ars: devArsNum,
         sistemas_labels: selectedSystemsLabels,
       });
     }
@@ -520,6 +527,7 @@ export default function ModalFacturaArca({
     mantSelBySistema,
     planesMant,
     sistemasCliente,
+    devArsNum,
     devUsdNum,
     devDesc,
     usdRate,
@@ -621,6 +629,7 @@ export default function ModalFacturaArca({
     setMantOpen(false);
     setMantSearch("");
     setDevDesc("");
+    setDevArs("");
     setDevUsd("");
 
     setSistemasCliente([]);
@@ -775,11 +784,6 @@ export default function ModalFacturaArca({
     if (!Number.isFinite(docN) || docN <= 0) return { ok: false, msg: "Documento inválido." };
     if (!Number.isFinite(pvN) || pvN <= 0) return { ok: false, msg: "Punto de venta inválido." };
 
-    const r = Number(usdRate);
-    if (!Number.isFinite(r) || r <= 0) {
-      return { ok: false, msg: "No hay cotización USD válida (dólar oficial)." };
-    }
-
     if ((sistemasSel?.length || 0) === 0) {
       return { ok: false, msg: "Seleccioná al menos 1 sistema del cliente para facturar." };
     }
@@ -789,14 +793,14 @@ export default function ModalFacturaArca({
         ? (mantSel?.length || 0) > 0
         : Object.values(mantSelBySistema || {}).some((arr) => (arr?.length || 0) > 0);
 
-    const hasDevMonto = devUsdNum > 0;
+    const hasDevMonto = devArsNum > 0;
 
     if (!hasMant && !hasDevMonto) {
       return { ok: false, msg: "Seleccioná al menos un plan de Mantenimiento o cargá un monto en Desarrollo." };
     }
 
     if (!Number.isFinite(totalARS) || totalARS <= 0) {
-      return { ok: false, msg: "El total en ARS es inválido o 0. Revisá los montos USD y el dólar." };
+      return { ok: false, msg: "El total en pesos es inválido o 0. Revisá los montos cargados." };
     }
 
     const d = dateToYMD8(periodoDesde);
@@ -819,7 +823,7 @@ export default function ModalFacturaArca({
     mantMode,
     mantSel,
     mantSelBySistema,
-    devUsdNum,
+    devArsNum,
     totalARS,
     idPagoReal,
     idSistemaReal,
@@ -960,8 +964,8 @@ export default function ModalFacturaArca({
                       </div>
 
                       <div className="arca-kv__row">
-                        <span className="arca-kv__k">Total USD</span>
-                        <span className="arca-kv__v">{moneyUSD(totalUSD)}</span>
+                        <span className="arca-kv__k">Total USD ref.</span>
+                        <span className="arca-kv__v">{usdRate ? moneyUSD(totalUSD) : "Sin cotización"}</span>
                       </div>
 
                       <div className="arca-kv__row">
@@ -989,8 +993,8 @@ export default function ModalFacturaArca({
 
                             return (
                               <span key={`${it.plan_id || it.id}_${idx}`}>
-                                {uiLabel} ({moneyUSD(it.usd)}
-                                {usdRate ? ` → ${moneyARS(it.ars)}` : ""})
+                                {uiLabel} ({moneyARS(it.ars)}
+                                {usdRate && Number(it.usd) > 0 ? ` · Ref. ${moneyUSD(it.usd)}` : ""})
                                 {idx < itemsDetalle.length - 1 ? " • " : ""}
                               </span>
                             );
@@ -1125,7 +1129,7 @@ export default function ModalFacturaArca({
 
                   {/* ✅ modo mantenimiento */}
                   <article className="mi-card mi-card--full">
-                    <h3 className="mi-card__title">Mantenimiento (USD)</h3>
+                    <h3 className="mi-card__title">Mantenimiento (ARS)</h3>
 
                     <div className="fl-grid" style={{ marginBottom: 10 }}>
                       <div className="fl-field fl-col-full">
@@ -1190,7 +1194,7 @@ export default function ModalFacturaArca({
                                         <div className="arca-dd__meta">
                                           <div className="arca-dd__top">
                                             <span className="arca-dd__name">{p.nombre}</span>
-                                            <span className="arca-dd__amount">{moneyUSD(p.monto)}</span>
+                                            <span className="arca-dd__amount">{moneyARS(p.monto)}</span>
                                           </div>
                                           {p.descripcion ? <div className="arca-dd__desc">{p.descripcion}</div> : null}
                                         </div>
@@ -1277,7 +1281,7 @@ export default function ModalFacturaArca({
                                           <div className="arca-dd__meta">
                                             <div className="arca-dd__top">
                                               <span className="arca-dd__name">{p.nombre}</span>
-                                              <span className="arca-dd__amount">{moneyUSD(p.monto)}</span>
+                                              <span className="arca-dd__amount">{moneyARS(p.monto)}</span>
                                             </div>
                                             {p.descripcion ? <div className="arca-dd__desc">{p.descripcion}</div> : null}
                                           </div>
@@ -1300,7 +1304,7 @@ export default function ModalFacturaArca({
 
                   {/* ✅ Desarrollo manual */}
                   <article className="mi-card mi-card--full">
-                    <h3 className="mi-card__title">Desarrollo (USD) • Manual (global)</h3>
+                    <h3 className="mi-card__title">Desarrollo (ARS) • Manual (global)</h3>
 
                     <div className="fl-grid">
                       <div className="fl-field fl-col-full">
@@ -1320,25 +1324,40 @@ export default function ModalFacturaArca({
                         <input
                           className="fl-input"
                           placeholder=" "
-                          value={devUsd}
+                          value={devArs}
                           onChange={(e) => {
                             const v = e.target.value.replace(/[^\d.,]/g, "");
-                            setDevUsd(v);
+                            setDevArs(v);
+                            const n = parseMoneyInput(v);
+                            const r = Number(usdRate);
+                            setDevUsd(Number.isFinite(r) && r > 0 && n > 0 ? (n / r).toFixed(2) : "");
                             setError("");
                           }}
                           inputMode="decimal"
                         />
-                        <label className="fl-label">Monto (USD)</label>
+                        <label className="fl-label">Monto (ARS)</label>
                       </div>
 
                       <div className="fl-field">
                         <input
                           className="fl-input"
-                          value={usdRate && devUsdNum > 0 ? moneyARS(devUsdNum * Number(usdRate)) : "$0,00"}
-                          disabled
-                          readOnly
+                          placeholder=" "
+                          value={devUsd}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/[^\d.,]/g, "");
+                            setDevUsd(v);
+                            const n = parseMoneyInput(v);
+                            const r = Number(usdRate);
+                            setDevArs(Number.isFinite(r) && r > 0 && n > 0 ? (n * r).toFixed(2) : "");
+                            setError("");
+                          }}
+                          inputMode="decimal"
                         />
-                        <label className="fl-label">Equivalente (ARS)</label>
+                        <label className="fl-label">Referencia (USD)</label>
+                      </div>
+
+                      <div className="arca-mini fl-col-full">
+                        Podés escribir en pesos o en dólares. Si hay cotización cargada, el sistema calcula el otro importe automáticamente.
                       </div>
                     </div>
                   </article>

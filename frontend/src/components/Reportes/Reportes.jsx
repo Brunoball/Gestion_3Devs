@@ -37,6 +37,8 @@ import * as ModEliminarEgreso from "./modales/ModalEliminarEgreso";
 import * as ModVerComprobante from "./modales/ModalVerComprobante";
 import * as ModComprobantePago from "./modales/ModalComprobantePago";
 import * as ModGraficosReportes from "./modales/ModalGraficosReportes";
+import ModalSubirComprobanteTrabajador from "./modales/ModalSubirComprobanteTrabajador";
+import ModalVerComprobanteTrabajador from "./modales/ModalVerComprobanteTrabajador";
 
 function pickComponent(mod, preferredName) {
   const c =
@@ -235,6 +237,14 @@ export default function Reportes() {
 
   const [modalGraficosOpen, setModalGraficosOpen] = useState(false);
 
+  const [modalTrabCompOpen, setModalTrabCompOpen] = useState(false);
+  const [savingTrabComp, setSavingTrabComp] = useState(false);
+  const [trabajadorCompItem, setTrabajadorCompItem] = useState(null);
+
+  const [modalVerTrabCompOpen, setModalVerTrabCompOpen] = useState(false);
+  const [trabajadorCompViewItem, setTrabajadorCompViewItem] = useState(null);
+  const [trabajadorCompViewData, setTrabajadorCompViewData] = useState(null);
+
   const [reloadKey, setReloadKey] = useState(0);
 
   const volver = useCallback(() => navigate(-1), [navigate]);
@@ -247,6 +257,25 @@ export default function Reportes() {
     const clean = p.replace(/^\/+/, "");
     return `${base}/${clean}`;
   }, []);
+
+  const getPeriodoTrabajador = useCallback(() => {
+    const anio = anioSeleccionado !== "TODOS" ? parseInt(anioSeleccionado, 10) : 0;
+    const mes = mesSeleccionado !== "TODOS" ? parseInt(mesSeleccionado, 10) : 0;
+
+    if (!anio || Number.isNaN(anio) || !mes || Number.isNaN(mes)) {
+      return null;
+    }
+
+    const mesNombre =
+      mesesDisponibles.find((m) => String(m.id) === String(mesSeleccionado))?.mes ||
+      `Mes ${mes}`;
+
+    return {
+      anio,
+      mes,
+      label: `${mesNombre} ${anio}`,
+    };
+  }, [anioSeleccionado, mesSeleccionado, mesesDisponibles]);
 
   const fetchJSON = useCallback(async (url) => {
     const sep = url.includes("?") ? "&" : "?";
@@ -461,6 +490,126 @@ export default function Reportes() {
       }
     },
     [postFormData, showToast]
+  );
+
+  const abrirSubirComprobanteTrabajador = useCallback((row) => {
+    const periodo = getPeriodoTrabajador();
+    if (!periodo) {
+      showToast(
+        "advertencia",
+        "Seleccioná un año y un mes puntual para cargar el comprobante del pago.",
+        3200
+      );
+      return;
+    }
+
+    setTrabajadorCompItem({ ...(row || {}), periodo_comprobante: periodo });
+    setModalTrabCompOpen(true);
+  }, [getPeriodoTrabajador, showToast]);
+
+  const guardarComprobanteTrabajador = useCallback(
+    async (formData) => {
+      try {
+        setErrorMsg("");
+        setSavingTrabComp(true);
+
+        const periodo = getPeriodoTrabajador();
+        if (!periodo) {
+          throw new Error("Seleccioná un año y un mes puntual antes de cargar el comprobante.");
+        }
+
+        if (formData instanceof FormData) {
+          if (!formData.has("anio")) formData.append("anio", String(periodo.anio));
+          if (!formData.has("mes")) formData.append("mes", String(periodo.mes));
+          if (!formData.has("id_mes")) formData.append("id_mes", String(periodo.mes));
+        }
+
+        showToast("cargando", `Guardando comprobante de ${periodo.label}…`, 1200);
+
+        const url = `${BASE_URL}/api.php?action=reportes&op=trabajador_subir_comprobante`;
+        const data = await postFormData(url, formData);
+
+        if (!data?.exito) {
+          throw new Error(data?.mensaje || "No se pudo guardar el comprobante del trabajador.");
+        }
+
+        setModalTrabCompOpen(false);
+        setTrabajadorCompItem(null);
+        setReloadKey((k) => k + 1);
+
+        showToast("exito", `Comprobante de ${periodo.label} guardado.`, 2800);
+      } catch (e) {
+        console.error("Error comprobante trabajador:", e);
+        const msg = String(e?.message || e);
+        setErrorMsg(msg);
+        showToast("error", `❌ Error: ${msg}`, 4200);
+      } finally {
+        setSavingTrabComp(false);
+      }
+    },
+    [getPeriodoTrabajador, postFormData, showToast]
+  );
+
+  const verComprobanteTrabajador = useCallback(
+    async (row) => {
+      try {
+        const id = row?.id ?? row?.id_trabajador ?? null;
+        if (!id) throw new Error("No se encontró ID del trabajador.");
+
+        const periodo = getPeriodoTrabajador();
+        if (!periodo) {
+          showToast(
+            "advertencia",
+            "Seleccioná un año y un mes puntual para ver el comprobante del pago.",
+            3200
+          );
+          return;
+        }
+
+        const rowConPeriodo = { ...(row || {}), periodo_comprobante: periodo };
+        setTrabajadorCompViewItem(rowConPeriodo);
+        setTrabajadorCompViewData(null);
+
+        const precargado = row?.comprobante_pago
+          ? {
+              archivo_url: row.comprobante_pago,
+              archivo_nombre: row.comprobante_pago_nombre || "Comprobante",
+              archivo_tipo: row.comprobante_pago_tipo || "",
+              created_at: row.comprobante_pago_fecha || "",
+              id_mes: row.comprobante_pago_id_mes ?? periodo.mes,
+              anio: row.comprobante_pago_anio ?? periodo.anio,
+            }
+          : null;
+
+        if (precargado) {
+          setTrabajadorCompViewData(precargado);
+          setModalVerTrabCompOpen(true);
+          return;
+        }
+
+        showToast("cargando", `Buscando comprobante de ${periodo.label}…`, 900);
+
+        const data = await fetchJSON(
+          `${BASE_URL}/api.php?action=reportes&op=trabajador_comprobante_latest&id=${encodeURIComponent(id)}&anio=${encodeURIComponent(periodo.anio)}&mes=${encodeURIComponent(periodo.mes)}`
+        );
+        if (!data?.exito) throw new Error(data?.mensaje || "No se pudo consultar el comprobante.");
+
+        const comp = data?.data || null;
+        if (!comp) {
+          showToast("advertencia", `Este trabajador todavía no tiene comprobante cargado para ${periodo.label}.`, 2600);
+          return;
+        }
+
+        setTrabajadorCompViewData(comp);
+        setModalVerTrabCompOpen(true);
+      } catch (e) {
+        console.error("Error viendo comprobante trabajador:", e);
+        const msg = String(e?.message || e);
+        setErrorMsg(msg);
+        showToast("error", `❌ Error: ${msg}`, 4200);
+      }
+    },
+    [fetchJSON, getPeriodoTrabajador, showToast]
   );
 
   /* ===== AÑOS ===== */
@@ -706,6 +855,12 @@ export default function Reportes() {
             monto: Number(r.monto ?? 0) || 0,
             monto_reembolso: Number(r.monto_reembolso ?? 0) || 0,
             monto_sistemas: Number(r.monto_sistemas ?? 0) || 0,
+            comprobante_pago: r.comprobante_pago ?? r.archivo_url ?? "",
+            comprobante_pago_fecha: r.comprobante_pago_fecha ?? r.created_at ?? "",
+            comprobante_pago_nombre: r.comprobante_pago_nombre ?? r.archivo_nombre ?? "",
+            comprobante_pago_tipo: r.comprobante_pago_tipo ?? r.archivo_tipo ?? "",
+            comprobante_pago_id_mes: r.comprobante_pago_id_mes ?? r.id_mes ?? null,
+            comprobante_pago_anio: r.comprobante_pago_anio ?? r.anio ?? null,
           });
 
           if (!alive) return;
@@ -1424,6 +1579,50 @@ export default function Reportes() {
                 columns={colsTrab}
                 rows={trabajadoresFiltrados}
                 loading={loadingData}
+                actions={(r) => {
+                  const periodo = getPeriodoTrabajador();
+                  const periodoOk = Boolean(periodo);
+                  const tieneComprobanteTrabajador =
+                    periodoOk && Boolean(String(r?.comprobante_pago || "").trim());
+                  const msgSinPeriodo = "Seleccioná año y mes para manejar comprobantes";
+
+                  return (
+                    <div className="actions-cell">
+                      <button
+                        type="button"
+                        className={`icon-btn ${periodoOk ? "" : "disabled"}`}
+                        title={periodoOk ? `Subir comprobante de ${periodo.label}` : msgSinPeriodo}
+                        onClick={() => abrirSubirComprobanteTrabajador(r)}
+                        aria-label={periodoOk ? `Subir comprobante de ${periodo.label}` : msgSinPeriodo}
+                        aria-disabled={!periodoOk}
+                        disabled={!periodoOk}
+                      >
+                        <FontAwesomeIcon icon={faPaperclip} />
+                      </button>
+
+                      <button
+                        type="button"
+                        className={`icon-btn ${tieneComprobanteTrabajador ? "" : "disabled"}`}
+                        title={
+                          !periodoOk
+                            ? msgSinPeriodo
+                            : tieneComprobanteTrabajador
+                            ? `Ver comprobante de ${periodo.label}`
+                            : `Sin comprobante cargado para ${periodo.label}`
+                        }
+                        onClick={() => {
+                          if (!tieneComprobanteTrabajador) return;
+                          verComprobanteTrabajador(r);
+                        }}
+                        aria-label={tieneComprobanteTrabajador ? `Ver comprobante de ${periodo.label}` : "Sin comprobante cargado"}
+                        aria-disabled={!tieneComprobanteTrabajador}
+                        disabled={!tieneComprobanteTrabajador}
+                      >
+                        <FontAwesomeIcon icon={faEye} />
+                      </button>
+                    </div>
+                  );
+                }}
               />
             )}
           </div>
@@ -1507,6 +1706,31 @@ export default function Reportes() {
         loading={savingPagoComp}
         item={pagoItem}
         buildFileUrl={buildFileUrl}
+      />
+
+      <ModalSubirComprobanteTrabajador
+        open={modalTrabCompOpen}
+        trabajador={trabajadorCompItem}
+        periodo={trabajadorCompItem?.periodo_comprobante || getPeriodoTrabajador()}
+        loading={savingTrabComp}
+        onClose={() => {
+          if (savingTrabComp) return;
+          setModalTrabCompOpen(false);
+          setTrabajadorCompItem(null);
+        }}
+        onConfirm={guardarComprobanteTrabajador}
+      />
+
+      <ModalVerComprobanteTrabajador
+        open={modalVerTrabCompOpen}
+        trabajador={trabajadorCompViewItem}
+        comprobante={trabajadorCompViewData}
+        periodo={trabajadorCompViewItem?.periodo_comprobante || getPeriodoTrabajador()}
+        onClose={() => {
+          setModalVerTrabCompOpen(false);
+          setTrabajadorCompViewItem(null);
+          setTrabajadorCompViewData(null);
+        }}
       />
 
       <ModalGraficosReportes

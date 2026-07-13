@@ -1,5 +1,6 @@
 // ✅ REEMPLAZAR COMPLETO
 // frontend/src/components/Pagos/modales/ModalFacturaArcaResumen.jsx
+
 import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { FaCheck } from "react-icons/fa";
 import "./ModalFacturaArca.css";
@@ -34,6 +35,82 @@ function moneyARS(v) {
   } catch {
     return `$${n.toFixed(2)}`;
   }
+}
+
+function normalizeBrokenChars(text) {
+  return String(text ?? "")
+    .replace(/[áàäâãåÁÀÄÂÃÅ]/g, "a")
+    .replace(/[éèëêÉÈËÊ]/g, "e")
+    .replace(/[íìïîÍÌÏÎ]/g, "i")
+    .replace(/[óòöôõÓÒÖÔÕ]/g, "o")
+    .replace(/[úùüûÚÙÜÛ]/g, "u")
+    .replace(/[ñÑ]/g, "n")
+    .replace(/[çÇ]/g, "c")
+    .replace(/[ýÿÝ]/g, "y");
+}
+
+function stripAccents(text) {
+  const normalized = normalizeBrokenChars(text);
+  try {
+    return normalized.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  } catch {
+    return normalized;
+  }
+}
+
+function safeTextForFilename(text) {
+  return stripAccents(text)
+    .replace(/&/g, "y")
+    .replace(/[@]/g, "at")
+    .replace(/[%]/g, "pct")
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function buildSafeInvoiceFilename({
+  fact,
+  data,
+  nombreCliente,
+  nombreSistema,
+}) {
+  const cuit = safeTextForFilename(data?.cuit_emisor || "20257525164");
+  const ptoVta = String(fact?.pto_vta ?? data?.pto_vta ?? "0002")
+    .replace(/\D/g, "")
+    .padStart(4, "0");
+
+  const cbteNro = String(fact?.cbte_nro ?? "1")
+    .replace(/\D/g, "")
+    .padStart(8, "0");
+
+  const cliente = safeTextForFilename(
+    nombreCliente || data?.labelCliente || data?.cliente || "Cliente"
+  );
+
+  const sistema = safeTextForFilename(
+    nombreSistema || data?.labelSistema || data?.sistema || "Sistema"
+  );
+
+  return `FACTURA_${ptoVta}-${cbteNro}_${cliente}_${sistema}.pdf`;
+}
+
+function triggerBlobDownload(blob, filename) {
+  if (!(blob instanceof Blob)) {
+    throw new Error("No se pudo descargar el archivo: blob inválido.");
+  }
+
+  const safeName = String(filename || "factura.pdf").trim() || "factura.pdf";
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = safeName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  setTimeout(() => {
+    window.URL.revokeObjectURL(url);
+  }, 1000);
 }
 
 export default function ModalFacturaArcaResumen({
@@ -282,7 +359,6 @@ export default function ModalFacturaArcaResumen({
     [apiBase, action, data, docTipo, docNro, cbteTipo, ptoVta]
   );
 
-  // ✅ Solo genera y descarga el PDF — NO guarda nada en DB
   const exportarSoloPDF = useCallback(async () => {
     setError("");
     const v = validar();
@@ -317,8 +393,7 @@ export default function ModalFacturaArcaResumen({
         doc_nro: v.docN,
       };
 
-      // ✅ Solo genera y descarga el PDF, sin guardar en DB
-      await saveArcaInvoicePdf({
+      const out = await saveArcaInvoicePdf({
         fact: factMock,
         data: {
           ...data,
@@ -329,8 +404,24 @@ export default function ModalFacturaArcaResumen({
         },
         forceTestAmount,
         testAmount,
-        download: true,
+        download: false,
       });
+
+      const blob =
+        out?.blob instanceof Blob ? out.blob : out instanceof Blob ? out : null;
+
+      if (!blob) {
+        throw new Error("No se pudo generar el PDF (blob vacío).");
+      }
+
+      const safeFilename = buildSafeInvoiceFilename({
+        fact: factMock,
+        data,
+        nombreCliente,
+        nombreSistema,
+      });
+
+      triggerBlobDownload(blob, safeFilename);
 
       onClose?.();
     } catch (e) {
@@ -394,17 +485,24 @@ export default function ModalFacturaArcaResumen({
         data: { ...data, labelCliente: nombreCliente, labelSistema: nombreSistema },
         forceTestAmount,
         testAmount,
-        download: true,
+        download: false,
       });
 
       const blob =
         out?.blob instanceof Blob ? out.blob : out instanceof Blob ? out : null;
 
-      const filename = out?.filename || "factura.pdf";
       if (!blob) throw new Error("No se pudo generar el PDF (blob vacío).");
 
-      // ✅ Solo guarda en DB al emitir de verdad
-      await guardarFacturaEnDB({ blob, filename, fact, estado: "emitida" });
+      const safeFilename = buildSafeInvoiceFilename({
+        fact,
+        data,
+        nombreCliente,
+        nombreSistema,
+      });
+
+      triggerBlobDownload(blob, safeFilename);
+
+      await guardarFacturaEnDB({ blob, filename: safeFilename, fact, estado: "emitida" });
 
       onFacturada?.(fact);
       onDone?.(fact);

@@ -1,4 +1,3 @@
-// src/components/Principal/Principal.jsx
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -9,7 +8,7 @@ import {
   faUserTie,
   faLayerGroup,
   faChartLine,
-  faUserPlus, // ✅ NUEVO (Registro)
+  faUserPlus,
 } from "@fortawesome/free-solid-svg-icons";
 import "./principal.css";
 import "../Global/roots.css";
@@ -84,8 +83,9 @@ function normalizeRol(value) {
     v === "administrator" ||
     v === "administrador" ||
     v === "superadmin"
-  )
+  ) {
     return "admin";
+  }
   return "vista";
 }
 
@@ -122,8 +122,6 @@ const Principal = () => {
     { icon: faUserTie, text: "Trabajadores", ruta: "/trabajadores" },
     { icon: faLayerGroup, text: "Mantenimiento", ruta: "/mantenimiento" },
     { icon: faChartLine, text: "Reportes", ruta: "/reportes" },
-
-    // ✅ NUEVO: REGISTRO (solo admin, recomendado)
     { icon: faUserPlus, text: "Registro", ruta: "/registro" },
   ];
 
@@ -131,9 +129,6 @@ const Principal = () => {
     { icon: faUsers, text: "Clientes", ruta: "/clientes" },
     { icon: faMoneyBillWave, text: "Pagos", ruta: "/pagos" },
     { icon: faChartLine, text: "Reportes", ruta: "/reportes" },
-
-    // ✅ NUEVO: REGISTRO (si también querés que lo vea "vista", dejalo)
-    // Si NO querés que rol vista lo vea, borrá esta línea.
     { icon: faUserPlus, text: "Registro", ruta: "/registro" },
   ];
 

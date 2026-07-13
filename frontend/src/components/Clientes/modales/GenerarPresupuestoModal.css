@@ -189,3 +189,115 @@
   align-items: flex-end;
   padding: 0;
 }
+/* -----------------------------
+   Selector de planes del presupuesto
+----------------------------- */
+.pres_plan_header{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.pres_plan_hint{
+  margin: 4px 0 0;
+  color: var(--mi-muted);
+  font-size: .9rem;
+  font-weight: 600;
+}
+
+.pres_plan_tools{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pres_plan_empty{
+  border: 1px dashed var(--mi-border);
+  border-radius: var(--mi-radius-md);
+  background: rgba(15,23,42,.02);
+  color: var(--mi-muted);
+  font-weight: 800;
+  padding: 14px;
+}
+
+.pres_plan_grid{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.pres_plan_option{
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1px solid var(--mi-border);
+  border-radius: var(--mi-radius-md);
+  background: #fff;
+  padding: 13px 14px;
+  cursor: pointer;
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+  min-height: 82px;
+}
+
+.pres_plan_option:hover{
+  border-color: rgba(46,92,191,.45);
+  background: rgba(11, 94, 215, 0.04);
+}
+
+.pres_plan_option.is-selected{
+  border-color: rgba(46,92,191,.75);
+  box-shadow: 0 0 0 3px rgba(11, 94, 215, 0.12);
+  background: rgba(11, 94, 215, 0.05);
+}
+
+.pres_plan_option input[type="checkbox"]{
+  margin-top: 3px;
+  accent-color: var(--mi-primary-600);
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
+.pres_plan_content{
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.pres_plan_topline{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--mi-text);
+}
+
+.pres_plan_topline strong{
+  font-size: .95rem;
+  line-height: 1.25;
+}
+
+.pres_plan_topline b{
+  font-size: .92rem;
+  white-space: nowrap;
+  color: var(--mi-primary-700);
+}
+
+.pres_plan_desc{
+  color: var(--mi-muted);
+  font-size: .86rem;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@media (max-width: 860px){
+  .pres_plan_grid{ grid-template-columns: 1fr; }
+}

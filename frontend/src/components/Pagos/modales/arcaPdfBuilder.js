@@ -1040,3 +1040,229 @@ export async function saveArcaInvoicePdf({
 
   return { blob, filename };
 }
+
+// =====================
+// ✅ NOTA DE CRÉDITO SIMPLE CON QR ARCA
+// =====================
+function ncTipoNombre(tipo) {
+  const n = Number(tipo || 0);
+  if (n === 3) return { letra: "A", nombre: "NOTA DE CREDITO", cod: "003" };
+  if (n === 8) return { letra: "B", nombre: "NOTA DE CREDITO", cod: "008" };
+  if (n === 13) return { letra: "C", nombre: "NOTA DE CREDITO", cod: "013" };
+  return { letra: "", nombre: "NOTA DE CREDITO", cod: padLeft(n || 0, 3) };
+}
+
+function cbteTipoNombre(tipo) {
+  const n = Number(tipo || 0);
+  if (n === 1) return "FACTURA A";
+  if (n === 6) return "FACTURA B";
+  if (n === 11) return "FACTURA C";
+  if (n === 3) return "NOTA DE CREDITO A";
+  if (n === 8) return "NOTA DE CREDITO B";
+  if (n === 13) return "NOTA DE CREDITO C";
+  return n ? `COMPROBANTE TIPO ${n}` : "COMPROBANTE";
+}
+
+function ncValue(obj, ...keys) {
+  for (const k of keys) {
+    if (obj && obj[k] !== undefined && obj[k] !== null && obj[k] !== "") return obj[k];
+  }
+  return "";
+}
+
+function normalizeCreditNotePayload(notaCredito = {}, facturaOriginal = {}, data = {}) {
+  const nc = notaCredito || {};
+  const fact = facturaOriginal || {};
+  const rawData = data || {};
+
+  let arcaJson = null;
+  const jsonCandidate = nc.json_arca || nc.jsonArca || nc.arca_json || null;
+  if (jsonCandidate && typeof jsonCandidate === "string") {
+    try { arcaJson = JSON.parse(jsonCandidate); } catch { arcaJson = null; }
+  } else if (jsonCandidate && typeof jsonCandidate === "object") {
+    arcaJson = jsonCandidate;
+  }
+
+  const source = arcaJson || nc;
+  const cbtesAsoc = Array.isArray(nc.cbtes_asoc)
+    ? nc.cbtes_asoc
+    : Array.isArray(source.cbtes_asoc)
+    ? source.cbtes_asoc
+    : [];
+
+  return {
+    modo: ncValue(source, "modo") || ncValue(nc, "modo") || "prod",
+    qr_url: ncValue(source, "qr_url", "qrUrl") || ncValue(nc, "qr_url", "qrUrl"),
+    cuit_emisor: ncValue(source, "cuit_emisor") || ncValue(rawData, "cuit_emisor") || FIX.cuit_emisor,
+    emisor_nombre: ncValue(rawData, "emisor_nombre") || FIX.emisor_nombre,
+    emisor_domicilio: ncValue(rawData, "emisor_domicilio") || FIX.emisor_domicilio,
+    cond_iva_emisor: ncValue(rawData, "cond_iva_emisor") || FIX.cond_iva_emisor,
+    cbte_tipo: Number(ncValue(source, "cbte_tipo") || ncValue(nc, "cbte_tipo", "nc_cbte_tipo") || 13),
+    pto_vta: Number(ncValue(source, "pto_vta") || ncValue(nc, "pto_vta", "nc_pto_vta") || 0),
+    cbte_nro: Number(ncValue(source, "cbte_nro") || ncValue(nc, "cbte_nro", "nc_cbte_nro") || 0),
+    fecha_cbte: ncValue(source, "fecha_cbte") || ncValue(nc, "fecha_cbte", "nc_fecha_cbte"),
+    cae: ncValue(source, "cae") || ncValue(nc, "cae", "nc_cae"),
+    cae_vto: ncValue(source, "cae_vto") || ncValue(nc, "cae_vto", "nc_cae_vto"),
+    doc_tipo: Number(ncValue(source, "doc_tipo") || ncValue(nc, "doc_tipo") || ncValue(fact, "doc_tipo") || 80),
+    doc_nro: ncValue(source, "doc_nro") || ncValue(nc, "doc_nro") || ncValue(fact, "doc_nro") || "",
+    importe: Number(ncValue(source, "importe") || ncValue(nc, "importe", "importe_ars") || ncValue(fact, "importe", "total_ars", "monto_ars") || 0),
+    moneda: ncValue(source, "moneda") || "PES",
+    cbtes_asoc: cbtesAsoc,
+    motivo: ncValue(nc, "motivo") || ncValue(rawData, "motivo") || "Anulación de factura desde módulo Pagos",
+    cliente: ncValue(rawData, "labelCliente", "cliente", "cliente_nombre") || ncValue(fact, "cliente_nombre", "cliente") || "Consumidor final",
+    sistema: ncValue(rawData, "labelSistema", "sistema", "sistema_nombre") || ncValue(fact, "sistema_nombre", "sistema") || "Sistema",
+    factura_original: fact,
+  };
+}
+
+function buildCreditNoteFilename(nc) {
+  const pv = String(nc?.pto_vta || 0).replace(/\D/g, "").padStart(5, "0");
+  const nro = String(nc?.cbte_nro || 0).replace(/\D/g, "").padStart(8, "0");
+  const cae = sanitizePdfText(String(nc?.cae || "CAE"))
+    .replace(/[^a-zA-Z0-9_-]+/g, "_")
+    .slice(0, 40);
+  return `NOTA_CREDITO_${pv}-${nro}_${cae}.pdf`;
+}
+
+function drawCreditNotePdf(doc, nc, qrDataUrl) {
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 38;
+  const rightX = pageW - margin;
+  const type = ncTipoNombre(nc.cbte_tipo);
+  const pv = String(nc.pto_vta || 0).padStart(5, "0");
+  const nro = String(nc.cbte_nro || 0).padStart(8, "0");
+  const fecha = ymdToHuman(nc.fecha_cbte) || ymdToHuman(new Date().toISOString().slice(0, 10));
+  const caeVto = ymdToHuman(nc.cae_vto);
+  const importe = moneyEs(nc.importe || 0);
+
+  set(doc, "helvetica", "bold", 15);
+  text(doc, sanitizePdfText(nc.emisor_nombre), margin, 52);
+  set(doc, "helvetica", "normal", 9);
+  text(doc, sanitizePdfText(nc.emisor_domicilio), margin, 69);
+  text(doc, `CUIT: ${sanitizePdfText(nc.cuit_emisor)}`, margin, 83);
+  text(doc, sanitizePdfText(nc.cond_iva_emisor), margin, 97);
+
+  rect(doc, margin, 32, pageW - margin * 2, 90, 0.65);
+  rect(doc, pageW / 2 - 20, 32, 40, 42, 0.65);
+  set(doc, "helvetica", "bold", 25);
+  text(doc, type.letra || "C", pageW / 2, 60, { align: "center" });
+  set(doc, "helvetica", "normal", 7.5);
+  text(doc, `Cod. ${type.cod}`, pageW / 2, 70, { align: "center" });
+
+  set(doc, "helvetica", "bold", 17);
+  text(doc, type.nombre, rightX, 54, { align: "right" });
+  set(doc, "helvetica", "normal", 10);
+  text(doc, `Comp. Nro: ${pv}-${nro}`, rightX, 76, { align: "right" });
+  text(doc, `Fecha: ${fecha}`, rightX, 92, { align: "right" });
+  set(doc, "helvetica", "bold", 9);
+  text(doc, "Comprobante autorizado por ARCA", rightX, 108, { align: "right" });
+
+  const yCliente = 144;
+  rect(doc, margin, yCliente, pageW - margin * 2, 82, 0.55);
+  set(doc, "helvetica", "bold", 10);
+  text(doc, "Datos del receptor", margin + 12, yCliente + 20);
+  set(doc, "helvetica", "normal", 9);
+  text(doc, `Cliente: ${sanitizePdfText(nc.cliente)}`, margin + 12, yCliente + 38);
+  text(doc, `Documento: ${nc.doc_tipo || ""} - ${sanitizePdfText(nc.doc_nro || "")}`, margin + 12, yCliente + 54);
+  text(doc, `Sistema: ${sanitizePdfText(nc.sistema || "")}`, margin + 12, yCliente + 70);
+
+  const yAsoc = 246;
+  rect(doc, margin, yAsoc, pageW - margin * 2, 82, 0.55);
+  fillRect(doc, margin, yAsoc, pageW - margin * 2, 22, 0.91);
+  set(doc, "helvetica", "bold", 10);
+  text(doc, "Comprobante asociado", margin + 12, yAsoc + 15);
+
+  const asoc = Array.isArray(nc.cbtes_asoc) && nc.cbtes_asoc.length ? nc.cbtes_asoc[0] : null;
+  const fact = nc.factura_original || {};
+  const asocTipo = Number(ncValue(asoc, "Tipo", "tipo") || ncValue(fact, "cbte_tipo") || 0);
+  const asocPto = Number(ncValue(asoc, "PtoVta", "pto_vta") || ncValue(fact, "pto_vta") || 0);
+  const asocNro = Number(ncValue(asoc, "Nro", "nro") || ncValue(fact, "cbte_nro") || 0);
+  const asocFecha = ncValue(asoc, "CbteFch", "fecha") || ncValue(fact, "fecha_cbte") || "";
+
+  set(doc, "helvetica", "normal", 9);
+  text(doc, `Tipo: ${cbteTipoNombre(asocTipo)}`, margin + 12, yAsoc + 42);
+  text(doc, `Número: ${String(asocPto || 0).padStart(5, "0")}-${String(asocNro || 0).padStart(8, "0")}`, margin + 12, yAsoc + 58);
+  text(doc, `Fecha factura original: ${ymdToHuman(asocFecha) || "-"}`, margin + 12, yAsoc + 74);
+
+  const yDetalle = 352;
+  rect(doc, margin, yDetalle, pageW - margin * 2, 96, 0.55);
+  fillRect(doc, margin, yDetalle, pageW - margin * 2, 22, 0.91);
+  set(doc, "helvetica", "bold", 10);
+  text(doc, "Detalle", margin + 12, yDetalle + 15);
+  set(doc, "helvetica", "normal", 9);
+  text(doc, sanitizePdfText(nc.motivo), margin + 12, yDetalle + 44);
+  set(doc, "helvetica", "bold", 12);
+  text(doc, `Total Nota de Crédito: $ ${importe}`, rightX - 12, yDetalle + 78, { align: "right" });
+
+  const yCae = 478;
+  rect(doc, margin, yCae, pageW - margin * 2, 194, 0.55);
+  set(doc, "helvetica", "bold", 11);
+  text(doc, "Datos de autorización", margin + 12, yCae + 23);
+  set(doc, "helvetica", "normal", 9.5);
+  text(doc, `CAE: ${sanitizePdfText(nc.cae)}`, margin + 12, yCae + 48);
+  text(doc, `Vencimiento CAE: ${caeVto || "-"}`, margin + 12, yCae + 66);
+  text(doc, `Modo: ${String(nc.modo || "prod").toUpperCase()}`, margin + 12, yCae + 84);
+  text(doc, "Escaneá el QR o hacé clic en el enlace para verificar la Nota de Crédito en ARCA.", margin + 12, yCae + 112);
+
+  if (nc.qr_url) {
+    set(doc, "helvetica", "bold", 9);
+    text(doc, "Verificar en ARCA / AFIP", margin + 12, yCae + 137);
+    doc.setTextColor(0, 0, 180);
+    text(doc, clampToWidth(doc, nc.qr_url, 300), margin + 12, yCae + 153);
+    doc.setTextColor(0, 0, 0);
+    try {
+      doc.link(margin + 12, yCae + 126, 230, 34, { url: nc.qr_url });
+    } catch {}
+  }
+
+  if (qrDataUrl) {
+    try {
+      doc.addImage(qrDataUrl, "PNG", rightX - 125, yCae + 28, 112, 112);
+    } catch {}
+  }
+
+  set(doc, "helvetica", "normal", 8);
+  text(doc, "Documento interno generado por el sistema. La validez fiscal se verifica con el CAE/QR oficial de ARCA.", margin, 716);
+}
+
+export async function buildArcaCreditNotePdf({ notaCredito, facturaOriginal = {}, data = {} } = {}) {
+  const nc = normalizeCreditNotePayload(notaCredito, facturaOriginal, data);
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+
+  let qrDataUrl = null;
+  if (nc.qr_url) {
+    try {
+      qrDataUrl = await QRCode.toDataURL(nc.qr_url, { margin: 1, width: 220 });
+    } catch {
+      qrDataUrl = null;
+    }
+  }
+
+  drawCreditNotePdf(doc, nc, qrDataUrl);
+  return { doc, normalized: nc };
+}
+
+export async function saveArcaCreditNotePdf({
+  notaCredito,
+  facturaOriginal = {},
+  data = {},
+  download = true,
+  filename: filenameIn,
+} = {}) {
+  const { doc, normalized } = await buildArcaCreditNotePdf({ notaCredito, facturaOriginal, data });
+  const blob = doc.output("blob");
+  const filename = filenameIn || buildCreditNoteFilename(normalized);
+
+  if (download) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  return { blob, filename, qr_url: normalized.qr_url, normalized };
+}

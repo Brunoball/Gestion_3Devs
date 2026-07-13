@@ -1,8 +1,9 @@
 // ✅ REEMPLAZAR COMPLETO
 // src/components/Pagos/modales/ModalPago.jsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { FaCoins, FaTimes, FaCheck, FaEye } from "react-icons/fa";
+import { FaCoins, FaTimes, FaCheck, FaEye, FaBan } from "react-icons/fa";
 import BASE_URL from "../../../config/config";
+import { saveArcaCreditNotePdf } from "./arcaPdfBuilder";
 
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
 import "./ModalPago.css";
@@ -125,6 +126,7 @@ export default function ModalPago({
   id_sistema,
   cerrarModal,
   onPagoRealizado,
+  onFacturaAnulada,
   anioSeleccionado,
   mesSeleccionado,
 }) {
@@ -141,6 +143,7 @@ export default function ModalPago({
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   });
   const [pagoExitoso, setPagoExitoso]   = useState(false);
+  const [anulandoFactura, setAnulandoFactura] = useState(false);
   // ✅ Mapa { [id_sistema]: nombre } para mostrar en el desglose
   const [sistemasNombres, setSistemasNombres] = useState({});
 
@@ -402,6 +405,62 @@ export default function ModalPago({
     onPagoRealizado, tieneDesglose, sistemasConMonto,
   ]);
 
+  const handleAnularFactura = useCallback(async () => {
+    const idFactura = Number(factura?.id_factura || 0);
+    if (!Number.isFinite(idFactura) || idFactura <= 0) return;
+
+    const tieneCAE = Boolean(factura?.cae && String(factura.cae) !== "00000000000000");
+    const ok = window.confirm(
+      tieneCAE
+        ? "Esta factura tiene CAE. Se emitirá una Nota de Crédito C en ARCA y después se eliminará la factura/PDF del sistema. ¿Continuar?"
+        : "Esta factura no tiene CAE válido. Se eliminará la factura/PDF del sistema. ¿Continuar?"
+    );
+    if (!ok) return;
+
+    setError("");
+    setAnulandoFactura(true);
+    try {
+      const result = await fetchJSON(`${API}?action=pagos&op=factura_anular_con_nc`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id_factura: idFactura,
+          motivo: "Anulación desde modal de pago",
+        }),
+      });
+
+      if (result?.exito === false) {
+        throw new Error(result?.mensaje || "No se pudo anular la factura.");
+      }
+
+      if ((result?.emitio_nota_credito || result?.nota_credito_existente) && result?.nota_credito) {
+        try {
+          await saveArcaCreditNotePdf({
+            notaCredito: result.nota_credito,
+            facturaOriginal: result?.factura_original || {},
+            data: {
+              labelCliente: result?.factura_original?.cliente_nombre || "",
+              labelSistema: result?.factura_original?.sistema_nombre || "",
+              motivo: "Anulación desde modal de pago",
+            },
+            download: true,
+          });
+        } catch (pdfErr) {
+          console.warn("No se pudo descargar el PDF simple de Nota de Crédito:", pdfErr);
+        }
+      }
+
+      setFactura(null);
+      setMonto("");
+      onFacturaAnulada?.(result);
+      cerrarModal?.();
+    } catch (e) {
+      setError(e?.message || "No se pudo anular la factura.");
+    } finally {
+      setAnulandoFactura(false);
+    }
+  }, [API, fetchJSON, factura, onFacturaAnulada, cerrarModal]);
+
   const cerrar = () => cerrarModal?.();
 
   /* =========================
@@ -578,6 +637,17 @@ export default function ModalPago({
                     >
                       <FaEye /> Ver
                     </button>
+                    {factura?.id_factura ? (
+                      <button
+                        type="button"
+                        className="mit-btn mit-btn--ghost pay-btn-small"
+                        onClick={handleAnularFactura}
+                        disabled={anulandoFactura}
+                        title="Emitir Nota de Crédito si corresponde y eliminar factura"
+                      >
+                        <FaBan /> {anulandoFactura ? "Anulando..." : "Anular"}
+                      </button>
+                    ) : null}
                   </div>
 
                   <div className="pay-fact-grid">

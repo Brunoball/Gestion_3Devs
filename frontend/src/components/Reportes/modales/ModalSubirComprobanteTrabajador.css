@@ -1,0 +1,17 @@
+/* src/components/Reportes/modales/ModalSubirComprobanteTrabajador.css */
+.mtc-drop.is-over{
+  border-color: rgba(46,92,191,.75);
+  box-shadow: 0 0 0 4px rgba(46,92,191,.10), 0 14px 24px rgba(15,23,42,.10);
+  transform: translateY(-1px);
+}
+
+.cmp-periodo{
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(46,92,191,.18);
+  background: rgba(46,92,191,.07);
+  border-radius: 12px;
+  color: #1e293b;
+  font-size: .94rem;
+  font-weight: 700;
+}

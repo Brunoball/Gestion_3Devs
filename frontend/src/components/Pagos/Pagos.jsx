@@ -17,7 +17,6 @@ import {
   faMoneyCheckAlt,
   faFilter,
   faCalendarAlt,
-  faUsers,
   faList,
   faCheckCircle,
   faExclamationTriangle,
@@ -26,6 +25,7 @@ import {
   faTimes,
   faFileInvoiceDollar,
   faFileExcel,
+  faBan,
 } from "@fortawesome/free-solid-svg-icons";
 
 import * as XLSX from "xlsx";
@@ -36,8 +36,9 @@ import "./Pagos.css";
 
 import ModalPago from "./modales/ModalPago";
 import ModalEliminarPago from "./modales/ModalEliminarPago";
-import ModalEquipoPago from "./modales/ModalEquipoPago";
 import ModalFacturaArca from "./modales/ModalFacturaArca";
+import ModalAnularFactura from "./modales/ModalAnularFactura";
+import { saveArcaCreditNotePdf } from "./modales/arcaPdfBuilder";
 
 const ACTION_PAGOS = "pagos";
 const API = `${BASE_URL}/api.php`;
@@ -246,11 +247,12 @@ const Row = memo(
       activeTab,
       onPayClick,
       onDeleteClick,
-      onTeamClick,
       onArcaClick,
+      onAnularFacturaClick,
       arcaLoadingId,
       canOpenPagoMap,
       facturaCheckLoadingMap,
+      facturaInfoMap,
     }
   ) => {
     const item = data[index];
@@ -276,6 +278,10 @@ const Row = memo(
     const facturaChecking = idSistema
       ? Boolean(facturaCheckLoadingMap?.[idSistema])
       : false;
+
+    const facturaInfo = idSistema ? facturaInfoMap?.[idSistema] : null;
+    const idFactura = Number(item?.id_factura || facturaInfo?.id_factura || 0);
+    const tieneFactura = Number.isFinite(idFactura) && idFactura > 0;
 
     const payDisabled = !isDeudor ? true : facturaChecking ? true : canOpenPago === false;
 
@@ -312,20 +318,6 @@ const Row = memo(
               </button>
             )}
 
-            {/* Equipo (solo en pagados) */}
-            {isPagado && (
-              <button
-                className="gpagos-action-button gpagos-team-button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTeamClick?.(item);
-                }}
-                title="Equipo / monto a pagar"
-                type="button"
-              >
-                <FontAwesomeIcon icon={faUsers} />
-              </button>
-            )}
 
             {/* ✅ ARCA: SOLO en DEUDORES */}
             {isDeudor && (
@@ -340,6 +332,21 @@ const Row = memo(
                 disabled={arcaBusy}
               >
                 <FontAwesomeIcon icon={faFileInvoiceDollar} />
+              </button>
+            )}
+
+            {/* Anular factura emitida/generada */}
+            {tieneFactura && (
+              <button
+                className="gpagos-action-button gpagos-delete-button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAnularFacturaClick?.(item, facturaInfo);
+                }}
+                title="Anular factura / emitir Nota de Crédito"
+                type="button"
+              >
+                <FontAwesomeIcon icon={faBan} />
               </button>
             )}
 
@@ -368,7 +375,8 @@ const Row = memo(
     prev.activeTab === next.activeTab &&
     prev.arcaLoadingId === next.arcaLoadingId &&
     prev.canOpenPagoMap === next.canOpenPagoMap &&
-    prev.facturaCheckLoadingMap === next.facturaCheckLoadingMap
+    prev.facturaCheckLoadingMap === next.facturaCheckLoadingMap &&
+    prev.facturaInfoMap === next.facturaInfoMap
 );
 
 function Pagos() {
@@ -456,15 +464,16 @@ function Pagos() {
   // ✅ MODAL ELIMINAR
   const [modalEliminar, setModalEliminar] = useState(null);
 
-  // ✅ MODAL EQUIPO
-  const [modalEquipo, setModalEquipo] = useState(null);
+  // ✅ MODAL ANULAR FACTURA / NOTA DE CRÉDITO
+  const [modalAnularFactura, setModalAnularFactura] = useState(null);
+
 
   // ✅ MODAL ARCA
   const [modalArca, setModalArca] = useState(null);
 
   const closeModalPago = useCallback(() => setModalPago(null), []);
   const closeModalEliminar = useCallback(() => setModalEliminar(null), []);
-  const closeModalEquipo = useCallback(() => setModalEquipo(null), []);
+  const closeModalAnularFactura = useCallback(() => setModalAnularFactura(null), []);
   const closeModalArca = useCallback(() => setModalArca(null), []);
 
   // ===== Virtual / infinite =====
@@ -748,6 +757,7 @@ function Pagos() {
   const facturaCacheRef = useRef({
     periodoKey: "",
     canOpenBySistema: {},
+    facturaBySistema: {},
     loadingBySistema: {},
   });
 
@@ -757,13 +767,16 @@ function Pagos() {
   }, [selectedYear, selectedMonthId]);
 
   const [canOpenPagoMap, setCanOpenPagoMap] = useState({});
+  const [facturaInfoMap, setFacturaInfoMap] = useState({});
   const [facturaCheckLoadingMap, setFacturaCheckLoadingMap] = useState({});
 
   useEffect(() => {
     facturaCacheRef.current.periodoKey = periodoKey;
     facturaCacheRef.current.canOpenBySistema = {};
+    facturaCacheRef.current.facturaBySistema = {};
     facturaCacheRef.current.loadingBySistema = {};
     setCanOpenPagoMap({});
+    setFacturaInfoMap({});
     setFacturaCheckLoadingMap({});
   }, [periodoKey]);
 
@@ -777,6 +790,7 @@ function Pagos() {
       if (facturaCacheRef.current.periodoKey !== periodoKey) {
         facturaCacheRef.current.periodoKey = periodoKey;
         facturaCacheRef.current.canOpenBySistema = {};
+        facturaCacheRef.current.facturaBySistema = {};
         facturaCacheRef.current.loadingBySistema = {};
       }
 
@@ -804,13 +818,17 @@ function Pagos() {
         const canOpen = !sinFactura;
 
         facturaCacheRef.current.canOpenBySistema[idSistema] = canOpen;
+        facturaCacheRef.current.facturaBySistema[idSistema] = factura || null;
         setCanOpenPagoMap((m) => ({ ...m, [idSistema]: canOpen }));
+        setFacturaInfoMap((m) => ({ ...m, [idSistema]: factura || null }));
 
         return canOpen;
       } catch (e) {
         console.error(e);
         facturaCacheRef.current.canOpenBySistema[idSistema] = true;
+        facturaCacheRef.current.facturaBySistema[idSistema] = null;
         setCanOpenPagoMap((m) => ({ ...m, [idSistema]: true }));
+        setFacturaInfoMap((m) => ({ ...m, [idSistema]: null }));
         return true;
       } finally {
         facturaCacheRef.current.loadingBySistema[idSistema] = false;
@@ -906,30 +924,6 @@ function Pagos() {
 
   const onPayClick = useCallback((row) => openModalPago(row), [openModalPago]);
 
-  const openModalEquipo = useCallback(
-    (row) => {
-      const id_sistema = getIdSistema(row);
-      if (!id_sistema) return;
-
-      const mesLabel = getMesLabelById(meses, selectedMonthId);
-
-      setModalEquipo({
-        open: true,
-        id_sistema,
-        anio: selectedYear || "",
-        mes: mesLabel || "",
-        id_mes: Number(selectedMonthId) || 0,
-        labelCliente: buildClienteLabel(row),
-        labelSistema: "", // ✅ ya no existe “Detalle”
-        monto: row?.monto ?? null,
-        fecha_pago: row?.fecha_pago ?? null,
-        id_pago: getIdPago(row),
-      });
-    },
-    [selectedYear, selectedMonthId, meses]
-  );
-
-  const onTeamClick = useCallback((row) => openModalEquipo(row), [openModalEquipo]);
 
   const fetchClienteFacturacion = useCallback(
     async ({ id_pago, id_sistema, anio, mes }) => {
@@ -1046,6 +1040,49 @@ function Pagos() {
     });
   }, []);
 
+  const onAnularFacturaClick = useCallback(async (row, facturaInfo = null) => {
+    let factura = facturaInfo || null;
+    const idSistema = getIdSistema(row);
+
+    if (!factura && idSistema && selectedYear && selectedMonthId) {
+      try {
+        setLoading((p) => ({ ...p, pagos: true }));
+        const url =
+          `${API}?action=${ACTION_PAGOS}&op=detalle_periodo` +
+          `&id_sistema=${encodeURIComponent(idSistema)}` +
+          `&anio=${encodeURIComponent(Number(selectedYear))}` +
+          `&id_mes=${encodeURIComponent(Number(selectedMonthId))}`;
+        const resp = await fetchJSON(url, { method: "GET" });
+        factura = resp?.factura || null;
+        if (factura?.id_factura) {
+          setFacturaInfoMap((m) => ({ ...m, [idSistema]: factura }));
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading((p) => ({ ...p, pagos: false }));
+      }
+    }
+
+    const idFactura = Number(row?.id_factura || factura?.id_factura || 0);
+    if (!Number.isFinite(idFactura) || idFactura <= 0) {
+      showToast("error", "No pude identificar la factura a anular.", 2600);
+      return;
+    }
+
+    setModalAnularFactura({
+      open: true,
+      id_factura: idFactura,
+      labelCliente: buildClienteLabel(row),
+      labelSistema: row?.concepto || factura?.sistema_nombre || "",
+      cbte_tipo: factura?.cbte_tipo ?? row?.cbte_tipo ?? null,
+      pto_vta: factura?.pto_vta ?? row?.pto_vta ?? null,
+      cbte_nro: factura?.cbte_nro ?? row?.cbte_nro ?? null,
+      cae: factura?.cae ?? row?.cae ?? null,
+      pdf_path: factura?.pdf_path ?? row?.comprobante ?? null,
+    });
+  }, [fetchJSON, selectedYear, selectedMonthId, showToast]);
+
   // mobile
   const isClient = typeof window !== "undefined";
   const isMobileRef = useRef(isClient ? window.innerWidth <= 768 : false);
@@ -1077,8 +1114,10 @@ function Pagos() {
     delete cacheRef.current.pagos.lastUpdated[k];
 
     facturaCacheRef.current.canOpenBySistema = {};
+    facturaCacheRef.current.facturaBySistema = {};
     facturaCacheRef.current.loadingBySistema = {};
     setCanOpenPagoMap({});
+    setFacturaInfoMap({});
     setFacturaCheckLoadingMap({});
 
     cargarPagosPorMes(selectedYear, selectedMonthId, true);
@@ -1114,6 +1153,64 @@ function Pagos() {
     const fileName = `pagos_${activeTab}_${selectedYear}_${safeMes}.xlsx`;
     XLSX.writeFile(wb, fileName);
   }, [filtrosCompletos, datosFiltrados, activeTab, selectedYear, selectedMonthId, meses]);
+
+  // ✅ confirmar anulación de factura con Nota de Crédito si corresponde
+  const confirmarAnularFactura = useCallback(async () => {
+    if (!modalAnularFactura?.id_factura) return;
+
+    try {
+      setLoading((p) => ({ ...p, pagos: true }));
+
+      const resp = await fetchJSON(`${API}?action=${ACTION_PAGOS}&op=factura_anular_con_nc`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          id_factura: modalAnularFactura.id_factura,
+          motivo: "Anulación desde módulo Pagos",
+        }),
+      });
+
+      const emitioNC = Boolean(resp?.emitio_nota_credito || resp?.nota_credito_existente);
+
+      if (emitioNC && resp?.nota_credito) {
+        try {
+          await saveArcaCreditNotePdf({
+            notaCredito: resp.nota_credito,
+            facturaOriginal: resp?.factura_original || {},
+            data: {
+              labelCliente: modalAnularFactura?.labelCliente || resp?.factura_original?.cliente_nombre || "",
+              labelSistema: modalAnularFactura?.labelSistema || resp?.factura_original?.sistema_nombre || "",
+              motivo: "Anulación desde módulo Pagos",
+            },
+            download: true,
+          });
+        } catch (pdfErr) {
+          console.warn("No se pudo descargar el PDF simple de Nota de Crédito:", pdfErr);
+          showToast(
+            "advertencia",
+            "La Nota de Crédito se emitió, pero no se pudo descargar el PDF simple.",
+            4200
+          );
+        }
+      }
+
+      showToast(
+        "exito",
+        emitioNC
+          ? "Nota de Crédito emitida, PDF descargado y factura eliminada correctamente."
+          : "Factura eliminada correctamente.",
+        3800
+      );
+
+      closeModalAnularFactura();
+      recargarListado();
+    } catch (e) {
+      console.error(e);
+      showToast("error", e.message || "Error al anular la factura.", 4200);
+    } finally {
+      setLoading((p) => ({ ...p, pagos: false }));
+    }
+  }, [modalAnularFactura, fetchJSON, showToast, closeModalAnularFactura, recargarListado]);
 
   // ✅ confirmar eliminación
   const confirmarEliminarPago = useCallback(async () => {
@@ -1166,6 +1263,10 @@ function Pagos() {
               ? Boolean(facturaCheckLoadingMap?.[idSistema])
               : false;
 
+            const facturaInfo = idSistema ? facturaInfoMap?.[idSistema] : null;
+            const idFactura = Number(row?.id_factura || facturaInfo?.id_factura || 0);
+            const tieneFactura = Number.isFinite(idFactura) && idFactura > 0;
+
             const payDisabled = !isDeudor ? true : facturaChecking ? true : canOpenPago === false;
 
             const payTitle = !isDeudor
@@ -1203,21 +1304,6 @@ function Pagos() {
                     </button>
                   )}
 
-                  {isPagado && (
-                    <button
-                      className="gpagos-mobile-team-button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onTeamClick(row);
-                      }}
-                      type="button"
-                      title="Equipo / monto a pagar"
-                    >
-                      <FontAwesomeIcon icon={faUsers} />
-                      <span>Equipo</span>
-                    </button>
-                  )}
-
                   {isDeudor && (
                     <button
                       className="gpagos-mobile-arca-button"
@@ -1231,6 +1317,21 @@ function Pagos() {
                     >
                       <FontAwesomeIcon icon={faFileInvoiceDollar} />
                       <span>ARCA</span>
+                    </button>
+                  )}
+
+                  {tieneFactura && (
+                    <button
+                      className="gpagos-mobile-delete-button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onAnularFacturaClick(row, facturaInfo);
+                      }}
+                      type="button"
+                      title="Anular factura / emitir Nota de Crédito"
+                    >
+                      <FontAwesomeIcon icon={faBan} />
+                      <span>Anular factura</span>
                     </button>
                   )}
 
@@ -1303,11 +1404,12 @@ function Pagos() {
                 activeTab={activeTab}
                 onPayClick={onPayClick}
                 onDeleteClick={onDeleteClick}
-                onTeamClick={onTeamClick}
                 onArcaClick={onArcaClick}
+                onAnularFacturaClick={onAnularFacturaClick}
                 arcaLoadingId={arcaLoadingId}
                 canOpenPagoMap={canOpenPagoMap}
                 facturaCheckLoadingMap={facturaCheckLoadingMap}
+                facturaInfoMap={facturaInfoMap}
               />
             );
           }}
@@ -1323,8 +1425,8 @@ function Pagos() {
     activeTab,
     onPayClick,
     onDeleteClick,
-    onTeamClick,
     onArcaClick,
+    onAnularFacturaClick,
     hasMore,
     loadMoreItems,
     listKey,
@@ -1332,6 +1434,7 @@ function Pagos() {
     arcaLoadingId,
     canOpenPagoMap,
     facturaCheckLoadingMap,
+    facturaInfoMap,
     prefetchFacturaForRows,
   ]);
 
@@ -1356,21 +1459,24 @@ function Pagos() {
             recargarListado();
             showToast("exito", "Pago realizado con éxito.", 2600);
           }}
+          onFacturaAnulada={(resp) => {
+            closeModalPago();
+            recargarListado();
+            const emitioNC = Boolean(resp?.emitio_nota_credito || resp?.nota_credito_existente);
+            showToast(
+              "exito",
+              emitioNC
+                ? "Nota de Crédito emitida y factura eliminada correctamente."
+                : "Factura eliminada correctamente.",
+              3400
+            );
+          }}
           anioSeleccionado={modalPago.anioSeleccionado}
           mesSeleccionado={modalPago.mesSeleccionado}
           idMesSeleccionado={modalPago.idMesSeleccionado}
         />
       )}
 
-      {modalEquipo?.open && (
-        <ModalEquipoPago
-          open={modalEquipo.open}
-          onClose={closeModalEquipo}
-          apiBase={API}
-          action={ACTION_PAGOS}
-          data={modalEquipo}
-        />
-      )}
 
       {modalArca?.open && (
         <ModalFacturaArca
@@ -1387,6 +1493,16 @@ function Pagos() {
             closeModalArca();
             recargarListado();
           }}
+        />
+      )}
+
+      {modalAnularFactura?.open && (
+        <ModalAnularFactura
+          open={modalAnularFactura.open}
+          onClose={closeModalAnularFactura}
+          onConfirm={confirmarAnularFactura}
+          loading={loading.pagos}
+          data={modalAnularFactura}
         />
       )}
 
@@ -1589,7 +1705,7 @@ function Pagos() {
 
           <div className="gpagos-summary-info">
             <span className="gpagos-summary-item">
-              <FontAwesomeIcon icon={faUsers} />
+              <FontAwesomeIcon icon={faList} />
               Total: {filtrosCompletos ? datosFiltrados.length : 0}
             </span>
           </div>

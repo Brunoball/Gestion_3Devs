@@ -269,7 +269,7 @@ export default function Mantenimiento() {
               <div className="TP-GridHead" style={{ gridTemplateColumns: COLS.head }}>
                 <div className="TP-GridTh">Nombre</div>
                 <div className="TP-GridTh">Descripción</div>
-                <div className="TP-GridTh">Monto</div>
+                <div className="TP-GridTh">Monto (ARS)</div>
                 <div className="TP-GridTh">Activo</div>
                 <div className="TP-GridTh TP-GridTh--right">Acciones</div>
               </div>

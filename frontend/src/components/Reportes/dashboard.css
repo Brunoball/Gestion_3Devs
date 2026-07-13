@@ -489,6 +489,23 @@ html, body {
   background: rgba(220, 38, 38, 0.06);
 }
 
+.icon-btn.disabled,
+.icon-btn:disabled,
+.icon-btn[disabled]{
+  opacity: 0.42;
+  cursor: not-allowed;
+  background: rgba(241, 245, 249, 0.85);
+  border-color: rgba(148, 163, 184, 0.32);
+  box-shadow: none;
+}
+.icon-btn.disabled:hover,
+.icon-btn:disabled:hover,
+.icon-btn[disabled]:hover{
+  transform: none;
+  border-color: rgba(148, 163, 184, 0.32);
+  background: rgba(241, 245, 249, 0.85);
+}
+
 /* Texto en una sola línea con "..." */
 .truncate{
   display: block;

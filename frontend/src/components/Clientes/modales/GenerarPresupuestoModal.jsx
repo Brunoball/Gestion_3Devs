@@ -125,6 +125,27 @@ async function urlToDataUrl(url) {
   });
 }
 
+async function obtenerDolarOficialVenta() {
+  const res = await fetch(`${BASE_URL}/api.php?action=dolar_oficial`);
+  const data = await res.json();
+
+  if (!res.ok || !data?.ok) {
+    throw new Error(data?.error || "No se pudo obtener la cotización del dólar.");
+  }
+
+  const venta = toNumber(data?.venta);
+  if (!venta || venta <= 0) {
+    throw new Error("La cotización del dólar recibida no es válida.");
+  }
+
+  return {
+    venta,
+    compra: toNumber(data?.compra),
+    fuente: data?.fuente || "Dólar Oficial",
+    fecha: data?.fecha || "",
+  };
+}
+
 /**
  * ✅ Formato total según moneda elegida:
  * - ARS: ARS$ 1.780
@@ -136,6 +157,60 @@ function formatMoneyByCurrency(amount, currency) {
 
   if (currency === "USD") return `USD$ ${formatted}`;
   return `ARS$ ${formatted}`;
+}
+
+// Compatibilidad con bases viejas: antes planes_mantenimiento.monto estaba cargado en USD
+// (ej.: 45, 65, 120). Desde el cambio nuevo se guarda en ARS. Si una DB todavía no
+// fue migrada, no hay que dividir 45 por el dólar porque en PDF termina mostrando USD$ 0.
+const PLAN_LEGACY_USD_THRESHOLD = 1000;
+
+function planLooksLegacyUSD(monto, dolarVenta) {
+  const n = Number(monto || 0);
+  const r = Number(dolarVenta || 0);
+  return Number.isFinite(n) && n > 0 && n < PLAN_LEGACY_USD_THRESHOLD && Number.isFinite(r) && r > 0;
+}
+
+function planMontoForCurrency(monto, currency, dolarVenta) {
+  const n = Number(monto || 0);
+  const r = Number(dolarVenta || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+
+  const legacyUsd = planLooksLegacyUSD(n, r);
+
+  if (currency === "USD") {
+    // DB vieja: monto ya era USD, se muestra directo.
+    if (legacyUsd) return n;
+    // DB nueva: monto está en ARS, se convierte a USD.
+    return Number.isFinite(r) && r > 0 ? n / r : 0;
+  }
+
+  // PDF en pesos: DB vieja se convierte USD -> ARS; DB nueva se muestra directo.
+  if (legacyUsd) return n * r;
+  return n;
+}
+
+function getPlanId(plan) {
+  return String(plan?.id ?? plan?.id_plan ?? plan?.nombre ?? "");
+}
+
+function getPlanPreviewAmount(plan, currency, dolarVenta) {
+  const montoBase = Number(plan?.monto || 0);
+  if (!montoBase || montoBase <= 0) return formatMoneyByCurrency(0, currency);
+
+  const r = Number(dolarVenta || 0);
+  if (currency === "USD" && (!Number.isFinite(r) || r <= 0)) {
+    // Si no llegó todavía la cotización, no muestres USD$ 0 por error.
+    // Para bases viejas con valores chicos, el monto ya era USD.
+    if (montoBase > 0 && montoBase < PLAN_LEGACY_USD_THRESHOLD) {
+      return formatMoneyByCurrency(montoBase, "USD");
+    }
+    return "USD a calcular";
+  }
+
+  return formatMoneyByCurrency(
+    planMontoForCurrency(montoBase, currency, r),
+    currency
+  );
 }
 
 /** Para la tabla: $ + miles (sin decimales) */
@@ -268,7 +343,8 @@ function drawDarkInfoBar(doc, x, y, w, text) {
   return y - 6 + h;
 }
 
-// ✅ Ahora el precio se formatea por moneda (ARS/USD) igual que el total
+// ✅ El precio se formatea según la moneda elegida en el presupuesto.
+// Los planes vienen guardados en ARS y solo se convierten a USD para mostrar el PDF si el usuario elige dólares.
 function drawPlanBox(
   doc,
   x,
@@ -317,7 +393,7 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
   const [rows, setRows] = useState(ITEMS_BASE);
   const [headerDataUrl, setHeaderDataUrl] = useState("");
 
-  // ✅ Moneda elegida
+  // ✅ Moneda elegida para el presupuesto. Por defecto pesos, pero se puede emitir en dólares.
   const [currency, setCurrency] = useState("ARS");
 
   // ✅ Monto total objetivo (input arriba)
@@ -325,6 +401,10 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
 
   // ✅ Planes desde DB
   const [planes, setPlanes] = useState([]);
+  const [selectedPlanIds, setSelectedPlanIds] = useState([]);
+
+  // ✅ Cotización desde backend/modules/global/obtener_dolar.php para convertir planes ARS -> USD si se emite en dólares.
+  const [dolarOficial, setDolarOficial] = useState(null);
 
   const total = useMemo(() => {
     return rows.reduce((acc, r) => {
@@ -334,6 +414,13 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
     }, 0);
   }, [rows]);
 
+  const selectedPlanes = useMemo(() => {
+    const selected = new Set(selectedPlanIds.map(String));
+    return (Array.isArray(planes) ? planes : []).filter((p) =>
+      selected.has(getPlanId(p))
+    );
+  }, [planes, selectedPlanIds]);
+
   useEffect(() => {
     if (!open) return;
 
@@ -342,6 +429,8 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
     setCurrency("ARS");
     setTargetTotal("");
     setPlanes([]);
+    setSelectedPlanIds([]);
+    setDolarOficial(null);
 
     setRows(ITEMS_BASE.map((x) => ({ ...x, id: x.id || uid() })));
 
@@ -352,6 +441,16 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
         setHeaderDataUrl(durl);
       } catch {
         setHeaderDataUrl("");
+      }
+    })();
+
+    // ✅ precargar dólar oficial. Si falla, no bloquea: solo se necesita si se elige USD.
+    (async () => {
+      try {
+        const dolar = await obtenerDolarOficialVenta();
+        setDolarOficial(dolar);
+      } catch {
+        setDolarOficial(null);
       }
     })();
 
@@ -373,6 +472,9 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
 
         const arr = Array.isArray(data?.data) ? data.data : [];
         setPlanes(arr);
+        // Por defecto quedan todos marcados, así el comportamiento viejo no se rompe.
+        // Después podés destildar los planes que no querés que salgan en el PDF.
+        setSelectedPlanIds(arr.map((p) => getPlanId(p)).filter(Boolean));
       } catch (e) {
         setPlanes([]);
         onToast?.(
@@ -412,6 +514,24 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
       return copy;
     });
   };
+
+  const togglePlan = (planId) => {
+    const id = String(planId || "");
+    if (!id) return;
+
+    setSelectedPlanIds((prev) => {
+      const set = new Set(prev.map(String));
+      if (set.has(id)) set.delete(id);
+      else set.add(id);
+      return Array.from(set);
+    });
+  };
+
+  const selectAllPlans = () => {
+    setSelectedPlanIds((Array.isArray(planes) ? planes : []).map((p) => getPlanId(p)).filter(Boolean));
+  };
+
+  const clearSelectedPlans = () => setSelectedPlanIds([]);
 
   /**
    * ✅ Distribuir "Monto total" SOLO tocando precios (unit),
@@ -470,13 +590,39 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
     onToast?.("exito", "Monto total aplicado ajustando precios por hora.");
   };
 
-  const generarPDF = () => {
+  const asegurarDolarOficial = async () => {
+    if (dolarOficial?.venta && dolarOficial.venta > 0) return dolarOficial;
+
+    const dolar = await obtenerDolarOficialVenta();
+    setDolarOficial(dolar);
+    return dolar;
+  };
+
+  const generarPDF = async () => {
     const rs = (razonSocial || "").trim();
     const pr = (proyecto || "").trim();
     if (!rs) return onToast?.("advertencia", "Ingresá la razón social.");
     if (!pr) return onToast?.("advertencia", "Ingresá el proyecto.");
     if (!rows.length)
       return onToast?.("advertencia", "Agregá al menos una fila al detalle.");
+
+    let dolarParaPDF = dolarOficial;
+    const planesDisponibles = Array.isArray(planes) ? planes : [];
+    const planesToUse = Array.isArray(selectedPlanes) ? selectedPlanes : [];
+
+    // Los planes de mantenimiento se guardan en ARS.
+    // Si el presupuesto se emite en USD, se convierten solo para mostrar el PDF.
+    if (currency === "USD" && planesToUse.length > 0) {
+      try {
+        dolarParaPDF = await asegurarDolarOficial();
+      } catch (e) {
+        return onToast?.(
+          "advertencia",
+          e?.message ||
+            "No se pudo obtener el dólar actual para convertir los mantenimientos a dólares."
+        );
+      }
+    }
 
     const doc = new jsPDF("p", "mm", "a4");
     const drawHeader = buildHeaderDrawer(doc, headerDataUrl);
@@ -488,7 +634,7 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
 
     // ✅ TÍTULO: tipografía distinta + centrado real
     const pageW = doc.internal.pageSize.getWidth();
-    doc.setFont("times", "bold"); // ✅ cambia tipografía del título
+    doc.setFont("times", "bold");
     doc.setFontSize(22);
     doc.setTextColor(0, 0, 0);
     doc.text("PRESUPUESTO", pageW / 2, 58, { align: "center" });
@@ -520,8 +666,8 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
         (r.item || "").trim(),
         (r.desc || "").trim(),
         String(horas),
-        moneyARS(unit),
-        moneyARS(subtotal),
+        formatMoneyByCurrency(unit, currency),
+        formatMoneyByCurrency(subtotal, currency),
       ];
     });
 
@@ -538,20 +684,14 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
         valign: "middle",
       },
       headStyles: { fillColor: [109, 158, 235], textColor: 0, fontStyle: "bold" },
-
-      // ✅ fuerza ancho útil real (evita corrimiento a la derecha)
       tableWidth: contentW,
-
-      // ✅ estos anchos SUMAN EXACTO contentW (=182)
-      // y además centramos Precio Unitario + Subtotal (cols 3 y 4)
       columnStyles: {
         0: { cellWidth: 32 },
         1: { cellWidth: 74 },
         2: { cellWidth: 26, halign: "center" },
-        3: { cellWidth: 25, halign: "center" }, // ✅ CENTRADO
-        4: { cellWidth: 25, halign: "center" }, // ✅ CENTRADO
+        3: { cellWidth: 25, halign: "center" },
+        4: { cellWidth: 25, halign: "center" },
       },
-
       margin: { left: marginX, right: marginX },
       theme: "grid",
       didDrawPage: () => drawHeader(),
@@ -575,12 +715,6 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
       align: "right",
     });
 
-    // 3. Costo mensual
-    y += 10;
-    y = ensureSpace(doc, y, 12, drawHeader);
-    drawSectionTitle(doc, marginX, y, "3. Costo mensual");
-    y += 6;
-
     // ✅ Colores (se asignan por índice, cíclico)
     const palette = [
       { rgbTitle: [213, 166, 189], rgbDesc: [234, 209, 220] },
@@ -590,52 +724,66 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
       { rgbTitle: [164, 194, 244], rgbDesc: [201, 218, 248] },
     ];
 
-    const planesToUse = Array.isArray(planes) ? planes : [];
-
-    if (!planesToUse.length) {
+    if (!planesDisponibles.length) {
       onToast?.("advertencia", "No hay planes de mantenimiento activos en la DB.");
     }
 
-    for (let i = 0; i < planesToUse.length; i++) {
-      const p = planesToUse[i];
-      const colors = palette[i % palette.length];
+    if (planesToUse.length > 0) {
+      // 3. Costo mensual
+      y += 10;
+      y = ensureSpace(doc, y, 12, drawHeader);
+      drawSectionTitle(doc, marginX, y, "3. Costo mensual");
+      y += 6;
 
-      const title = String(p?.nombre || "").trim() || "Plan";
-      const desc = String(p?.descripcion || "").trim() || "";
-      const price = Number(p?.monto || 0);
+      for (let i = 0; i < planesToUse.length; i++) {
+        const p = planesToUse[i];
+        const colors = palette[i % palette.length];
 
-      const need = estimatePlanBoxHeight(doc, contentW, desc);
-      y = ensureSpace(doc, y, need, drawHeader);
+        const title = String(p?.nombre || "").trim() || "Plan";
+        const desc = String(p?.descripcion || "").trim() || "";
+        const montoBase = Number(p?.monto || 0);
+        const planCurrency = currency === "USD" ? "USD" : "ARS";
+        const planPrice = planMontoForCurrency(
+          montoBase,
+          planCurrency,
+          Number(dolarParaPDF?.venta || 0)
+        );
 
+        const need = estimatePlanBoxHeight(doc, contentW, desc);
+        y = ensureSpace(doc, y, need, drawHeader);
+
+        y =
+          drawPlanBox(
+            doc,
+            marginX,
+            y,
+            contentW,
+            title,
+            desc,
+            planPrice,
+            planCurrency, // ✅ ARS por defecto; USD si el presupuesto se emite en dólares
+            colors.rgbTitle,
+            colors.rgbDesc
+          ) + 6;
+      }
+
+      // Barra oscura de mantenimiento: solo tiene sentido si salen planes en el PDF.
+      y = ensureSpace(doc, y, 18, drawHeader);
       y =
-        drawPlanBox(
+        drawDarkInfoBar(
           doc,
           marginX,
-          y,
+          y + 6,
           contentW,
-          title,
-          desc,
-          price,
-          currency,
-          colors.rgbTitle,
-          colors.rgbDesc
-        ) + 6;
+          "Se garantiza respuesta inmediata a las situaciones problemáticas o nuevos requerimientos de los clientes."
+        ) + 12;
     }
 
-    // Barra oscura
-    y = ensureSpace(doc, y, 18, drawHeader);
-    y =
-      drawDarkInfoBar(
-        doc,
-        marginX,
-        y + 6,
-        contentW,
-        "Se garantiza respuesta inmediata a las situaciones problemáticas o nuevos requerimientos de los clientes."
-      ) + 12;
+    const condicionesNumero = planesToUse.length > 0 ? 4 : 3;
 
-    // 4. Condiciones
+    // Condiciones
     y = ensureSpace(doc, y, 45, drawHeader);
-    drawSectionTitle(doc, marginX, y, "4. Condiciones");
+    drawSectionTitle(doc, marginX, y, `${condicionesNumero}. Condiciones`);
     y += 8;
 
     doc.setFont("helvetica", "normal");
@@ -650,16 +798,18 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
     doc.text("Validez del presupuesto: 15 días", marginX, y);
     y += 10;
 
-    // Barra oscura final
-    y = ensureSpace(doc, y, 18, drawHeader);
-    y =
-      drawDarkInfoBar(
-        doc,
-        marginX,
-        y + 6,
-        contentW,
-        "Cada plan puede ajustarse en función del volumen de trabajo o complejidad técnica."
-      ) + 10;
+    // Barra oscura final: solo si el presupuesto incluye planes.
+    if (planesToUse.length > 0) {
+      y = ensureSpace(doc, y, 18, drawHeader);
+      y =
+        drawDarkInfoBar(
+          doc,
+          marginX,
+          y + 6,
+          contentW,
+          "Cada plan puede ajustarse en función del volumen de trabajo o complejidad técnica."
+        ) + 10;
+    }
 
     // Firma (evitar hoja sola)
     const pageH = doc.internal.pageSize.getHeight();
@@ -704,7 +854,6 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
         className="mi-modal__container pres_modal_container"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header estilo ModalEditarTrabajador */}
         <div className="mi-modal__header pres_modal_header">
           <div className="mi-modal__head-left">
             <h2 className="mi-modal__title">Generar presupuesto</h2>
@@ -733,11 +882,9 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
           </button>
         </div>
 
-        {/* Body con cards */}
         <div className="mit-modal__body">
           <div className="mi-tabpanel is-active">
             <div className="mi-grid">
-              {/* Card 1 */}
               <article className="mi-card mi-card--full">
                 <h3 className="mi-card__title">1. Datos del cliente</h3>
 
@@ -764,7 +911,6 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
                 </div>
               </article>
 
-              {/* Card 2 */}
               <article className="mi-card mi-card--full">
                 <h3 className="mi-card__title">2. Detalle del presupuesto</h3>
 
@@ -877,8 +1023,7 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
                                 }
                                 onPaste={(e) => {
                                   e.preventDefault();
-                                  const txt =
-                                    e.clipboardData.getData("text");
+                                  const txt = e.clipboardData.getData("text");
                                   onChangeRow(
                                     r.id,
                                     "horas",
@@ -907,8 +1052,7 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
                                 }
                                 onPaste={(e) => {
                                   e.preventDefault();
-                                  const txt =
-                                    e.clipboardData.getData("text");
+                                  const txt = e.clipboardData.getData("text");
                                   onChangeRow(
                                     r.id,
                                     "unit",
@@ -918,7 +1062,7 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
                               />
                             </td>
 
-                            <td className="pres_td_money2">{moneyARS(sub)}</td>
+                            <td className="pres_td_money2">{formatMoneyByCurrency(sub, currency)}</td>
 
                             <td className="pres_actions2">
                               <button
@@ -965,6 +1109,7 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
                                 gap: 8,
                                 alignItems: "center",
                               }}
+                              title="Emitir el presupuesto en pesos"
                             >
                               <input
                                 type="radio"
@@ -981,6 +1126,7 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
                                 gap: 8,
                                 alignItems: "center",
                               }}
+                              title="Emitir el presupuesto en dólares"
                             >
                               <input
                                 type="radio"
@@ -1007,10 +1153,81 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
                   </table>
                 </div>
               </article>
+
+              <article className="mi-card mi-card--full">
+                <div className="pres_plan_header">
+                  <div>
+                    <h3 className="mi-card__title">3. Planes de mantenimiento</h3>
+                    <p className="pres_plan_hint">
+                      Marcá solamente los planes que querés que aparezcan en el presupuesto.
+                    </p>
+                  </div>
+
+                  {planes.length > 0 && (
+                    <div className="pres_plan_tools">
+                      <button
+                        type="button"
+                        className="mit-btn mit-btn--ghost"
+                        onClick={selectAllPlans}
+                      >
+                        Todos
+                      </button>
+                      <button
+                        type="button"
+                        className="mit-btn mit-btn--ghost"
+                        onClick={clearSelectedPlans}
+                      >
+                        Ninguno
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {!planes.length ? (
+                  <div className="pres_plan_empty">
+                    No hay planes de mantenimiento activos para seleccionar.
+                  </div>
+                ) : (
+                  <div className="pres_plan_grid">
+                    {planes.map((p) => {
+                      const id = getPlanId(p);
+                      const checked = selectedPlanIds.map(String).includes(id);
+                      const nombre = String(p?.nombre || "Plan").trim() || "Plan";
+                      const descripcion = String(p?.descripcion || "").trim();
+                      const montoPreview = getPlanPreviewAmount(
+                        p,
+                        currency,
+                        Number(dolarOficial?.venta || 0)
+                      );
+
+                      return (
+                        <label
+                          key={id || nombre}
+                          className={`pres_plan_option ${checked ? "is-selected" : ""}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => togglePlan(id)}
+                          />
+                          <span className="pres_plan_content">
+                            <span className="pres_plan_topline">
+                              <strong>{nombre}</strong>
+                              <b>{montoPreview}</b>
+                            </span>
+                            {descripcion && (
+                              <span className="pres_plan_desc">{descripcion}</span>
+                            )}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
             </div>
           </div>
 
-          {/* Footer acciones igual que mit-actions */}
           <div className="mit-actions pres_actions_bar">
             <div className="mit-help pres_help_in_actions">
               * Campos obligatorios

@@ -23,8 +23,8 @@ import ModalBajaTrabajador from "./modales/ModalBajaTrabajador";
 import ModalTrabajadoresBaja from "./modales/ModalTrabajadoresBaja";
 
 const COLS = {
-  head: ".4fr 1.2fr 1.2fr 2fr 1fr 1.4fr 0.9fr .9fr",
-  row: ".4fr 1.2fr 1.2fr 2fr 1fr 1.4fr 0.9fr .9fr",
+  head: ".35fr 1.1fr 1.1fr 1.9fr .9fr 1.25fr .7fr 1.05fr",
+  row: ".35fr 1.1fr 1.1fr 1.9fr .9fr 1.25fr .7fr 1.05fr",
 };
 
 export default function Trabajadores() {
@@ -40,7 +40,6 @@ export default function Trabajadores() {
   const [openEditar, setOpenEditar] = useState(false);
   const [openBaja, setOpenBaja] = useState(false);
   const [openBajaListado, setOpenBajaListado] = useState(false);
-
   const [sel, setSel] = useState(null);
 
   // ======= TOAST (según tu Toast.jsx) =======
@@ -70,8 +69,15 @@ export default function Trabajadores() {
   // ========= API helpers =========
   const apiGet = async (url) => {
     const res = await fetch(url, { method: "GET" });
-    return await res.json();
+    const raw = await res.text();
+    try {
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return { exito: false, mensaje: raw || "Respuesta inválida del servidor" };
+    }
   };
+
+
 
   // ========= Cargar lista (SOLO activos) =========
   const cargar = useCallback(async () => {
@@ -128,6 +134,7 @@ export default function Trabajadores() {
     setSel(r);
     setOpenBaja(true);
   };
+
 
   const cerrarCrear = () => setOpenCrear(false);
   const cerrarEditar = () => setOpenEditar(false);
@@ -206,69 +213,69 @@ export default function Trabajadores() {
                         animationDelay: `${idx * 0.04}s`,
                       }}
                     >
-                      <div className="TP-GridTd" data-label="ID">
-                        {r.id}
-                      </div>
-
-                      <div className="TP-GridTd" data-label="Nombre">
-                        {r.nombre}
-                      </div>
-
-                      <div className="TP-GridTd" data-label="Apellido">
-                        {r.apellido}
-                      </div>
-
-                      <div className="TP-GridTd" data-label="Email">
-                        {r.email ?? "—"}
-                      </div>
-
-                      <div className="TP-GridTd" data-label="Rol">
-                        {r.rol}
-                      </div>
-
-                      <div className="TP-GridTd" data-label="Alias pago">
-                        {r.alias_pago ?? "—"}
-                      </div>
-
-                      <div className="TP-GridTd" data-label="Activo">
-                        <span className="TP-Pill TP-Pill--ok">Activo</span>
-                      </div>
-
-                      <div
-                        className="TP-GridTd TP-GridTd--right"
-                        data-label="Acciones"
-                      >
-                        <div className="TP-RowActions">
-                          <button
-                            type="button"
-                            className="TP-IconBtn TP-IconBtn--edit"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              abrirEditar(r);
-                            }}
-                            title="Editar"
-                            aria-label={`Editar ${r.nombre} ${r.apellido}`}
-                          >
-                            <FontAwesomeIcon icon={faPenToSquare} />
-                          </button>
-
-                          {/* ✅ IMPORTANTE: frenamos evento para evitar glitches */}
-                          <button
-                            type="button"
-                            className="TP-IconBtn TP-IconBtn--del"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              abrirBaja(r);
-                            }}
-                            title="Dar de baja"
-                            aria-label={`Dar de baja a ${r.nombre} ${r.apellido}`}
-                          >
-                            <FontAwesomeIcon icon={faUserSlash} />
-                          </button>
+                        <div className="TP-GridTd" data-label="ID">
+                          {r.id}
                         </div>
-                      </div>
+
+                        <div className="TP-GridTd" data-label="Nombre">
+                          {r.nombre}
+                        </div>
+
+                        <div className="TP-GridTd" data-label="Apellido">
+                          {r.apellido}
+                        </div>
+
+                        <div className="TP-GridTd" data-label="Email">
+                          {r.email ?? "—"}
+                        </div>
+
+                        <div className="TP-GridTd" data-label="Rol">
+                          {r.rol}
+                        </div>
+
+                        <div className="TP-GridTd" data-label="Alias pago">
+                          {r.alias_pago ?? "—"}
+                        </div>
+
+                        <div className="TP-GridTd" data-label="Activo">
+                          <span className="TP-Pill TP-Pill--ok">Activo</span>
+                        </div>
+
+                        <div
+                          className="TP-GridTd TP-GridTd--right"
+                          data-label="Acciones"
+                        >
+                          <div className="TP-RowActions">
+                            <button
+                              type="button"
+                              className="TP-IconBtn TP-IconBtn--edit"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                abrirEditar(r);
+                              }}
+                              title="Editar"
+                              aria-label={`Editar ${r.nombre} ${r.apellido}`}
+                            >
+                              <FontAwesomeIcon icon={faPenToSquare} />
+                            </button>
+
+                            {/* ✅ IMPORTANTE: frenamos evento para evitar glitches */}
+                            <button
+                              type="button"
+                              className="TP-IconBtn TP-IconBtn--del"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                abrirBaja(r);
+                              }}
+                              title="Dar de baja"
+                              aria-label={`Dar de baja a ${r.nombre} ${r.apellido}`}
+                            >
+                              <FontAwesomeIcon icon={faUserSlash} />
+                            </button>
+                          </div>
+                        </div>
                     </div>
                   ))
                 )}
@@ -328,6 +335,7 @@ export default function Trabajadores() {
           }, 500);
         }}
       />
+
 
       {/* ✅ Modal listado de dados de baja */}
       <ModalTrabajadoresBaja
