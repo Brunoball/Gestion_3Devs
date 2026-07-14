@@ -388,6 +388,7 @@ function estimatePlanBoxHeight(doc, w, desc) {
 }
 
 export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
+  const [activeTab, setActiveTab] = useState("cliente");
   const [razonSocial, setRazonSocial] = useState("");
   const [proyecto, setProyecto] = useState("");
   const [rows, setRows] = useState(ITEMS_BASE);
@@ -426,6 +427,7 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
 
     setRazonSocial("");
     setProyecto("");
+    setActiveTab("cliente");
     setCurrency("ARS");
     setTargetTotal("");
     setPlanes([]);
@@ -601,10 +603,18 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
   const generarPDF = async () => {
     const rs = (razonSocial || "").trim();
     const pr = (proyecto || "").trim();
-    if (!rs) return onToast?.("advertencia", "Ingresá la razón social.");
-    if (!pr) return onToast?.("advertencia", "Ingresá el proyecto.");
-    if (!rows.length)
+    if (!rs) {
+      setActiveTab("cliente");
+      return onToast?.("advertencia", "Ingresá la razón social.");
+    }
+    if (!pr) {
+      setActiveTab("cliente");
+      return onToast?.("advertencia", "Ingresá el proyecto.");
+    }
+    if (!rows.length) {
+      setActiveTab("detalle");
       return onToast?.("advertencia", "Agregá al menos una fila al detalle.");
+    }
 
     let dolarParaPDF = dolarOficial;
     const planesDisponibles = Array.isArray(planes) ? planes : [];
@@ -883,9 +893,43 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
         </div>
 
         <div className="mit-modal__body">
+          <div className="pres_tabs" role="tablist" aria-label="Secciones del presupuesto">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "cliente"}
+              className={`pres_tab ${activeTab === "cliente" ? "is-active" : ""}`}
+              onClick={() => setActiveTab("cliente")}
+            >
+              <span className="pres_tab_number">1</span>
+              Cliente
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "detalle"}
+              className={`pres_tab ${activeTab === "detalle" ? "is-active" : ""}`}
+              onClick={() => setActiveTab("detalle")}
+            >
+              <span className="pres_tab_number">2</span>
+              Detalle
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "planes"}
+              className={`pres_tab ${activeTab === "planes" ? "is-active" : ""}`}
+              onClick={() => setActiveTab("planes")}
+            >
+              <span className="pres_tab_number">3</span>
+              Planes
+            </button>
+          </div>
+
           <div className="mi-tabpanel is-active">
             <div className="mi-grid">
-              <article className="mi-card mi-card--full">
+              {activeTab === "cliente" && (
+              <article className="mi-card mi-card--full pres_tab_card">
                 <h3 className="mi-card__title">1. Datos del cliente</h3>
 
                 <div className="fl-grid">
@@ -910,8 +954,10 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
                   </div>
                 </div>
               </article>
+              )}
 
-              <article className="mi-card mi-card--full">
+              {activeTab === "detalle" && (
+              <article className="mi-card mi-card--full pres_tab_card">
                 <h3 className="mi-card__title">2. Detalle del presupuesto</h3>
 
                 <div className="pres_table_title2">
@@ -1153,8 +1199,10 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
                   </table>
                 </div>
               </article>
+              )}
 
-              <article className="mi-card mi-card--full">
+              {activeTab === "planes" && (
+              <article className="mi-card mi-card--full pres_tab_card">
                 <div className="pres_plan_header">
                   <div>
                     <h3 className="mi-card__title">3. Planes de mantenimiento</h3>
@@ -1225,6 +1273,7 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
                   </div>
                 )}
               </article>
+              )}
             </div>
           </div>
 
