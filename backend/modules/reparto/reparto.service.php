@@ -5,28 +5,17 @@ declare(strict_types=1);
 /**
  * Motor central de distribución de ingresos.
  *
- * Reglas del negocio:
- * - 3DEVS (`por_sistema`): cada sistema define su equipo y porcentajes.
- * - BALTO (`por_entidad`): todos los sistemas usan una regla institucional.
- * - Una organización beneficiaria puede distribuir su participación entre personas.
- *   Ejemplo: BALTO 50% contador + 50% 3DEVS; el 50% de 3DEVS se expande entre
- *   los integrantes de 3DEVS según su distribución interna vigente.
- * - Al registrar un pago, el resultado se congela en `pagos_reparto` para que
- *   cambios futuros de porcentajes no alteren la contabilidad histórica.
+ * Diseño simplificado:
+ * - Los pagos se guardan únicamente en `pagos`.
+ * - El reparto se calcula en el momento de consultar reportes o resúmenes.
+ * - No depende de snapshots ni de la tabla `pagos_reparto`.
+ * - En repartos entre entidades, los montos se asignan jerárquicamente para
+ *   respetar cada nivel exacto (por ejemplo: BALTO 50/50 y luego 3DEVS 33/33/33).
  */
 
 function reparto_redondear(float $value, int $scale = 4): float
 {
     return round($value, $scale);
-}
-
-function reparto_tabla_existe(PDO $pdo, string $tabla): bool
-{
-    $st = $pdo->prepare(
-        'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :tabla LIMIT 1'
-    );
-    $st->execute([':tabla' => $tabla]);
-    return (bool)$st->fetchColumn();
 }
 
 /** @return float[] */
@@ -49,7 +38,7 @@ function reparto_porcentajes_iguales(int $cantidad, int $scale = 4): array
 
 /**
  * Distribuye un monto en centavos sin perder ni crear dinero por redondeo.
- * El resultado siempre suma exactamente el monto base.
+ * Si los porcentajes suman 100%, el resultado suma exactamente el monto base.
  */
 function reparto_aplicar_montos_exactos(array $items, float $monto): array
 {
@@ -60,7 +49,15 @@ function reparto_aplicar_montos_exactos(array $items, float $monto): array
         static fn(array $item): float => max(0.0, (float)($item['porcentaje'] ?? 0)),
         $items
     ));
-    $objetivoCentavos = (int)round($totalCentavos * min(100.0, $porcentajeTotal) / 100.0);
+    if ($porcentajeTotal <= 0.0) {
+        foreach ($items as &$item) $item['monto_estimado'] = 0.0;
+        unset($item);
+        return $items;
+    }
+
+    $objetivoCentavos = (int)round(
+        $totalCentavos * min(100.0, max(0.0, $porcentajeTotal)) / 100.0
+    );
     $calculados = [];
     $sumaPisos = 0;
 
@@ -93,8 +90,9 @@ function reparto_aplicar_montos_exactos(array $items, float $monto): array
             return $cmp !== 0 ? $cmp : ($b['index'] <=> $a['index']);
         });
         for ($i = 0; $i < abs($resto); $i++) {
-            if ($calculados[$i % $cantidad]['centavos'] > 0) {
-                $calculados[$i % $cantidad]['centavos']--;
+            $slot = $i % $cantidad;
+            if ($calculados[$slot]['centavos'] > 0) {
+                $calculados[$slot]['centavos']--;
             }
         }
     }
@@ -104,6 +102,64 @@ function reparto_aplicar_montos_exactos(array $items, float $monto): array
     }
 
     return $items;
+}
+
+/** Fuerza porcentajes positivos a sumar exactamente 100,0000%. */
+function reparto_normalizar_porcentajes(array $items, int $scale = 4): array
+{
+    if (!$items) return [];
+
+    $factor = 10 ** $scale;
+    $totalUnits = 100 * $factor;
+    $weights = array_map(
+        static fn(array $item): float => max(0.0, (float)($item['porcentaje'] ?? 0)),
+        $items
+    );
+    $totalWeight = array_sum($weights);
+    if ($totalWeight <= 0.0) return $items;
+
+    $rows = [];
+    $sumFloor = 0;
+    foreach ($weights as $index => $weight) {
+        $raw = ($totalUnits * $weight) / $totalWeight;
+        $floor = (int)floor($raw + 1e-9);
+        $rows[] = [
+            'index' => $index,
+            'units' => $floor,
+            'fraction' => $raw - $floor,
+        ];
+        $sumFloor += $floor;
+    }
+
+    $remaining = $totalUnits - $sumFloor;
+    usort($rows, static function (array $a, array $b): int {
+        $cmp = $b['fraction'] <=> $a['fraction'];
+        return $cmp !== 0 ? $cmp : ($a['index'] <=> $b['index']);
+    });
+    $count = count($rows);
+    for ($i = 0; $count > 0 && $i < $remaining; $i++) {
+        $rows[$i % $count]['units']++;
+    }
+
+    foreach ($rows as $row) {
+        $items[$row['index']]['porcentaje'] = $row['units'] / $factor;
+    }
+    return $items;
+}
+
+function reparto_regla_valida(array $items): bool
+{
+    if (!$items) return false;
+
+    $totalUnits = 0;
+    foreach ($items as $item) {
+        $pct = (float)($item['porcentaje'] ?? 0);
+        if ($pct <= 0.0 || $pct > 100.0) return false;
+        $totalUnits += (int)round($pct * 10000);
+    }
+
+    // Acepta como máximo una unidad de 0,0001% por diferencias de representación.
+    return abs($totalUnits - 1000000) <= 1;
 }
 
 function reparto_organizacion_config(PDO $pdo, int $idOrganizacion): array
@@ -138,7 +194,7 @@ function reparto_items_organizacion(PDO $pdo, int $idOrganizacion): array
             'id_trabajador' => $row['id_trabajador'] !== null ? (int)$row['id_trabajador'] : null,
             'id_organizacion_beneficiaria' => $row['id_organizacion_beneficiaria'] !== null
                 ? (int)$row['id_organizacion_beneficiaria'] : null,
-            'porcentaje' => reparto_redondear((float)$row['porcentaje']),
+            'porcentaje' => (float)$row['porcentaje'],
             'beneficiario_nombre' => trim((string)($row['beneficiario_nombre'] ?? '')),
             'alias_pago' => $row['alias_pago'] !== null ? (string)$row['alias_pago'] : null,
             'rol' => $row['rol'] !== null ? (string)$row['rol'] : null,
@@ -156,9 +212,11 @@ function reparto_items_sistema(PDO $pdo, int $idOrganizacion, int $idSistema): a
     $st->execute([':org' => $idOrganizacion, ':sistema' => $idSistema]);
     $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-    $sum = 0.0;
-    foreach ($rows as $row) $sum += (float)($row['porcentaje_reparto'] ?? 0);
-    $configured = count($rows) > 0 && abs($sum - 100.0) <= 0.0001;
+    $sumUnits = array_sum(array_map(
+        static fn(array $row): int => (int)round((float)($row['porcentaje_reparto'] ?? 0) * 10000),
+        $rows
+    ));
+    $configured = count($rows) > 0 && abs($sumUnits - 1000000) <= 1;
     $fallback = $configured ? [] : reparto_porcentajes_iguales(count($rows), 4);
 
     $items = [];
@@ -174,21 +232,27 @@ function reparto_items_sistema(PDO $pdo, int $idOrganizacion, int $idSistema): a
             'alias_pago' => $row['alias_pago'] !== null ? (string)$row['alias_pago'] : null,
             'rol' => (string)$row['rol'],
             'rol_en_sistema' => $row['rol_en_sistema'] !== null ? (string)$row['rol_en_sistema'] : null,
-            'porcentaje' => reparto_redondear($pct),
+            'porcentaje' => $pct,
             'activo' => (int)$row['activo'],
             'ruta' => null,
+            'rutas' => [],
             'configurado' => $configured,
         ];
     }
+    if ($items) $items = reparto_normalizar_porcentajes($items);
 
     return [
         'items' => $items,
         'configurado' => $configured,
+        'usa_reparto_igualitario' => !$configured && count($rows) > 0,
         'total' => reparto_redondear(array_sum(array_column($items, 'porcentaje'))),
     ];
 }
 
-/** Expande organizaciones beneficiarias hasta llegar a personas finales. */
+/**
+ * Expansión porcentual vigente. Se conserva como API auxiliar para pantallas,
+ * pero los montos contables se resuelven con la función jerárquica de abajo.
+ */
 function reparto_expandir_organizacion(
     PDO $pdo,
     int $idOrganizacion,
@@ -204,26 +268,27 @@ function reparto_expandir_organizacion(
             'tipo_beneficiario' => 'organizacion',
             'id_organizacion_beneficiaria' => $idOrganizacion,
             'beneficiario_nombre' => $org['nombre'],
-            'porcentaje' => reparto_redondear($porcentajePadre),
+            'porcentaje' => $porcentajePadre,
             'ruta' => $currentRoute,
+            'rutas' => [$currentRoute],
             'configurado' => false,
         ]];
     }
 
     $items = reparto_items_organizacion($pdo, $idOrganizacion);
-    $visitadas[] = $idOrganizacion;
-
-    if (!$items) {
+    if (!reparto_regla_valida($items)) {
         return [[
             'tipo_beneficiario' => 'organizacion',
             'id_organizacion_beneficiaria' => $idOrganizacion,
             'beneficiario_nombre' => $org['nombre'],
-            'porcentaje' => reparto_redondear($porcentajePadre),
+            'porcentaje' => $porcentajePadre,
             'ruta' => $currentRoute,
+            'rutas' => [$currentRoute],
             'configurado' => false,
         ]];
     }
 
+    $visitadas[] = $idOrganizacion;
     $out = [];
     foreach ($items as $item) {
         $effective = ($porcentajePadre * (float)$item['porcentaje']) / 100.0;
@@ -234,9 +299,10 @@ function reparto_expandir_organizacion(
                 'beneficiario_nombre' => $item['beneficiario_nombre'],
                 'alias_pago' => $item['alias_pago'],
                 'rol' => $item['rol'],
-                'porcentaje' => reparto_redondear($effective),
-                'porcentaje_directo' => reparto_redondear((float)$item['porcentaje']),
+                'porcentaje' => $effective,
+                'porcentaje_directo' => (float)$item['porcentaje'],
                 'ruta' => $currentRoute,
+                'rutas' => [$currentRoute],
                 'configurado' => true,
             ];
             continue;
@@ -249,141 +315,186 @@ function reparto_expandir_organizacion(
             $out[] = $row;
         }
     }
-
     return $out;
+}
+
+/** Distribuye recursivamente un monto respetando cada rama institucional. */
+function reparto_distribuir_organizacion_jerarquico(
+    PDO $pdo,
+    int $idOrganizacion,
+    float $monto,
+    float $porcentajePadre = 100.0,
+    array $visitadas = [],
+    string $ruta = ''
+): array {
+    $org = reparto_organizacion_config($pdo, $idOrganizacion);
+    $currentRoute = $ruta !== '' ? $ruta : $org['codigo'];
+
+    if (in_array($idOrganizacion, $visitadas, true) || count($visitadas) >= 6) {
+        return [
+            'configurado' => false,
+            'items' => [[
+                'tipo_beneficiario' => 'organizacion',
+                'id_organizacion_beneficiaria' => $idOrganizacion,
+                'beneficiario_nombre' => $org['nombre'],
+                'porcentaje' => $porcentajePadre,
+                'monto_estimado' => round($monto, 2),
+                'ruta' => $currentRoute,
+                'rutas' => [$currentRoute],
+                'configurado' => false,
+            ]],
+        ];
+    }
+
+    $direct = reparto_items_organizacion($pdo, $idOrganizacion);
+    if (!reparto_regla_valida($direct)) {
+        return [
+            'configurado' => false,
+            'items' => [[
+                'tipo_beneficiario' => 'organizacion',
+                'id_organizacion_beneficiaria' => $idOrganizacion,
+                'beneficiario_nombre' => $org['nombre'],
+                'porcentaje' => $porcentajePadre,
+                'monto_estimado' => round($monto, 2),
+                'ruta' => $currentRoute,
+                'rutas' => [$currentRoute],
+                'configurado' => false,
+            ]],
+        ];
+    }
+
+    $visitadas[] = $idOrganizacion;
+    $directWithAmounts = reparto_aplicar_montos_exactos($direct, $monto);
+    $out = [];
+    $configured = true;
+
+    foreach ($directWithAmounts as $item) {
+        $effective = ($porcentajePadre * (float)$item['porcentaje']) / 100.0;
+        $branchAmount = round((float)($item['monto_estimado'] ?? 0), 2);
+
+        if ($item['tipo_beneficiario'] === 'trabajador') {
+            $out[] = [
+                'tipo_beneficiario' => 'trabajador',
+                'id_trabajador' => $item['id_trabajador'],
+                'beneficiario_nombre' => $item['beneficiario_nombre'],
+                'alias_pago' => $item['alias_pago'],
+                'rol' => $item['rol'],
+                'porcentaje' => $effective,
+                'porcentaje_directo' => (float)$item['porcentaje'],
+                'monto_estimado' => $branchAmount,
+                'ruta' => $currentRoute,
+                'rutas' => [$currentRoute],
+                'configurado' => true,
+            ];
+            continue;
+        }
+
+        $childId = (int)($item['id_organizacion_beneficiaria'] ?? 0);
+        if ($childId <= 0) {
+            $configured = false;
+            continue;
+        }
+        $childRoute = $currentRoute . ' → ' . ($item['organizacion_codigo'] ?: $item['beneficiario_nombre']);
+        $child = reparto_distribuir_organizacion_jerarquico(
+            $pdo,
+            $childId,
+            $branchAmount,
+            $effective,
+            $visitadas,
+            $childRoute
+        );
+        $configured = $configured && (bool)$child['configurado'];
+        foreach ($child['items'] as $row) $out[] = $row;
+    }
+
+    return ['configurado' => $configured, 'items' => $out];
+}
+
+function reparto_agrupar_items_finales(array $items): array
+{
+    $grouped = [];
+    foreach ($items as $item) {
+        $key = ($item['tipo_beneficiario'] ?? '') === 'trabajador'
+            ? 't:' . (int)($item['id_trabajador'] ?? 0)
+            : 'o:' . (int)($item['id_organizacion_beneficiaria'] ?? 0);
+
+        if (!isset($grouped[$key])) {
+            $grouped[$key] = $item;
+            $grouped[$key]['porcentaje'] = 0.0;
+            $grouped[$key]['monto_estimado'] = 0.0;
+            $grouped[$key]['rutas'] = [];
+        }
+        $grouped[$key]['porcentaje'] += (float)($item['porcentaje'] ?? 0);
+        $grouped[$key]['monto_estimado'] += (float)($item['monto_estimado'] ?? 0);
+        foreach (($item['rutas'] ?? (!empty($item['ruta']) ? [$item['ruta']] : [])) as $route) {
+            if ($route !== '') $grouped[$key]['rutas'][] = (string)$route;
+        }
+    }
+
+    $final = array_values($grouped);
+    if ($final) $final = reparto_normalizar_porcentajes($final);
+    foreach ($final as &$item) {
+        $item['monto_estimado'] = round((float)$item['monto_estimado'], 2);
+        $item['rutas'] = array_values(array_unique($item['rutas']));
+        $item['ruta'] = $item['rutas'][0] ?? ($item['ruta'] ?? null);
+    }
+    unset($item);
+
+    usort($final, static fn(array $a, array $b): int => strcmp(
+        (string)($a['beneficiario_nombre'] ?? ''),
+        (string)($b['beneficiario_nombre'] ?? '')
+    ));
+    return $final;
+}
+
+function reparto_resumen_organizacion(PDO $pdo, int $idOrganizacion, float $monto = 0.0): array
+{
+    $org = reparto_organizacion_config($pdo, $idOrganizacion);
+    $direct = reparto_items_organizacion($pdo, $idOrganizacion);
+    $directValid = reparto_regla_valida($direct);
+    $directWithAmounts = $directValid ? reparto_aplicar_montos_exactos($direct, $monto) : $direct;
+    $tree = reparto_distribuir_organizacion_jerarquico($pdo, $idOrganizacion, $monto);
+    $final = reparto_agrupar_items_finales($tree['items']);
+
+    return [
+        'organizacion' => $org,
+        'modelo_reparto' => $org['modelo_reparto'],
+        'configurado' => $directValid && (bool)$tree['configurado'] && count($final) > 0,
+        'usa_reparto_igualitario' => false,
+        'origen' => 'regla_vigente',
+        'total_porcentaje' => reparto_redondear(array_sum(array_column($final, 'porcentaje'))),
+        'monto_base' => reparto_redondear($monto, 2),
+        'regla_directa' => $directWithAmounts,
+        'items' => $final,
+    ];
 }
 
 /** Resumen final y exacto para un sistema. */
 function reparto_resumen_sistema(PDO $pdo, int $idOrganizacion, int $idSistema, float $monto = 0.0): array
 {
     $org = reparto_organizacion_config($pdo, $idOrganizacion);
-    $reglaDirecta = [];
 
-    if ($org['modelo_reparto'] === 'por_sistema') {
-        $direct = reparto_items_sistema($pdo, $idOrganizacion, $idSistema);
-        $items = $direct['items'];
-        $configured = (bool)$direct['configurado'];
-        $reglaDirecta = $items;
-    } else {
-        $reglaDirecta = reparto_items_organizacion($pdo, $idOrganizacion);
-        $items = reparto_expandir_organizacion($pdo, $idOrganizacion);
-        $configured = count($reglaDirecta) > 0
-            && abs(array_sum(array_column($reglaDirecta, 'porcentaje')) - 100.0) <= 0.0001
-            && count($items) > 0
-            && !array_filter($items, static fn(array $item): bool => empty($item['configurado']));
+    if ($org['modelo_reparto'] === 'por_entidad') {
+        return reparto_resumen_organizacion($pdo, $idOrganizacion, $monto);
     }
 
-    $grouped = [];
-    foreach ($items as $item) {
-        $key = $item['tipo_beneficiario'] === 'trabajador'
-            ? 't:' . (int)($item['id_trabajador'] ?? 0)
-            : 'o:' . (int)($item['id_organizacion_beneficiaria'] ?? 0);
-        if (!isset($grouped[$key])) {
-            $grouped[$key] = $item;
-            $grouped[$key]['porcentaje'] = 0.0;
-            $grouped[$key]['rutas'] = [];
-        }
-        $grouped[$key]['porcentaje'] += (float)($item['porcentaje'] ?? 0);
-        if (!empty($item['ruta'])) $grouped[$key]['rutas'][] = (string)$item['ruta'];
-    }
-
-    $final = [];
-    foreach ($grouped as $item) {
-        $item['porcentaje'] = reparto_redondear((float)$item['porcentaje']);
-        $item['rutas'] = array_values(array_unique($item['rutas']));
-        $final[] = $item;
-    }
-    usort($final, static fn(array $a, array $b): int => strcmp(
-        (string)($a['beneficiario_nombre'] ?? ''),
-        (string)($b['beneficiario_nombre'] ?? '')
-    ));
-    $final = reparto_aplicar_montos_exactos($final, $monto);
-
-    $reglaDirecta = reparto_aplicar_montos_exactos($reglaDirecta, $monto);
+    $direct = reparto_items_sistema($pdo, $idOrganizacion, $idSistema);
+    $items = reparto_aplicar_montos_exactos($direct['items'], $monto);
 
     return [
         'organizacion' => $org,
         'modelo_reparto' => $org['modelo_reparto'],
-        'configurado' => $configured,
-        'total_porcentaje' => reparto_redondear(array_sum(array_column($final, 'porcentaje'))),
+        'configurado' => (bool)$direct['configurado'],
+        'usa_reparto_igualitario' => (bool)$direct['usa_reparto_igualitario'],
+        'origen' => 'regla_vigente',
+        'total_porcentaje' => reparto_redondear(array_sum(array_column($items, 'porcentaje'))),
         'monto_base' => reparto_redondear($monto, 2),
-        'regla_directa' => $reglaDirecta,
-        'items' => $final,
+        'regla_directa' => $items,
+        'items' => $items,
     ];
 }
 
-/** Congela la distribución efectiva de un pago. */
-function reparto_snapshot_pago_guardar(
-    PDO $pdo,
-    int $idOrganizacion,
-    int $idPago,
-    int $idSistema,
-    float $monto
-): array {
-    if (!reparto_tabla_existe($pdo, 'pagos_reparto')) {
-        throw new RuntimeException('Falta ejecutar la migración que crea pagos_reparto.');
-    }
-
-    $resumen = reparto_resumen_sistema($pdo, $idOrganizacion, $idSistema, $monto);
-    if (!$resumen['configurado'] || abs((float)$resumen['total_porcentaje'] - 100.0) > 0.0001) {
-        throw new RuntimeException(
-            'El sistema no tiene una distribución contable válida. Configurala antes de registrar el pago.'
-        );
-    }
-
-    $pdo->prepare('DELETE FROM pagos_reparto WHERE id_organizacion=:org AND id_pago=:pago')
-        ->execute([':org' => $idOrganizacion, ':pago' => $idPago]);
-
-    $ins = $pdo->prepare("\n        INSERT INTO pagos_reparto\n          (id_organizacion, id_pago, orden, tipo_beneficiario, id_trabajador,\n           id_organizacion_beneficiaria, beneficiario_nombre, alias_pago, rol, ruta,\n           porcentaje, monto)\n        VALUES\n          (:org, :pago, :orden, :tipo, :trabajador, :org_benef, :nombre, :alias, :rol, :ruta, :pct, :monto)\n    ");
-
-    foreach ($resumen['items'] as $index => $item) {
-        $ins->execute([
-            ':org' => $idOrganizacion,
-            ':pago' => $idPago,
-            ':orden' => $index + 1,
-            ':tipo' => (string)$item['tipo_beneficiario'],
-            ':trabajador' => $item['id_trabajador'] ?? null,
-            ':org_benef' => $item['id_organizacion_beneficiaria'] ?? null,
-            ':nombre' => mb_substr((string)($item['beneficiario_nombre'] ?? 'Beneficiario'), 0, 160),
-            ':alias' => isset($item['alias_pago']) && $item['alias_pago'] !== ''
-                ? mb_substr((string)$item['alias_pago'], 0, 100) : null,
-            ':rol' => isset($item['rol']) && $item['rol'] !== ''
-                ? mb_substr((string)$item['rol'], 0, 60) : null,
-            ':ruta' => !empty($item['rutas'])
-                ? mb_substr(implode(' / ', $item['rutas']), 0, 255)
-                : (isset($item['ruta']) ? mb_substr((string)$item['ruta'], 0, 255) : null),
-            ':pct' => reparto_redondear((float)$item['porcentaje']),
-            ':monto' => reparto_redondear((float)$item['monto_estimado'], 2),
-        ]);
-    }
-
-    return $resumen;
-}
-
-function reparto_snapshot_pago_leer(PDO $pdo, int $idOrganizacion, int $idPago): array
-{
-    if (!reparto_tabla_existe($pdo, 'pagos_reparto')) return [];
-
-    $st = $pdo->prepare("\n        SELECT orden, tipo_beneficiario, id_trabajador, id_organizacion_beneficiaria,\n               beneficiario_nombre, alias_pago, rol, ruta, porcentaje, monto\n        FROM pagos_reparto\n        WHERE id_organizacion=:org AND id_pago=:pago\n        ORDER BY orden, id_pago_reparto\n    ");
-    $st->execute([':org' => $idOrganizacion, ':pago' => $idPago]);
-
-    return array_map(static function (array $row): array {
-        return [
-            'tipo_beneficiario' => (string)$row['tipo_beneficiario'],
-            'id_trabajador' => $row['id_trabajador'] !== null ? (int)$row['id_trabajador'] : null,
-            'id_organizacion_beneficiaria' => $row['id_organizacion_beneficiaria'] !== null
-                ? (int)$row['id_organizacion_beneficiaria'] : null,
-            'beneficiario_nombre' => (string)$row['beneficiario_nombre'],
-            'alias_pago' => $row['alias_pago'] !== null ? (string)$row['alias_pago'] : null,
-            'rol' => $row['rol'] !== null ? (string)$row['rol'] : null,
-            'rutas' => $row['ruta'] ? [(string)$row['ruta']] : [],
-            'porcentaje' => (float)$row['porcentaje'],
-            'monto_estimado' => (float)$row['monto'],
-        ];
-    }, $st->fetchAll(PDO::FETCH_ASSOC) ?: []);
-}
-
-/** Lee el snapshot histórico; para pagos viejos usa la regla actual como fallback explícito. */
+/** Obtiene el pago y calcula su reparto con la regla vigente. */
 function reparto_resumen_pago(PDO $pdo, int $idOrganizacion, int $idPago): array
 {
     $st = $pdo->prepare("\n        SELECT id_pago, id_sistema, monto\n        FROM pagos\n        WHERE id_organizacion=:org AND id_pago=:pago\n        LIMIT 1\n    ");
@@ -391,96 +502,12 @@ function reparto_resumen_pago(PDO $pdo, int $idOrganizacion, int $idPago): array
     $pago = $st->fetch(PDO::FETCH_ASSOC);
     if (!$pago) throw new RuntimeException('Pago inexistente en la organización activa.');
 
-    $snapshot = reparto_snapshot_pago_leer($pdo, $idOrganizacion, $idPago);
-    if ($snapshot) {
-        $org = reparto_organizacion_config($pdo, $idOrganizacion);
-        return [
-            'organizacion' => $org,
-            'modelo_reparto' => $org['modelo_reparto'],
-            'configurado' => true,
-            'origen' => 'snapshot_pago',
-            'total_porcentaje' => reparto_redondear(array_sum(array_column($snapshot, 'porcentaje'))),
-            'monto_base' => reparto_redondear((float)$pago['monto'], 2),
-            'regla_directa' => [],
-            'items' => $snapshot,
-        ];
-    }
-
     $resumen = reparto_resumen_sistema(
         $pdo,
         $idOrganizacion,
         (int)$pago['id_sistema'],
         (float)$pago['monto']
     );
-    $resumen['origen'] = 'regla_actual_sin_snapshot';
+    $resumen['origen'] = 'regla_vigente';
     return $resumen;
-}
-
-/**
- * Recalcula únicamente los montos de un snapshot histórico manteniendo intactos
- * sus beneficiarios y porcentajes. Si el pago antiguo todavía no tenía snapshot,
- * lo crea con la regla vigente y deja explícito ese origen en los reportes.
- */
-function reparto_snapshot_pago_recalcular_monto(
-    PDO $pdo,
-    int $idOrganizacion,
-    int $idPago,
-    float $nuevoMonto
-): void {
-    if ($nuevoMonto <= 0) {
-        throw new RuntimeException('El monto del pago debe ser mayor a cero.');
-    }
-
-    if (!reparto_tabla_existe($pdo, 'pagos_reparto')) {
-        throw new RuntimeException('Falta ejecutar la migración que crea pagos_reparto.');
-    }
-
-    $st = $pdo->prepare("
-        SELECT id_pago_reparto, porcentaje
-        FROM pagos_reparto
-        WHERE id_organizacion = :org
-          AND id_pago = :pago
-        ORDER BY orden, id_pago_reparto
-    ");
-    $st->execute([':org' => $idOrganizacion, ':pago' => $idPago]);
-    $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
-
-    if (!$rows) {
-        $pago = $pdo->prepare("
-            SELECT id_sistema
-            FROM pagos
-            WHERE id_organizacion = :org
-              AND id_pago = :pago
-            LIMIT 1
-        ");
-        $pago->execute([':org' => $idOrganizacion, ':pago' => $idPago]);
-        $idSistema = (int)($pago->fetchColumn() ?: 0);
-        if ($idSistema <= 0) {
-            throw new RuntimeException('Pago inexistente en la organización activa.');
-        }
-        reparto_snapshot_pago_guardar($pdo, $idOrganizacion, $idPago, $idSistema, $nuevoMonto);
-        return;
-    }
-
-    $items = array_map(static fn(array $row): array => [
-        'id_pago_reparto' => (int)$row['id_pago_reparto'],
-        'porcentaje' => (float)$row['porcentaje'],
-    ], $rows);
-    $items = reparto_aplicar_montos_exactos($items, $nuevoMonto);
-
-    $up = $pdo->prepare("
-        UPDATE pagos_reparto
-        SET monto = :monto
-        WHERE id_pago_reparto = :id
-          AND id_organizacion = :org
-          AND id_pago = :pago
-    ");
-    foreach ($items as $item) {
-        $up->execute([
-            ':monto' => reparto_redondear((float)($item['monto_estimado'] ?? 0), 2),
-            ':id' => (int)$item['id_pago_reparto'],
-            ':org' => $idOrganizacion,
-            ':pago' => $idPago,
-        ]);
-    }
 }

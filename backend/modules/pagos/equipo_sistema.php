@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 /**
  * Resumen de distribución de un sistema puntual.
- * Mantiene compatibilidad con llamadas antiguas y usa snapshot cuando existe pago.
+ * Calcula siempre con la configuración porcentual vigente.
  */
 function pagos_equipo_sistema(): void
 {
@@ -66,7 +66,7 @@ function pagos_equipo_sistema(): void
 
 /**
  * Distribución consolidada de todos los sistemas de un cliente para un período.
- * - Si hay pago, usa el snapshot histórico.
+ * - Si hay pago, usa su monto real y la regla vigente.
  * - Si no hay pago, muestra una estimación con el monto mensual acordado.
  */
 function pagos_distribucion_cliente(): void
@@ -114,7 +114,7 @@ function pagos_distribucion_cliente(): void
       $resumen = $idPago > 0
         ? reparto_resumen_pago($pdo, $orgId, $idPago)
         : reparto_resumen_sistema($pdo, $orgId, $idSistema, $montoBase);
-      $resumen['origen'] = $resumen['origen'] ?? ($idPago > 0 ? 'snapshot_pago' : 'estimacion_servicio');
+      $resumen['origen'] = $idPago > 0 ? 'regla_vigente' : 'estimacion_servicio';
     } catch (Throwable $e) {
       $resumen = [
         'configurado'=>false, 'total_porcentaje'=>0, 'monto_base'=>$montoBase,

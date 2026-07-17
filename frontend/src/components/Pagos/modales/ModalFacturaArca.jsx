@@ -477,19 +477,26 @@ export default function ModalFacturaArca({
     }
 
     // ===== desarrollo (global) =====
-    if (devArsNum > 0 || String(devDesc || "").trim() !== "") {
+    if (devArsNum > 0) {
       const usdRef = rateOk ? devArsNum / r : devUsdNum;
+
+      const sistemasIdsDesarrollo = Array.from(sistemasSel)
+        .map(Number)
+        .filter((id) => Number.isInteger(id) && id > 0);
+      const cantidadSistemasDesarrollo = Math.max(1, sistemasIdsDesarrollo.length);
 
       out.push({
         tipo: "desarrollo",
         modo: "global",
         id: "desarrollo_manual",
         descripcion: String(devDesc || "").trim() || "Desarrollo",
-        cantidad: 1,
-        unidad: "serv.",
+        cantidad: cantidadSistemasDesarrollo,
+        cantidad_sistemas: sistemasIdsDesarrollo.length,
+        unidad: "sist.",
         usd: usdRef,
-        ars_unit: devArsNum,
+        ars_unit: devArsNum / cantidadSistemasDesarrollo,
         ars: devArsNum,
+        sistemas_ids: sistemasIdsDesarrollo,
         sistemas_labels: selectedSystemsLabels,
       });
     }
@@ -730,10 +737,12 @@ export default function ModalFacturaArca({
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => e.key === "Escape" && onClose?.();
+    const onKey = (e) => {
+      if (e.key === "Escape" && !openResumen) onClose?.();
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, openResumen, onClose]);
 
   const validarInputs = useCallback(() => {
     const doc = String(docNro || "").replace(/\D/g, "");
@@ -773,6 +782,15 @@ export default function ModalFacturaArca({
 
     if (!hasMant && !hasDevMonto) {
       return { ok: false, msg: "Seleccioná al menos un plan de Mantenimiento o cargá un monto en Desarrollo." };
+    }
+
+    if (mantMode === "por_sistema" && !hasDevMonto) {
+      const sistemasSinPlan = (sistemasSel || []).filter(
+        (sid) => !Array.isArray(mantSelBySistema?.[sid]) || mantSelBySistema[sid].length === 0
+      );
+      if (sistemasSinPlan.length > 0) {
+        return { ok: false, msg: "Asigná al menos un plan a cada sistema seleccionado o cargá un desarrollo global." };
+      }
     }
 
     if (!Number.isFinite(totalARS) || totalARS <= 0) {

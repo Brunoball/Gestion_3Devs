@@ -1257,7 +1257,7 @@ function Pagos() {
         body: JSON.stringify({ id_pago: modalEliminar.id_pago }),
       });
 
-      showToast("exito", "Pago eliminado correctamente.", 2600);
+      showToast("exito", "Pagos del período eliminados correctamente.", 3000);
       closeModalEliminar();
       recargarListado();
     } catch (e) {

@@ -1,6 +1,5 @@
-// ✅ REEMPLAZAR COMPLETO
 // src/components/Pagos/modales/ModalPago.jsx
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { FaCoins, FaTimes, FaCheck, FaEye, FaBan } from "react-icons/fa";
 import BASE_URL from "../../../config/config";
 import { fetchJSONAuth } from "../../Global/api";
@@ -73,8 +72,8 @@ function formatDateSlash(value) {
    ✅ Calcula monto por sistema desde items_facturacion_json
 
    Modo "global":
-     { modo:"global", ars_unit: N, sistemas_ids: [id1, id2, ...] }
-     → cada sistema recibe ars_unit (precio unitario ya es por sistema)
+     { modo:"global", ars: TOTAL, sistemas_ids: [id1, id2, ...] }
+     → el total se divide en centavos exactos entre los sistemas
 
    Modo "por_sistema":
      { modo:"por_sistema", ars: N, sistema_id: idX }
@@ -99,20 +98,30 @@ function calcularMontoPorSistema(itemsJson) {
     const arsUnit  = Number(it?.ars_unit ?? 0);
 
     if (modo === "por_sistema") {
-      const sid = Number(it?.sistema_id ?? 0);
+      const sid = Number(it?.sistema_id ?? it?.id_sistema ?? 0);
       if (sid > 0) {
         mapaMontos[sid] = (mapaMontos[sid] || 0) + arsItem;
       }
     } else {
-      // global
-      const sids         = Array.isArray(it?.sistemas_ids) ? it.sistemas_ids : [];
-      const cantSistemas = sids.length;
-      if (cantSistemas > 0) {
-        const montoPorSis = arsUnit > 0 ? arsUnit : arsItem / cantSistemas;
-        for (const sid of sids) {
-          const id = Number(sid);
-          if (id > 0) mapaMontos[id] = (mapaMontos[id] || 0) + montoPorSis;
-        }
+      // global: divide el total del item en centavos exactos entre los sistemas.
+      const sids = Array.from(new Set(
+        (Array.isArray(it?.sistemas_ids) ? it.sistemas_ids : [])
+          .map((sid) => Number(sid))
+          .filter((sid) => sid > 0)
+      ));
+      if (sids.length > 0 && arsItem > 0) {
+        const totalCentavos = Math.round(arsItem * 100);
+        const base = Math.floor(totalCentavos / sids.length);
+        const resto = totalCentavos - base * sids.length;
+        sids.forEach((id, index) => {
+          const centavos = base + (index < resto ? 1 : 0);
+          mapaMontos[id] = (mapaMontos[id] || 0) + centavos / 100;
+        });
+      } else if (sids.length > 0 && arsUnit > 0) {
+        // Compatibilidad defensiva con items antiguos sin total `ars`.
+        sids.forEach((id) => {
+          mapaMontos[id] = (mapaMontos[id] || 0) + arsUnit;
+        });
       }
     }
   }
@@ -146,6 +155,8 @@ export default function ModalPago({
   });
   const [pagoExitoso, setPagoExitoso]   = useState(false);
   const [anulandoFactura, setAnulandoFactura] = useState(false);
+  const [registrando, setRegistrando] = useState(false);
+  const registrandoRef = useRef(false);
   // ✅ Mapa { [id_sistema]: nombre } para mostrar en el desglose
   const [sistemasNombres, setSistemasNombres] = useState({});
 
@@ -219,12 +230,18 @@ export default function ModalPago({
   }, [montoPorSistema, sistemasNombres]);
 
   const tieneDesglose = useMemo(() => sistemasConMonto.length > 0, [sistemasConMonto]);
+  const totalDesglose = useMemo(
+    () => Math.round(sistemasConMonto.reduce((sum, item) => sum + Number(item.monto || 0), 0) * 100) / 100,
+    [sistemasConMonto]
+  );
 
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && cerrarModal?.();
+    const onKey = (e) => {
+      if (e.key === "Escape" && !registrando && !anulandoFactura) cerrarModal?.();
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [cerrarModal]);
+  }, [cerrarModal, registrando, anulandoFactura]);
 
   // Cargar medios de pago
   useEffect(() => {
@@ -326,6 +343,10 @@ export default function ModalPago({
   }, [detalle]);
 
   const montoArsNum  = useMemo(() => Math.round(parseMoneyInput(monto) * 100) / 100, [monto]);
+  const desgloseCoincide = useMemo(
+    () => !tieneDesglose || Math.abs(totalDesglose - montoArsNum) <= 0.05,
+    [tieneDesglose, totalDesglose, montoArsNum]
+  );
   const montoEsFijo  = useMemo(() => {
     const t = Number(factura?.total_ars);
     const m = Number(factura?.monto_ars);
@@ -359,11 +380,15 @@ export default function ModalPago({
     if (!idMedioPago) return false;
     if (!Number.isFinite(montoArsNum) || montoArsNum <= 0) return false;
     if (pago?.id_pago) return false;
+    if (registrando) return false;
+    if (!desgloseCoincide) return false;
     return true;
-  }, [sinFactura, id_sistema, anio, idMes, fechaPago, idMedioPago, montoArsNum, pago]);
+  }, [sinFactura, id_sistema, anio, idMes, fechaPago, idMedioPago, montoArsNum, pago, registrando, desgloseCoincide]);
 
   const handleRealizarPago = useCallback(async () => {
-    if (!puedePagar) return;
+    if (!puedePagar || registrandoRef.current) return;
+    registrandoRef.current = true;
+    setRegistrando(true);
     setError("");
     try {
       const payload = {
@@ -395,6 +420,9 @@ export default function ModalPago({
       onPagoRealizado?.();
     } catch (e) {
       setError(e?.message || "Ocurrió un error al realizar el pago.");
+    } finally {
+      registrandoRef.current = false;
+      setRegistrando(false);
     }
   }, [
     API, fetchJSON, puedePagar, id_sistema, anio, idMes,
@@ -463,7 +491,10 @@ export default function ModalPago({
     }
   }, [API, fetchJSON, factura, onFacturaAnulada, cerrarModal]);
 
-  const cerrar = () => cerrarModal?.();
+  const cerrar = () => {
+    if (registrando || anulandoFactura) return;
+    cerrarModal?.();
+  };
 
   /* =========================
      UI
@@ -490,7 +521,13 @@ export default function ModalPago({
               </div>
             </div>
           </div>
-          <button className="mi-modal__close" onClick={cerrar} aria-label="Cerrar">
+          <button
+            className="mi-modal__close"
+            type="button"
+            onClick={cerrar}
+            aria-label="Cerrar"
+            disabled={registrando || anulandoFactura}
+          >
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
               fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" />
@@ -626,6 +663,12 @@ export default function ModalPago({
                       Sin desglose por sistema — se registrará 1 pago con el monto total.
                     </div>
                   )}
+                  {tieneDesglose && !desgloseCoincide ? (
+                    <div className="pay-banner pay-banner--error" style={{ marginTop: 12 }}>
+                      El desglose suma {moneyARS(totalDesglose)}, pero la factura totaliza {moneyARS(montoArsNum)}.
+                      Volvé a generar la factura antes de registrar el pago.
+                    </div>
+                  ) : null}
                 </article>
 
                 {/* Card: Factura */}
@@ -718,7 +761,12 @@ export default function ModalPago({
               </span>
             </div>
 
-            <button type="button" className="mit-btn mit-btn--ghost" onClick={cerrar}>
+            <button
+              type="button"
+              className="mit-btn mit-btn--ghost"
+              onClick={cerrar}
+              disabled={registrando || anulandoFactura}
+            >
               <FaTimes style={{ marginRight: 8 }} />Cerrar
             </button>
 
@@ -728,7 +776,7 @@ export default function ModalPago({
               title={`Registrar pago: ${periodoLabel}`}
             >
               <FaCheck style={{ marginRight: 8 }} />
-              {tieneDesglose ? `Pagar (${sistemasConMonto.length} sistemas)` : "Pagar"}
+              {registrando ? "Registrando..." : (tieneDesglose ? `Pagar (${sistemasConMonto.length} sistemas)` : "Pagar")}
             </button>
           </div>
         </div>

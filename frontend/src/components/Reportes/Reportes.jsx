@@ -510,7 +510,6 @@ export default function Reportes() {
               miembro_organizacion: Boolean(row.miembro_organizacion),
               puede_comprobante: Boolean(row.puede_comprobante),
               liquidacion_indirecta: Boolean(row.liquidacion_indirecta),
-              usa_fallback_historico: Boolean(row.usa_fallback_historico),
               detalle: Array.isArray(row.detalle) ? row.detalle : [],
               comprobante_pago: row.comprobante_pago ?? "",
               comprobante_pago_fecha: row.comprobante_pago_fecha ?? "",
@@ -880,12 +879,11 @@ export default function Reportes() {
           REEMBOLSO: row.monto_reembolso,
           TOTAL_A_PAGAR: row.monto,
           LIQUIDACION_INDIRECTA: row.liquidacion_indirecta ? "SI" : "NO",
-          REGLA_HISTORICA_FALTANTE: row.usa_fallback_historico ? "SI" : "NO",
         }));
         const sheet = XLSX.utils.json_to_sheet(workerRows);
         sheet["!cols"] = [
           { wch: 28 }, { wch: 22 }, { wch: 14 }, { wch: 18 }, { wch: 18 },
-          { wch: 20 }, { wch: 14 }, { wch: 18 }, { wch: 22 }, { wch: 26 },
+          { wch: 20 }, { wch: 14 }, { wch: 18 }, { wch: 22 },
         ];
         XLSX.utils.book_append_sheet(workbook, sheet, "Liquidación");
 
@@ -900,7 +898,6 @@ export default function Reportes() {
             PORCENTAJE: detail.porcentaje_pago,
             PARTE_BRUTA: detail.monto_bruto,
             PARTE_NETA: detail.monto_neto,
-            ORIGEN_REGLA: detail.origen,
             RUTA: Array.isArray(detail.rutas) ? detail.rutas.join(" > ") : "",
           }))
         );

@@ -1,5 +1,4 @@
 <?php
-// ✅ REEMPLAZAR COMPLETO
 // backend/modules/pagos/pagos.php
 declare(strict_types=1);
 
@@ -154,6 +153,82 @@ function build_obligaciones_por_anio(DateTime $inicio, DateTime $hoy): array {
     $out[$y] = $arr;
   }
   return $out;
+}
+
+
+/** Distribuye centavos en partes iguales y conserva exactamente el total. */
+function pagos_distribuir_centavos_iguales(array $ids, float $monto): array
+{
+  $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0)));
+  if (!$ids) return [];
+
+  $totalCentavos = (int)round(max(0.0, $monto) * 100);
+  $base = intdiv($totalCentavos, count($ids));
+  $resto = $totalCentavos - ($base * count($ids));
+  $out = [];
+  foreach ($ids as $index => $id) {
+    $out[$id] = ($base + ($index < $resto ? 1 : 0)) / 100;
+  }
+  return $out;
+}
+
+/** Obtiene el desglose exacto por sistema guardado en los items de una factura. */
+function pagos_desglose_desde_items_factura(mixed $itemsRaw): array
+{
+  if (is_string($itemsRaw)) {
+    $decoded = json_decode($itemsRaw, true);
+    $items = is_array($decoded) ? $decoded : [];
+  } else {
+    $items = is_array($itemsRaw) ? $itemsRaw : [];
+  }
+
+  $out = [];
+  foreach ($items as $item) {
+    if (!is_array($item)) continue;
+    $modo = strtolower(trim((string)($item['modo'] ?? 'global')));
+    $ars = round((float)($item['ars'] ?? 0), 2);
+    if ($ars <= 0) continue;
+
+    if ($modo === 'por_sistema') {
+      $sid = (int)($item['sistema_id'] ?? $item['id_sistema'] ?? 0);
+      if ($sid > 0) $out[$sid] = round(($out[$sid] ?? 0.0) + $ars, 2);
+      continue;
+    }
+
+    $ids = is_array($item['sistemas_ids'] ?? null) ? $item['sistemas_ids'] : [];
+    foreach (pagos_distribuir_centavos_iguales($ids, $ars) as $sid => $amount) {
+      $out[$sid] = round(($out[$sid] ?? 0.0) + $amount, 2);
+    }
+  }
+
+  ksort($out);
+  return $out;
+}
+
+/** Resuelve una URL/ruta de factura dentro de uploads sin permitir traversal. */
+function pagos_factura_ruta_local_segura(string $pdfPath): ?string
+{
+  $pdfPath = trim($pdfPath);
+  if ($pdfPath === '') return null;
+
+  $pathPart = parse_url($pdfPath, PHP_URL_PATH);
+  $normalized = rawurldecode(is_string($pathPart) && $pathPart !== '' ? $pathPart : $pdfPath);
+  $normalized = '/' . ltrim(str_replace('\\', '/', $normalized), '/');
+  $marker = '/uploads/facturas/';
+  $position = strpos($normalized, $marker);
+  if ($position === false) return null;
+
+  $relative = ltrim(substr($normalized, $position + strlen($marker)), '/');
+  if ($relative === '') return null;
+  $parts = explode('/', $relative);
+  foreach ($parts as $part) {
+    if ($part === '' || $part === '.' || $part === '..' || !preg_match('/^[a-zA-Z0-9_.-]+$/', $part)) {
+      return null;
+    }
+  }
+  if (!preg_match('/\.pdf$/i', end($parts) ?: '')) return null;
+
+  return __DIR__ . '/../../uploads/facturas/' . implode('/', $parts);
 }
 
 /* =========================================================
@@ -473,60 +548,219 @@ function pagos_registrar_pago(): void
   global $pdo;
   pagos_require_write();
   require_method('POST');
-  $org=pagos_org_id();$body=read_json_body();
-  $idSistema=(int)($body['id_sistema']??0);$anio=(int)($body['anio']??0);$idMedio=(int)($body['id_medio_pago']??0);
-  $monto=(float)($body['monto']??0);$meses=$body['meses']??[];$fecha=trim((string)($body['fecha_pago']??''));$idFacturaIn=(int)($body['id_factura']??0);
-  $desglose=is_array($body['sistemas_con_monto']??null)?$body['sistemas_con_monto']:[];
-  if($idSistema<=0||$anio<2000||$anio>2100||$idMedio<=0||$monto<=0||!is_array($meses)||!count($meses)||$fecha==='')json_error('Datos del pago incompletos.');
-  $dt=DateTime::createFromFormat('Y-m-d',$fecha);if(!$dt||$dt->format('Y-m-d')!==$fecha)json_error('fecha_pago inválida.');
 
-  $anchor=$pdo->prepare('SELECT id_cliente FROM clientes_sistemas WHERE id_organizacion=:org AND id_sistema=:id LIMIT 1');
-  $anchor->execute([':org'=>$org,':id'=>$idSistema]);$idCliente=(int)($anchor->fetchColumn()?:0);if($idCliente<=0)json_error('Sistema inexistente en esta entidad.');
-  $mp=$pdo->prepare('SELECT 1 FROM medios_pago WHERE id_organizacion=:org AND id_medio_pago=:id AND activo=1');$mp->execute([':org'=>$org,':id'=>$idMedio]);if(!$mp->fetchColumn())json_error('Medio de pago inválido para esta entidad.');
+  $org = pagos_org_id();
+  $body = read_json_body();
+  $idSistema = (int)($body['id_sistema'] ?? 0);
+  $anio = (int)($body['anio'] ?? 0);
+  $idMedio = (int)($body['id_medio_pago'] ?? 0);
+  $monto = round((float)($body['monto'] ?? 0), 2);
+  $meses = $body['meses'] ?? [];
+  $fecha = trim((string)($body['fecha_pago'] ?? ''));
+  $idFacturaIn = (int)($body['id_factura'] ?? 0);
+  $desglose = is_array($body['sistemas_con_monto'] ?? null) ? $body['sistemas_con_monto'] : [];
 
-  $months=[];foreach($meses as $m){$m=(int)$m;if($m>=1&&$m<=12)$months[]=$m;}$months=array_values(array_unique($months));sort($months);if(!count($months))json_error('Meses inválidos.');
-  $systems=[];
-  foreach($desglose as $item){$sid=(int)($item['id_sistema']??0);$amt=round((float)($item['monto']??0),2);if($sid>0&&$amt>0)$systems[$sid]=$amt;}
-  if($systems){
-    $ids=array_keys($systems);$ph=implode(',',array_fill(0,count($ids),'?'));
-    $st=$pdo->prepare("SELECT id_sistema FROM clientes_sistemas WHERE id_organizacion=? AND id_cliente=? AND id_sistema IN ($ph)");
-    $st->execute(array_merge([$org,$idCliente],$ids));$valid=array_map('intval',$st->fetchAll(PDO::FETCH_COLUMN));
-    if(count($valid)!==count($ids))json_error('El desglose contiene sistemas ajenos al cliente o a la entidad.');
-    if(abs(array_sum($systems)-$monto)>0.05)json_error('La suma del desglose no coincide con el monto total.');
-  } else {$systems=[$idSistema=>$monto];}
+  if ($idFacturaIn <= 0) {
+    json_error('Primero generá y guardá la factura del período antes de registrar el pago.');
+  }
 
-  try{
-    $pdo->beginTransaction();
-    $check=$pdo->prepare('SELECT COUNT(*) FROM pagos WHERE id_organizacion=:org AND id_sistema=:sid AND id_mes=:mes AND anio_periodo=:anio');
-    $fxById=$pdo->prepare('SELECT id_factura,pdf_path FROM facturas WHERE id_organizacion=:org AND id_factura=:id AND anio=:anio AND id_mes=:mes LIMIT 1');
-    $fxSys=$pdo->prepare('SELECT id_factura,pdf_path FROM facturas WHERE id_organizacion=:org AND id_sistema=:sid AND anio=:anio AND id_mes=:mes ORDER BY created_at DESC,id_factura DESC LIMIT 1');
-    $fxCli=$pdo->prepare("SELECT f.id_factura,f.pdf_path FROM facturas f INNER JOIN clientes_sistemas cs ON cs.id_organizacion=f.id_organizacion AND cs.id_sistema=f.id_sistema WHERE f.id_organizacion=:org AND cs.id_cliente=:cliente AND f.anio=:anio AND f.id_mes=:mes ORDER BY f.created_at DESC,f.id_factura DESC LIMIT 1");
-    $ins=$pdo->prepare('INSERT INTO pagos(id_organizacion,id_sistema,id_mes,anio_periodo,id_medio_pago,monto,fecha_pago,id_factura) VALUES(:org,:sid,:mes,:anio,:medio,:monto,:fecha,:factura)');
-    $insertados=[];$omitidos=[];$detalle=[];
-    foreach($months as $mes){$did=false;$detail=[];
-      foreach($systems as $sid=>$amount){
-        $check->execute([':org'=>$org,':sid'=>$sid,':mes'=>$mes,':anio'=>$anio]);if((int)$check->fetchColumn()>0){$detail[$sid]=['omitido'=>true];continue;}
-        $fx=null;
-        if($idFacturaIn>0){$fxById->execute([':org'=>$org,':id'=>$idFacturaIn,':anio'=>$anio,':mes'=>$mes]);$fx=$fxById->fetch(PDO::FETCH_ASSOC)?:null;}
-        if(!$fx){$fxSys->execute([':org'=>$org,':sid'=>$sid,':anio'=>$anio,':mes'=>$mes]);$fx=$fxSys->fetch(PDO::FETCH_ASSOC)?:null;}
-        if(!$fx){$fxCli->execute([':org'=>$org,':cliente'=>$idCliente,':anio'=>$anio,':mes'=>$mes]);$fx=$fxCli->fetch(PDO::FETCH_ASSOC)?:null;}
-        $fid=$fx?(int)$fx['id_factura']:null;
-        $ins->execute([':org'=>$org,':sid'=>$sid,':mes'=>$mes,':anio'=>$anio,':medio'=>$idMedio,':monto'=>$amount,':fecha'=>$fecha,':factura'=>$fid]);
-        $idPagoNuevo=(int)$pdo->lastInsertId();
-        reparto_snapshot_pago_guardar($pdo,$org,$idPagoNuevo,(int)$sid,(float)$amount);
-        $did=true;$detail[$sid]=['id_pago'=>$idPagoNuevo,'id_factura'=>$fid,'pdf_path'=>$fx['pdf_path']??null];
+  if ($idSistema <= 0 || $anio < 2000 || $anio > 2100 || $idMedio <= 0 || $monto <= 0
+      || !is_array($meses) || !count($meses) || $fecha === '') {
+    json_error('Datos del pago incompletos.');
+  }
+  $dt = DateTime::createFromFormat('Y-m-d', $fecha);
+  if (!$dt || $dt->format('Y-m-d') !== $fecha) json_error('fecha_pago inválida.');
+
+  $anchor = $pdo->prepare('SELECT id_cliente FROM clientes_sistemas WHERE id_organizacion=:org AND id_sistema=:id LIMIT 1');
+  $anchor->execute([':org' => $org, ':id' => $idSistema]);
+  $idCliente = (int)($anchor->fetchColumn() ?: 0);
+  if ($idCliente <= 0) json_error('Sistema inexistente en esta entidad.');
+
+  $mp = $pdo->prepare('SELECT 1 FROM medios_pago WHERE id_organizacion=:org AND id_medio_pago=:id AND activo=1');
+  $mp->execute([':org' => $org, ':id' => $idMedio]);
+  if (!$mp->fetchColumn()) json_error('Medio de pago inválido para esta entidad.');
+
+  $months = [];
+  foreach ($meses as $mes) {
+    $mes = (int)$mes;
+    if ($mes >= 1 && $mes <= 12) $months[] = $mes;
+  }
+  $months = array_values(array_unique($months));
+  sort($months);
+  if (!$months) json_error('Meses inválidos.');
+
+  $systems = [];
+  foreach ($desglose as $item) {
+    $sid = (int)($item['id_sistema'] ?? 0);
+    $amount = round((float)($item['monto'] ?? 0), 2);
+    if ($sid > 0 && $amount > 0) {
+      $systems[$sid] = round(($systems[$sid] ?? 0.0) + $amount, 2);
+    }
+  }
+
+  // Cuando existe factura, sus items son la fuente de verdad del desglose.
+  $facturaInput = null;
+  if ($idFacturaIn > 0) {
+    if (count($months) !== 1) json_error('Una factura solo puede aplicarse a un período puntual.');
+    $stFactura = $pdo->prepare("\n      SELECT f.id_factura, f.id_sistema, f.anio, f.id_mes, f.monto_ars, f.total_ars,\n             f.items_facturacion_json, f.pdf_path, cs.id_cliente\n      FROM facturas f\n      INNER JOIN clientes_sistemas cs\n        ON cs.id_organizacion = f.id_organizacion\n       AND cs.id_sistema = f.id_sistema\n      WHERE f.id_organizacion = :org\n        AND f.id_factura = :factura\n        AND f.anio = :anio\n        AND f.id_mes = :mes\n      LIMIT 1\n    ");
+    $stFactura->execute([
+      ':org' => $org,
+      ':factura' => $idFacturaIn,
+      ':anio' => $anio,
+      ':mes' => $months[0],
+    ]);
+    $facturaInput = $stFactura->fetch(PDO::FETCH_ASSOC) ?: null;
+    if (!$facturaInput) json_error('La factura indicada no existe para el período seleccionado.');
+    if ((int)$facturaInput['id_cliente'] !== $idCliente) {
+      json_error('La factura pertenece a otro cliente.');
+    }
+
+    $totalFactura = round((float)($facturaInput['total_ars'] ?: $facturaInput['monto_ars']), 2);
+    if ($totalFactura <= 0 || abs($totalFactura - $monto) > 0.05) {
+      json_error('El monto del pago no coincide con el total de la factura.');
+    }
+
+    $fromInvoice = pagos_desglose_desde_items_factura($facturaInput['items_facturacion_json'] ?? null);
+    if ($fromInvoice) {
+      if (abs(array_sum($fromInvoice) - $totalFactura) > 0.05) {
+        json_error('El detalle interno de la factura no coincide con su total. Volvé a generar la factura.');
       }
-      if($did)$insertados[]=$mes;else$omitidos[]=$mes;$detalle[$mes]=$detail;
+      $systems = $fromInvoice;
     }
+  }
+
+  if (!$systems) $systems = [$idSistema => $monto];
+  if (abs(array_sum($systems) - $monto) > 0.05) {
+    json_error('La suma del desglose no coincide con el monto total.');
+  }
+
+  $ids = array_keys($systems);
+  $ph = implode(',', array_fill(0, count($ids), '?'));
+  $stSystems = $pdo->prepare("SELECT id_sistema FROM clientes_sistemas WHERE id_organizacion=? AND id_cliente=? AND estado='activo' AND id_sistema IN ($ph)");
+  $stSystems->execute(array_merge([$org, $idCliente], $ids));
+  $valid = array_map('intval', $stSystems->fetchAll(PDO::FETCH_COLUMN) ?: []);
+  sort($valid);
+  $expected = array_map('intval', $ids);
+  sort($expected);
+  if ($valid !== $expected) json_error('El desglose contiene sistemas ajenos, inactivos o de otro cliente.');
+
+  if ($facturaInput) {
+    $pdfFactura = trim((string)($facturaInput['pdf_path'] ?? ''));
+    if ($pdfFactura === '') json_error('La factura no tiene un PDF válido asociado.');
+
+    $phFacturas = implode(',', array_fill(0, count($expected), '?'));
+    $stReplicas = $pdo->prepare("
+      SELECT id_sistema
+      FROM facturas
+      WHERE id_organizacion = ?
+        AND anio = ?
+        AND id_mes = ?
+        AND pdf_path = ?
+        AND id_sistema IN ($phFacturas)
+    ");
+    $stReplicas->execute(array_merge([$org, $anio, $months[0], $pdfFactura], $expected));
+    $replicasValidas = array_map('intval', $stReplicas->fetchAll(PDO::FETCH_COLUMN) ?: []);
+    sort($replicasValidas);
+    if ($replicasValidas !== $expected) {
+      json_error('La factura está incompleta para uno o más sistemas. Volvé a generarla antes de registrar el pago.');
+    }
+  }
+
+  try {
+    $pdo->beginTransaction();
+
+    $check = $pdo->prepare('SELECT id_pago, monto, id_factura FROM pagos WHERE id_organizacion=:org AND id_sistema=:sid AND id_mes=:mes AND anio_periodo=:anio LIMIT 1 FOR UPDATE');
+    $fxSys = $pdo->prepare('SELECT id_factura,pdf_path FROM facturas WHERE id_organizacion=:org AND id_sistema=:sid AND anio=:anio AND id_mes=:mes AND pdf_path=:pdf_path ORDER BY id_factura DESC LIMIT 1');
+    $ins = $pdo->prepare('INSERT INTO pagos(id_organizacion,id_sistema,id_mes,anio_periodo,id_medio_pago,monto,fecha_pago,id_factura) VALUES(:org,:sid,:mes,:anio,:medio,:monto,:fecha,:factura)');
+
+    $insertados = [];
+    $omitidos = [];
+    $detalle = [];
+
+    foreach ($months as $mes) {
+      $did = false;
+      $detail = [];
+
+      foreach ($systems as $sid => $amount) {
+        $check->execute([':org' => $org, ':sid' => $sid, ':mes' => $mes, ':anio' => $anio]);
+        $existing = $check->fetch(PDO::FETCH_ASSOC) ?: null;
+        $existingId = $existing ? (int)$existing['id_pago'] : 0;
+        if ($existingId > 0) {
+          if (abs(round((float)$existing['monto'], 2) - round((float)$amount, 2)) > 0.01) {
+            throw new DomainException(
+              'Ya existe un pago para uno de los sistemas, pero su monto no coincide con la factura actual.'
+            );
+          }
+          $detail[$sid] = ['omitido' => true, 'id_pago' => $existingId];
+          continue;
+        }
+
+        // Cada sistema se vincula preferentemente con su propia réplica de factura.
+        $fxSys->execute([
+          ':org' => $org,
+          ':sid' => $sid,
+          ':anio' => $anio,
+          ':mes' => $mes,
+          ':pdf_path' => (string)$facturaInput['pdf_path'],
+        ]);
+        $fx = $fxSys->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$fx) {
+          throw new RuntimeException('Falta la réplica de factura para uno de los sistemas. Volvé a generarla.');
+        }
+        $fid = (int)$fx['id_factura'];
+
+        $ins->execute([
+          ':org' => $org,
+          ':sid' => $sid,
+          ':mes' => $mes,
+          ':anio' => $anio,
+          ':medio' => $idMedio,
+          ':monto' => $amount,
+          ':fecha' => $fecha,
+          ':factura' => $fid,
+        ]);
+        $idPagoNuevo = (int)$pdo->lastInsertId();
+        $did = true;
+        $detail[$sid] = [
+          'id_pago' => $idPagoNuevo,
+          'id_factura' => $fid,
+          'pdf_path' => $fx['pdf_path'] ?? null,
+        ];
+      }
+
+      if ($did) $insertados[] = $mes;
+      else $omitidos[] = $mes;
+      $detalle[$mes] = $detail;
+    }
+
     $pdo->commit();
-    json_ok(['exito'=>true,'modo'=>count($systems)>1?'multi_sistema':'single','id_sistema'=>$idSistema,'anio'=>$anio,'fecha_pago'=>$fecha,'insertados'=>$insertados,'omitidos'=>$omitidos,'factura_por_mes'=>$detalle,'pagos_insertados_total'=>array_sum(array_map(fn($x)=>count(array_filter($x,fn($v)=>empty($v['omitido']))),$detalle))]);
-  }catch(Throwable $e){
-    if($pdo->inTransaction())$pdo->rollBack();
-    $message=trim((string)$e->getMessage());
-    if($message!=='' && (stripos($message,'distribución')!==false || stripos($message,'pagos_reparto')!==false)){
-      json_error($message);
+    json_ok([
+      'exito' => true,
+      'modo' => count($systems) > 1 ? 'multi_sistema' : 'single',
+      'id_sistema' => $idSistema,
+      'anio' => $anio,
+      'fecha_pago' => $fecha,
+      'insertados' => $insertados,
+      'omitidos' => $omitidos,
+      'factura_por_mes' => $detalle,
+      'pagos_insertados_total' => array_sum(array_map(
+        static fn(array $rows): int => count(array_filter($rows, static fn(array $row): bool => empty($row['omitido']))),
+        $detalle
+      )),
+    ]);
+  } catch (DomainException $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    json_error($e->getMessage());
+  } catch (PDOException $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    $mysqlCode = (int)($e->errorInfo[1] ?? 0);
+    if ($mysqlCode === 1062) {
+      json_error('El pago ya fue registrado para uno de los sistemas y el período seleccionado.');
     }
-    json_error('Error DB al registrar pagos',['error'=>$message]);
+    json_error('Error DB al registrar pagos', ['error' => $e->getMessage()]);
+  } catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    json_error('Error DB al registrar pagos', ['error' => $e->getMessage()]);
   }
 }
 
@@ -614,34 +848,92 @@ function pagos_factura_anular_con_nc(): void
     $factura = $st->fetch(PDO::FETCH_ASSOC);
     if (!$factura) json_error('La factura no existe en la entidad activa.');
 
-    $cae = trim((string)($factura['cae'] ?? ''));
-    $caeReal = $cae !== '' && !preg_match('/^0+$/', $cae);
-    $estado = strtolower(trim((string)($factura['estado'] ?? '')));
-    if ($caeReal || $estado === 'emitida') {
-      json_error('La factura fue emitida en ARCA. Para anularla se debe implementar y emitir la Nota de Crédito correspondiente; por seguridad no fue eliminada.');
+    $idCliente = (int)($factura['id_cliente'] ?? 0);
+    $anioFactura = (int)($factura['anio'] ?? 0);
+    $mesFactura = (int)($factura['id_mes'] ?? 0);
+    $pdfPath = trim((string)($factura['pdf_path'] ?? ''));
+    if ($idCliente <= 0 || $anioFactura <= 0 || $mesFactura <= 0 || $pdfPath === '') {
+      json_error('La factura no tiene datos suficientes para una anulación segura.');
     }
 
+    // Una factura generada para varios sistemas se guarda como varias filas que
+    // comparten PDF. La anulación local debe quitar todas esas réplicas juntas.
+    $stGroup = $pdo->prepare("
+      SELECT f.id_factura, f.estado, f.cae
+      FROM facturas f
+      INNER JOIN clientes_sistemas cs
+        ON cs.id_organizacion = f.id_organizacion
+       AND cs.id_sistema = f.id_sistema
+      WHERE f.id_organizacion = :org
+        AND cs.id_cliente = :cliente
+        AND f.anio = :anio
+        AND f.id_mes = :mes
+        AND f.pdf_path = :pdf_path
+      ORDER BY f.id_factura
+    ");
+    $stGroup->execute([
+      ':org' => $org,
+      ':cliente' => $idCliente,
+      ':anio' => $anioFactura,
+      ':mes' => $mesFactura,
+      ':pdf_path' => $pdfPath,
+    ]);
+    $replicas = $stGroup->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    if (!$replicas) json_error('No se pudieron resolver las réplicas de la factura.');
+
+    foreach ($replicas as $replica) {
+      $cae = trim((string)($replica['cae'] ?? ''));
+      $caeReal = $cae !== '' && !preg_match('/^0+$/', $cae);
+      $estado = strtolower(trim((string)($replica['estado'] ?? '')));
+      if ($caeReal || $estado === 'emitida') {
+        json_error('La factura fue emitida en ARCA. Para anularla se debe emitir la Nota de Crédito correspondiente; por seguridad no fue eliminada.');
+      }
+    }
+
+    $idsFactura = array_values(array_map('intval', array_column($replicas, 'id_factura')));
+    $placeholders = implode(',', array_fill(0, count($idsFactura), '?'));
+
     $pdo->beginTransaction();
-    $unlink = $pdo->prepare('UPDATE pagos SET id_factura = NULL WHERE id_organizacion = :org AND id_factura = :factura');
-    $unlink->execute([':org' => $org, ':factura' => $idFactura]);
-    $del = $pdo->prepare('DELETE FROM facturas WHERE id_organizacion = :org AND id_factura = :factura');
-    $del->execute([':org' => $org, ':factura' => $idFactura]);
-    if ($del->rowCount() !== 1) {
+    $unlink = $pdo->prepare("UPDATE pagos SET id_factura = NULL WHERE id_organizacion = ? AND id_factura IN ($placeholders)");
+    $unlink->execute(array_merge([$org], $idsFactura));
+
+    $del = $pdo->prepare("DELETE FROM facturas WHERE id_organizacion = ? AND id_factura IN ($placeholders)");
+    $del->execute(array_merge([$org], $idsFactura));
+    $deleted = $del->rowCount();
+    if ($deleted !== count($idsFactura)) {
       $pdo->rollBack();
-      json_error('No se pudo eliminar la factura local.');
+      json_error('No se pudieron eliminar todas las réplicas de la factura local.');
     }
     $pdo->commit();
+
+    // El PDF se elimina solamente si ya no hay ninguna fila que lo use.
+    $pdfEliminado = false;
+    try {
+      $stReferences = $pdo->prepare('SELECT COUNT(*) FROM facturas WHERE id_organizacion = :org AND pdf_path = :pdf_path');
+      $stReferences->execute([':org' => $org, ':pdf_path' => $pdfPath]);
+      $references = (int)$stReferences->fetchColumn();
+      if ($references === 0) {
+        $localPath = pagos_factura_ruta_local_segura($pdfPath);
+        if ($localPath !== null && is_file($localPath)) $pdfEliminado = @unlink($localPath);
+      }
+    } catch (Throwable $cleanupError) {
+      error_log('No se pudo limpiar el PDF anulado: ' . $cleanupError->getMessage());
+    }
 
     json_ok([
       'exito' => true,
       'emitio_nota_credito' => false,
       'nota_credito_existente' => false,
+      'facturas_eliminadas' => $deleted,
+      'pdf_eliminado' => $pdfEliminado,
       'factura_original' => [
         'id_factura' => $idFactura,
         'cliente_nombre' => (string)($factura['cliente_nombre'] ?? ''),
         'sistema_nombre' => (string)($factura['sistema_nombre'] ?? ''),
       ],
-      'mensaje' => 'Factura local eliminada correctamente.',
+      'mensaje' => $deleted > 1
+        ? 'Factura local y todas sus réplicas eliminadas correctamente.'
+        : 'Factura local eliminada correctamente.',
     ]);
   } catch (Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();

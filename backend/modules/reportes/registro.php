@@ -422,13 +422,12 @@ try {
                     ':org' => $org,
                     ':id' => $id,
                 ]);
-                reparto_snapshot_pago_recalcular_monto($pdo, $org, $id, $monto);
                 $pdo->commit();
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) $pdo->rollBack();
                 throw $e;
             }
-            repreg_ok(['mensaje' => 'Pago y distribución histórica actualizados.']);
+            repreg_ok(['mensaje' => 'Pago actualizado correctamente.']);
         }
 
         repreg_fail('Tipo de movimiento inválido.');
