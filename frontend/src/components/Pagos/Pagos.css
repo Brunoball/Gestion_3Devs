@@ -684,3 +684,37 @@ html, body {
 }
 
 
+
+/* Entidad activa: 3DEVS / BALTO */
+.gpagos-organization-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  border-bottom: 1px solid var(--blue-inst-gray-200);
+}
+
+.gpagos-organization-tab {
+  flex: 1;
+  border: 1px solid var(--blue-inst-gray-300);
+  background: var(--blue-inst-gray-100);
+  color: var(--blue-inst-gray-700);
+  border-radius: 9px;
+  padding: 9px 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--blue-inst-transition);
+}
+
+.gpagos-organization-tab:hover:not(:disabled) {
+  border-color: var(--blue-inst-primary);
+  color: var(--blue-inst-primary);
+}
+
+.gpagos-organization-tab.is-active {
+  background: var(--blue-inst-primary);
+  border-color: var(--blue-inst-primary);
+  color: #fff;
+  cursor: default;
+}
+.gpagos-split-button{background:#e8efff!important;color:#2458ac!important}.gpagos-mobile-split-button{border:0;border-radius:10px;padding:9px 12px;background:#e8efff;color:#2458ac;font-weight:800;display:inline-flex;align-items:center;gap:7px;cursor:pointer}

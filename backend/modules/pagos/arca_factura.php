@@ -10,6 +10,8 @@ function pagos_factura_arca(): void
   global $pdo;
 
   require_method('POST');
+  pagos_require_write();
+  $orgId = pagos_org_id();
   $in = read_json_body();
 
   $id_pago   = isset($in['id_pago']) && is_numeric($in['id_pago']) ? (int)$in['id_pago'] : 0;
@@ -64,17 +66,22 @@ function pagos_factura_arca(): void
   if ($id_pago > 0) {
     $sql = "
       SELECT
-        p.id_pago, p.id_sistema, p.id_mes, p.id_medio_pago, p.monto, p.fecha_pago,
+        p.id_pago, p.id_sistema, p.id_mes, p.anio_periodo, p.id_medio_pago, p.monto, p.fecha_pago,
         cs.id_cliente, cs.nombre AS sistema, cs.descripcion AS sistema_desc,
         c.nombre AS cliente
       FROM pagos p
-      INNER JOIN clientes_sistemas cs ON cs.id_sistema = p.id_sistema
-      INNER JOIN clientes c ON c.id_cliente = cs.id_cliente
-      WHERE p.id_pago = :id
+      INNER JOIN clientes_sistemas cs
+        ON cs.id_organizacion = p.id_organizacion
+       AND cs.id_sistema = p.id_sistema
+      INNER JOIN clientes c
+        ON c.id_organizacion = cs.id_organizacion
+       AND c.id_cliente = cs.id_cliente
+      WHERE p.id_organizacion = :org
+        AND p.id_pago = :id
       LIMIT 1
     ";
     $st = $pdo->prepare($sql);
-    $st->execute([':id' => $id_pago]);
+    $st->execute([':org' => $orgId, ':id' => $id_pago]);
     $p = $st->fetch(PDO::FETCH_ASSOC);
 
     if (!$p) json_error("No existe el pago (id_pago=$id_pago)");
@@ -85,12 +92,15 @@ function pagos_factura_arca(): void
         cs.id_sistema, cs.id_cliente, cs.nombre AS sistema, cs.descripcion AS sistema_desc,
         c.nombre AS cliente
       FROM clientes_sistemas cs
-      INNER JOIN clientes c ON c.id_cliente = cs.id_cliente
-      WHERE cs.id_sistema = :id_sistema
+      INNER JOIN clientes c
+        ON c.id_organizacion = cs.id_organizacion
+       AND c.id_cliente = cs.id_cliente
+      WHERE cs.id_organizacion = :org
+        AND cs.id_sistema = :id_sistema
       LIMIT 1
     ";
     $st = $pdo->prepare($sql);
-    $st->execute([':id_sistema' => $id_sistema]);
+    $st->execute([':org' => $orgId, ':id_sistema' => $id_sistema]);
     $row = $st->fetch(PDO::FETCH_ASSOC);
     if (!$row) json_error("No existe el sistema (id_sistema=$id_sistema)");
 
@@ -331,8 +341,8 @@ function pagos_factura_arca(): void
         'sistema_desc' => (string)($p['sistema_desc'] ?? ''),
 
         // ✅ para que el PDF pueda mostrar/guardar
-        'anio' => $anio_in ?: null,
-        'id_mes' => $id_mes_in ?: null,
+        'anio' => $anio_in ?: (isset($p['anio_periodo']) ? (int)$p['anio_periodo'] : null),
+        'id_mes' => $id_mes_in ?: (isset($p['id_mes']) ? (int)$p['id_mes'] : null),
 
         // ✅ DEVUELVO TAMBIÉN EL PERÍODO QUE SE USÓ
         'periodo_desde' => $isYmd8($periodo_desde) ? $periodo_desde : '',

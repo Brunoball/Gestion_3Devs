@@ -26,18 +26,29 @@ import {
   faFileInvoiceDollar,
   faFileExcel,
   faBan,
+  faChartPie,
 } from "@fortawesome/free-solid-svg-icons";
 
 import * as XLSX from "xlsx";
 
 import BASE_URL from "../../config/config";
 import Toast from "../Global/Toast";
+import { fetchJSONAuth } from "../Global/api";
+import {
+  clearStoredSession,
+  getOrganizations,
+  getStoredActiveOrganization,
+  getStoredToken,
+  getStoredUser,
+  setStoredActiveOrganization,
+} from "../Global/session";
 import "./Pagos.css";
 
 import ModalPago from "./modales/ModalPago";
 import ModalEliminarPago from "./modales/ModalEliminarPago";
 import ModalFacturaArca from "./modales/ModalFacturaArca";
 import ModalAnularFactura from "./modales/ModalAnularFactura";
+import ModalEquipoPago from "./modales/ModalEquipoPago";
 import { saveArcaCreditNotePdf } from "./modales/arcaPdfBuilder";
 
 const ACTION_PAGOS = "pagos";
@@ -46,12 +57,6 @@ const API = `${BASE_URL}/api.php`;
 /** LISTAS desde /api.php?action=listas */
 const LISTAS_ACTION = "listas";
 const LISTAS_API = `${API}?action=${LISTAS_ACTION}`;
-
-/** Fallback directo si tu router listas no está */
-const BACKEND_BASE = BASE_URL.endsWith("/routes")
-  ? BASE_URL.replace(/\/routes$/, "")
-  : BASE_URL;
-const LISTAS_DIRECT = `${BACKEND_BASE}/modules/global/obtener_listas.php`;
 
 /* =========================
    UI helpers
@@ -249,6 +254,7 @@ const Row = memo(
       onDeleteClick,
       onArcaClick,
       onAnularFacturaClick,
+      onDistributionClick,
       arcaLoadingId,
       canOpenPagoMap,
       facturaCheckLoadingMap,
@@ -299,6 +305,15 @@ const Row = memo(
 
         <div className="gpagos-virtual-cell gpagos-virtual-actions">
           <div className="gpagos-actions-inline">
+            <button
+              className="gpagos-action-button gpagos-split-button"
+              onClick={(e) => { e.stopPropagation(); onDistributionClick?.(item); }}
+              title="Ver distribución contable"
+              type="button"
+            >
+              <FontAwesomeIcon icon={faChartPie} />
+            </button>
+
             {/* Registrar pago (solo en deudores) */}
             {isDeudor && (
               <button
@@ -382,6 +397,18 @@ const Row = memo(
 function Pagos() {
   const navigate = useNavigate();
 
+  const storedUser = useMemo(() => getStoredUser(), []);
+  const organizations = useMemo(() => getOrganizations(storedUser), [storedUser]);
+  const [activeOrganization, setActiveOrganization] = useState(() =>
+    getStoredActiveOrganization(storedUser)
+  );
+  const activeOrganizationId = Number(activeOrganization?.id_organizacion || 0);
+
+  const changeOrganization = useCallback((organization) => {
+    const selected = setStoredActiveOrganization(organization?.id_organizacion);
+    if (selected) setActiveOrganization(selected);
+  }, []);
+
   // ✅ por defecto "pagado", pero auto-cambiamos a deudores si hace falta
   const [activeTab, setActiveTab] = useState("pagado");
 
@@ -428,35 +455,28 @@ function Pagos() {
     setToast((t) => ({ ...t, show: false }));
   }, []);
 
-  // ===== fetch JSON robusto =====
-  const fetchJSON = useCallback(async (url, opts) => {
-    const res = await fetch(url, opts);
-    const text = await res.text();
-
-    if (!res.ok) {
-      let msg = `HTTP ${res.status}`;
+  // Todas las peticiones quedan ligadas a la entidad activa.
+  const fetchJSON = useCallback(
+    async (url, opts = {}) => {
       try {
-        const parsed = JSON.parse(text);
-        msg = parsed?.mensaje || parsed?.error || msg;
-      } catch {}
-      throw new Error(msg);
-    }
-
-    const trimmed = (text || "").trim();
-    if (trimmed.startsWith("<")) {
-      throw new Error("Backend devolvió HTML (error PHP).");
-    }
-
-    try {
-      const data = JSON.parse(trimmed || "{}");
-      if (data && typeof data === "object" && data?.exito === false) {
-        throw new Error(data?.mensaje || "Error en el servidor");
+        return await fetchJSONAuth(url, opts, activeOrganizationId);
+      } catch (error) {
+        if (error?.code === "SESSION_EXPIRED") {
+          clearStoredSession();
+          navigate("/", { replace: true });
+        }
+        throw error;
       }
-      return data;
-    } catch {
-      throw new Error("JSON inválido.");
+    },
+    [activeOrganizationId, navigate]
+  );
+
+  useEffect(() => {
+    if (!getStoredToken() || !storedUser || !organizations.length) {
+      clearStoredSession();
+      navigate("/", { replace: true });
     }
-  }, []);
+  }, [storedUser, organizations, navigate]);
 
   // ✅ MODAL PAGO
   const [modalPago, setModalPago] = useState(null);
@@ -467,6 +487,8 @@ function Pagos() {
   // ✅ MODAL ANULAR FACTURA / NOTA DE CRÉDITO
   const [modalAnularFactura, setModalAnularFactura] = useState(null);
 
+  // ✅ DISTRIBUCIÓN CONTABLE DEL CLIENTE / PERÍODO
+  const [modalDistribucion, setModalDistribucion] = useState(null);
 
   // ✅ MODAL ARCA
   const [modalArca, setModalArca] = useState(null);
@@ -474,6 +496,7 @@ function Pagos() {
   const closeModalPago = useCallback(() => setModalPago(null), []);
   const closeModalEliminar = useCallback(() => setModalEliminar(null), []);
   const closeModalAnularFactura = useCallback(() => setModalAnularFactura(null), []);
+  const closeModalDistribucion = useCallback(() => setModalDistribucion(null), []);
   const closeModalArca = useCallback(() => setModalArca(null), []);
 
   // ===== Virtual / infinite =====
@@ -489,7 +512,25 @@ function Pagos() {
     cacheDuration: 30 * 60 * 1000,
   });
 
-  const cacheKey = useCallback((anio, mes) => `${anio || ""}|${mes || ""}`, []);
+  const cacheKey = useCallback((anio, mes) => `${activeOrganizationId}|${anio || ""}|${mes || ""}`, [activeOrganizationId]);
+
+  useEffect(() => {
+    cacheRef.current = {
+      pagos: { pagado: {}, deudor: {}, lastUpdated: {} },
+      listas: null,
+      cacheDuration: 30 * 60 * 1000,
+    };
+    setPagosPagados([]);
+    setPagosDeudores([]);
+    setMeses([]);
+    setMediosPago([]);
+    setSelectedMonthId("");
+    setSelectedMedioPago("");
+    setSearchTerm("");
+    setLimit(120);
+    setOffset(0);
+    setHasMore(true);
+  }, [activeOrganizationId]);
 
   const filtrosCompletos = useMemo(
     () => Boolean(selectedYear && selectedMonthId),
@@ -505,13 +546,7 @@ function Pagos() {
 
       setLoading((p) => ({ ...p, listas: true }));
       try {
-        let data;
-        try {
-          data = await fetchJSON(LISTAS_API, { method: "GET" });
-        } catch {
-          data = await fetchJSON(LISTAS_DIRECT, { method: "GET" });
-        }
-
+        const data = await fetchJSON(LISTAS_API, { method: "GET" });
         const listas = data?.listas || data || {};
         cacheRef.current.listas = listas;
         return listas;
@@ -523,6 +558,7 @@ function Pagos() {
   );
 
   useEffect(() => {
+    if (!activeOrganizationId) return;
     const run = async () => {
       try {
         const listas = await fetchListas(false);
@@ -578,7 +614,7 @@ function Pagos() {
     };
 
     run();
-  }, [fetchListas]);
+  }, [fetchListas, activeOrganizationId]);
 
   // ===== Carga pagos por mes/año =====
   const cargarPagosPorMes = useCallback(
@@ -1027,6 +1063,23 @@ function Pagos() {
 
   const onArcaClick = useCallback((row) => openModalArca(row), [openModalArca]);
 
+  const onDistributionClick = useCallback((row) => {
+    const idCliente = getIdCliente(row);
+    if (!idCliente || !selectedYear || !selectedMonthId) {
+      showToast("advertencia", "Seleccioná año y mes para ver la distribución.");
+      return;
+    }
+    setModalDistribucion({
+      open: true,
+      id_cliente: idCliente,
+      anio: Number(selectedYear),
+      id_mes: Number(selectedMonthId),
+      mes: getMesLabelById(meses, selectedMonthId),
+      labelCliente: buildClienteLabel(row),
+      estado: activeTab,
+    });
+  }, [selectedYear, selectedMonthId, meses, activeTab, showToast]);
+
   const onDeleteClick = useCallback((row) => {
     const id_pago = getIdPago(row);
     if (!id_pago) return;
@@ -1150,9 +1203,20 @@ function Pagos() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, activeTab === "pagado" ? "Pagos" : "Deudores");
 
-    const fileName = `pagos_${activeTab}_${selectedYear}_${safeMes}.xlsx`;
+    const orgCode = String(activeOrganization?.codigo || "entidad")
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "_");
+    const fileName = `pagos_${orgCode}_${activeTab}_${selectedYear}_${safeMes}.xlsx`;
     XLSX.writeFile(wb, fileName);
-  }, [filtrosCompletos, datosFiltrados, activeTab, selectedYear, selectedMonthId, meses]);
+  }, [
+    filtrosCompletos,
+    datosFiltrados,
+    activeTab,
+    selectedYear,
+    selectedMonthId,
+    meses,
+    activeOrganization,
+  ]);
 
   // ✅ confirmar anulación de factura con Nota de Crédito si corresponde
   const confirmarAnularFactura = useCallback(async () => {
@@ -1285,6 +1349,16 @@ function Pagos() {
                 </div>
 
                 <div className="gpagos-mobile-actions">
+                  <button
+                    className="gpagos-mobile-split-button"
+                    onClick={(e) => { e.stopPropagation(); onDistributionClick(row); }}
+                    type="button"
+                    title="Ver distribución contable"
+                  >
+                    <FontAwesomeIcon icon={faChartPie} />
+                    <span>Distribución</span>
+                  </button>
+
                   {isDeudor && (
                     <button
                       className={`gpagos-mobile-pay-button ${
@@ -1406,6 +1480,7 @@ function Pagos() {
                 onDeleteClick={onDeleteClick}
                 onArcaClick={onArcaClick}
                 onAnularFacturaClick={onAnularFacturaClick}
+                onDistributionClick={onDistributionClick}
                 arcaLoadingId={arcaLoadingId}
                 canOpenPagoMap={canOpenPagoMap}
                 facturaCheckLoadingMap={facturaCheckLoadingMap}
@@ -1427,6 +1502,7 @@ function Pagos() {
     onDeleteClick,
     onArcaClick,
     onAnularFacturaClick,
+    onDistributionClick,
     hasMore,
     loadMoreItems,
     listKey,
@@ -1450,9 +1526,21 @@ function Pagos() {
         />
       ) : null}
 
+      {modalDistribucion?.open && (
+        <ModalEquipoPago
+          open={modalDistribucion.open}
+          onClose={closeModalDistribucion}
+          apiBase={API}
+          action={ACTION_PAGOS}
+          data={modalDistribucion}
+          idOrganizacion={activeOrganizationId}
+        />
+      )}
+
       {modalPago?.open && (
         <ModalPago
           id_sistema={modalPago.id_sistema}
+          idOrganizacion={activeOrganizationId}
           cerrarModal={closeModalPago}
           onPagoRealizado={() => {
             closeModalPago();
@@ -1481,6 +1569,7 @@ function Pagos() {
       {modalArca?.open && (
         <ModalFacturaArca
           open={modalArca.open}
+          idOrganizacion={activeOrganizationId}
           onClose={closeModalArca}
           apiBase={API}
           action={ACTION_PAGOS}
@@ -1524,6 +1613,23 @@ function Pagos() {
             Pagos
           </h2>
           <div className="gpagos-divider"></div>
+        </div>
+
+        <div className="gpagos-organization-tabs" aria-label="Entidad de pagos">
+          {organizations.map((organization) => {
+            const selected = Number(organization.id_organizacion) === activeOrganizationId;
+            return (
+              <button
+                key={organization.id_organizacion}
+                type="button"
+                className={`gpagos-organization-tab ${selected ? "is-active" : ""}`}
+                onClick={() => changeOrganization(organization)}
+                disabled={selected}
+              >
+                {organization.codigo || organization.nombre}
+              </button>
+            );
+          })}
         </div>
 
         <div className="gpagos-scrollable-content">

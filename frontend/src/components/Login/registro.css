@@ -370,3 +370,11 @@ select.reg_input::-ms-expand { display: none; }
     flex-direction: column;
   }
 }
+
+.reg_access-help {
+  display: block;
+  margin-top: 7px;
+  color: #475569;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}

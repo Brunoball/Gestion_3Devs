@@ -5,6 +5,7 @@ import { FaCheck } from "react-icons/fa";
 import "./ModalFacturaArca.css";
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
 import ModalFacturaArcaResumen from "./ModalFacturaArcaResumen";
+import { fetchJSONAuth } from "../../Global/api";
 
 const DOC_TIPOS = [
   { id: 80, label: "CUIT (80)" },
@@ -138,6 +139,7 @@ export default function ModalFacturaArca({
   apiBase,
   action,
   data,
+  idOrganizacion,
   onFacturada,
   onDone,
 }) {
@@ -234,37 +236,11 @@ export default function ModalFacturaArca({
     try { inputEl.click(); } catch {}
   }, []);
 
-  // ✅ fetch helper robusto
-  const fetchJSON = useCallback(async (url, opts) => {
-    const res = await fetch(url, opts);
-    const raw = await res.text();
-    const trimmed = (raw || "").trim();
-
-    if (trimmed.startsWith("<")) {
-      throw new Error("Backend devolvió HTML (error PHP).");
-    }
-
-    let j = null;
-    try {
-      j = trimmed ? JSON.parse(trimmed) : null;
-    } catch {
-      j = null;
-    }
-
-    const pickErr = () => j?.mensaje || j?.error || j?.message || j?.detail || "";
-
-    if (!res.ok) {
-      const msg = pickErr();
-      throw new Error(msg || `HTTP ${res.status}`);
-    }
-
-    if (j && typeof j === "object" && j.exito === false) {
-      throw new Error(pickErr() || "Error servidor (exito=false)");
-    }
-
-    if (j == null) throw new Error("Respuesta inválida (no JSON)");
-    return j;
-  }, []);
+  // ✅ fetch helper autenticado y aislado por organización
+  const fetchJSON = useCallback(
+    (url, opts = {}) => fetchJSONAuth(url, opts, idOrganizacion),
+    [idOrganizacion]
+  );
 
   /* =========================================
      ✅ DÓLAR OFICIAL
@@ -1496,6 +1472,7 @@ export default function ModalFacturaArca({
         onCloseAll={() => onClose?.()}
         apiBase={apiBase}
         action={action}
+        idOrganizacion={idOrganizacion}
         data={{
           ...data,
 

@@ -11,6 +11,7 @@ export default function SistemasModal({
   sistemas,
   cargando,
   onOpenAdd,
+  canWrite = true,
   children,
 }) {
   useEffect(() => {
@@ -51,14 +52,16 @@ export default function SistemasModal({
           </div>
 
           <div className="mi-modal__head-actions">
-            <button
-              className="mi-btn mi-btn--primary"
-              type="button"
-              onClick={onOpenAdd}
-              title="Agregar sistema"
-            >
-              <FaPlus /> Agregar
-            </button>
+            {canWrite && (
+              <button
+                className="mi-btn mi-btn--primary"
+                type="button"
+                onClick={onOpenAdd}
+                title="Agregar sistema"
+              >
+                <FaPlus /> Agregar
+              </button>
+            )}
 
             <button
               className="mi-modal__close"
@@ -81,8 +84,9 @@ export default function SistemasModal({
               <div className="mi-section">
                 <div className="mi-section__title">Administración</div>
                 <div className="mi-section__sub">
-                  Acá solo ves, editás, eliminás y asignás trabajadores. Para
-                  cargar un sistema nuevo usá “Agregar”.
+                  {canWrite
+                    ? "Acá administrás el servicio contratado y la distribución que corresponda."
+                    : "Acceso de solo lectura para esta organización."}
                 </div>
               </div>
 
@@ -92,9 +96,11 @@ export default function SistemasModal({
               {lista.length === 0 && (
                 <div className="mi-empty">
                   <span>Este cliente todavía no tiene sistemas cargados.</span>
-                  <button className="mi-link" type="button" onClick={onOpenAdd}>
-                    Agregar el primero
-                  </button>
+                  {canWrite && (
+                    <button className="mi-link" type="button" onClick={onOpenAdd}>
+                      Agregar el primero
+                    </button>
+                  )}
                 </div>
               )}
             </>

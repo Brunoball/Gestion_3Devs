@@ -7,6 +7,7 @@ import "./ModalFacturaArca.css";
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
 
 import { saveArcaInvoicePdf } from "./arcaPdfBuilder";
+import { fetchJSONAuth } from "../../Global/api";
 
 const DOC_TIPOS = [
   { id: 80, label: "CUIT (80)" },
@@ -121,6 +122,7 @@ export default function ModalFacturaArcaResumen({
   apiBase,
   action,
   data,
+  idOrganizacion,
 
   docTipo,
   docNro,
@@ -219,42 +221,8 @@ export default function ModalFacturaArcaResumen({
   }, []);
 
   const fetchJSON = useCallback(
-    async (url, opts) => {
-      const res = await fetch(url, opts);
-      const raw = await res.text();
-      const trimmed = (raw || "").trim();
-
-      if (trimmed.startsWith("<")) {
-        throw new Error("Backend devolvió HTML (error PHP).");
-      }
-
-      let j = null;
-      try {
-        j = trimmed ? JSON.parse(trimmed) : null;
-      } catch {
-        j = null;
-      }
-
-      const pickErr = () =>
-        toText(j?.mensaje) ||
-        toText(j?.error) ||
-        toText(j?.message) ||
-        toText(j?.detail) ||
-        "";
-
-      if (!res.ok) {
-        const msg = pickErr();
-        throw new Error(msg || `HTTP ${res.status}`);
-      }
-
-      if (j && typeof j === "object" && j.exito === false) {
-        throw new Error(pickErr() || "Error servidor (exito=false)");
-      }
-
-      if (j == null) throw new Error("Respuesta inválida (no JSON)");
-      return j;
-    },
-    [toText]
+    (url, opts = {}) => fetchJSONAuth(url, opts, idOrganizacion),
+    [idOrganizacion]
   );
 
   const validar = useCallback(() => {
@@ -338,25 +306,13 @@ export default function ModalFacturaArcaResumen({
       fd.append("meta", JSON.stringify(payload));
       fd.append("pdf", blob, filename || "factura.pdf");
 
-      const res = await fetch(url, { method: "POST", body: fd });
-      const raw = await res.text();
-
-      let j = null;
-      try {
-        j = raw ? JSON.parse(raw) : null;
-      } catch {
-        j = null;
-      }
-
-      if (!res.ok) {
-        throw new Error(j?.mensaje || j?.error || `HTTP ${res.status}`);
-      }
-      if (j && typeof j === "object" && j.exito === false) {
-        throw new Error(j?.mensaje || "Error guardando factura");
-      }
-      return j;
+      return fetchJSONAuth(
+        url,
+        { method: "POST", body: fd },
+        idOrganizacion
+      );
     },
-    [apiBase, action, data, docTipo, docNro, cbteTipo, ptoVta]
+    [apiBase, action, data, docTipo, docNro, cbteTipo, ptoVta, idOrganizacion]
   );
 
   const exportarSoloPDF = useCallback(async () => {

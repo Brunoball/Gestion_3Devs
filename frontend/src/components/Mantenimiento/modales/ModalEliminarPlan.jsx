@@ -51,14 +51,13 @@ export default function ModalEliminarPlan({
           id="modal-eliminar-plan-title"
           className="emp-baja-modal__title emp-baja-modal__title--danger"
         >
-          Eliminar plan
+          Dar de baja plan
         </h3>
 
         <p className="emp-baja-modal__body">
-          ¿Seguro que querés eliminar{" "}
-          <strong>{plan?.nombre || "este plan"}</strong> definitivamente?
+          ¿Querés dar de baja <strong>{plan?.nombre || "este plan"}</strong>?
           <br />
-          Esta acción no se puede deshacer.
+          Dejará de estar disponible para nuevas asignaciones, pero los sistemas que ya lo usan conservarán su referencia histórica.
         </p>
 
         <div className="emp-baja-modal__actions">
@@ -78,7 +77,7 @@ export default function ModalEliminarPlan({
             onClick={() => onConfirm?.(plan)}
             disabled={loading}
           >
-            {loading ? "Eliminando..." : "Eliminar"}
+            {loading ? "Procesando..." : "Dar de baja"}
           </button>
         </div>
       </div>

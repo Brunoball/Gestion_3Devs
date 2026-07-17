@@ -10,11 +10,19 @@ import {
   faChartLine,
   faUserPlus,
 } from "@fortawesome/free-solid-svg-icons";
+import BASE_URL from "../../config/config";
 import "./principal.css";
 import "../Global/roots.css";
 import logo3devs from "../../imagenes/Logo_3devs.jpeg";
+import {
+  buildAuthHeaders,
+  clearStoredSession,
+  getOrganizations,
+  getStoredToken,
+  getStoredUser,
+  normalizeRole,
+} from "../Global/session";
 
-/* =========== Modal cierre de sesión ============= */
 const ConfirmLogoutModal = ({ open, onClose, onConfirm }) => {
   const cancelBtnRef = useRef(null);
 
@@ -27,7 +35,6 @@ const ConfirmLogoutModal = ({ open, onClose, onConfirm }) => {
   }, [open, onClose]);
 
   if (!open) return null;
-  const stop = (e) => e.stopPropagation();
 
   return (
     <div
@@ -39,7 +46,7 @@ const ConfirmLogoutModal = ({ open, onClose, onConfirm }) => {
     >
       <div
         className="modalprincipal-container modalprincipal--danger"
-        onMouseDown={stop}
+        onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="modalprincipal__icon" aria-hidden="true">
           <FontAwesomeIcon icon={faSignOutAlt} />
@@ -74,21 +81,6 @@ const ConfirmLogoutModal = ({ open, onClose, onConfirm }) => {
   );
 };
 
-function normalizeRol(value) {
-  if (value == null) return "vista";
-  const v = String(value).trim().toLowerCase();
-  if (
-    v === "1" ||
-    v === "admin" ||
-    v === "administrator" ||
-    v === "administrador" ||
-    v === "superadmin"
-  ) {
-    return "admin";
-  }
-  return "vista";
-}
-
 const Principal = () => {
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
@@ -96,14 +88,17 @@ const Principal = () => {
   const [usuario, setUsuario] = useState(null);
 
   useEffect(() => {
-    try {
-      const u = JSON.parse(localStorage.getItem("usuario"));
-      if (u) u.rol = normalizeRol(u.rol);
-      setUsuario(u || null);
-    } catch {
-      setUsuario(null);
+    const token = getStoredToken();
+    const storedUser = getStoredUser();
+
+    if (!token || !storedUser) {
+      clearStoredSession();
+      navigate("/", { replace: true });
+      return;
     }
-  }, []);
+
+    setUsuario(storedUser);
+  }, [navigate]);
 
   useEffect(() => {
     try {
@@ -114,40 +109,49 @@ const Principal = () => {
     } catch {}
   }, []);
 
-  const isAdmin = normalizeRol(usuario?.rol) === "admin";
+  const role = normalizeRole(usuario?.rol);
+  const isAdmin = role === "admin";
+  const organizations = getOrganizations(usuario);
 
-  const menuAdmin = [
+  const menuOperativo = [
     { icon: faUsers, text: "Clientes", ruta: "/clientes" },
     { icon: faMoneyBillWave, text: "Pagos", ruta: "/pagos" },
     { icon: faUserTie, text: "Trabajadores", ruta: "/trabajadores" },
     { icon: faLayerGroup, text: "Mantenimiento", ruta: "/mantenimiento" },
     { icon: faChartLine, text: "Reportes", ruta: "/reportes" },
-    { icon: faUserPlus, text: "Registro", ruta: "/registro" },
   ];
 
-  const menuVista = [
-    { icon: faUsers, text: "Clientes", ruta: "/clientes" },
-    { icon: faMoneyBillWave, text: "Pagos", ruta: "/pagos" },
-    { icon: faChartLine, text: "Reportes", ruta: "/reportes" },
-    { icon: faUserPlus, text: "Registro", ruta: "/registro" },
-  ];
-
-  const visibleItems = isAdmin ? menuAdmin : menuVista;
+  const hasFullControl = isAdmin && organizations.length > 1;
+  const visibleItems = hasFullControl
+    ? [
+        ...menuOperativo,
+        { icon: faUserPlus, text: "Crear usuario", ruta: "/registro" },
+      ]
+    : menuOperativo;
 
   const handleItemClick = (item) => {
     navigate(item.ruta);
     document.activeElement?.blur?.();
   };
 
-  const confirmarCierreSesion = () => {
+  const confirmarCierreSesion = async () => {
     setIsExiting(true);
+
+    try {
+      await fetch(`${BASE_URL}/api.php?action=logout`, {
+        method: "POST",
+        headers: buildAuthHeaders(),
+      });
+    } catch {
+      // El cierre local se ejecuta igualmente si la red falla.
+    }
+
     setTimeout(() => {
       sessionStorage.clear();
-      localStorage.removeItem("token");
-      localStorage.removeItem("usuario");
+      clearStoredSession();
       setShowModal(false);
       navigate("/", { replace: true });
-    }, 400);
+    }, 250);
   };
 
   return (
@@ -160,13 +164,25 @@ const Principal = () => {
         <div className="pagina-principal-header header--row">
           <div className="header-text">
             <h1 className="title">
-              Sistema interno <span className="title-accent">3Devs</span>
+              Sistema interno <span className="title-accent">3Devs + Balto</span>
             </h1>
             <p className="subtitle">
-              {isAdmin
-                ? "Panel de administración y gestión"
-                : "Panel de consulta y seguimiento"}
+              {hasFullControl
+                ? "Panel de administración con acceso multiempresa"
+                : "Panel de gestión de la entidad autorizada"}
             </p>
+
+            <div className="principal-organizaciones" aria-label="Organizaciones habilitadas">
+              {organizations.map((organization) => (
+                <span
+                  key={organization.id_organizacion}
+                  className="principal-organizacion-chip"
+                >
+                  {organization.codigo || organization.nombre}
+                  <small>{organization.rol}</small>
+                </span>
+              ))}
+            </div>
           </div>
 
           <div className="logo-container logo-container--right">
@@ -191,6 +207,12 @@ const Principal = () => {
             ))}
           </div>
         </div>
+
+        {!hasFullControl && (
+          <p className="principal-limited-note">
+            Acceso operativo completo a la entidad habilitada. La creación de usuarios está reservada al administrador general.
+          </p>
+        )}
 
         <button
           type="button"

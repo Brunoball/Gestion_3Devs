@@ -1,96 +1,205 @@
 <?php
-// backend/routes/registro.php
-header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
-header('Access-Control-Allow-Methods: POST, OPTIONS');
+// backend/modules/login/registro.php
+declare(strict_types=1);
+
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(204);
+require_once __DIR__ . '/../auth/session.php';
+
+function registro_out(array $payload, int $status = 200): never
+{
+    http_response_code($status);
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-require_once __DIR__ . '/../../config/db.php'; // Debe definir $pdo (PDO conectado)
-
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        http_response_code(405);
-        echo json_encode(['exito' => false, 'mensaje' => 'Método no permitido.']);
-        exit;
+        registro_out(['exito' => false, 'mensaje' => 'Método no permitido.'], 405);
     }
 
-    // Acepta JSON o x-www-form-urlencoded
-    $raw  = file_get_contents('php://input');
-    $data = json_decode($raw, true);
-    if (!is_array($data)) $data = $_POST ?? [];
+    $caller = auth_require_session($pdo, ['admin']);
 
-    // El front envía: nombre, contrasena, rol
-    $nombre     = trim((string)($data['nombre'] ?? ''));
+    // Crear usuarios es una acción exclusiva del administrador general:
+    // debe ser administrador en todas las organizaciones activas.
+    $activeOrganizations = $pdo->query("
+        SELECT id_organizacion
+        FROM organizaciones
+        WHERE activo = 1
+        ORDER BY id_organizacion
+    ")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+
+    $callerAdminIds = [];
+    foreach ($caller['organizaciones'] as $organization) {
+        if (($organization['rol'] ?? '') === 'admin') {
+            $callerAdminIds[(int)$organization['id_organizacion']] = true;
+        }
+    }
+
+    foreach ($activeOrganizations as $activeOrganizationId) {
+        if (!isset($callerAdminIds[(int)$activeOrganizationId])) {
+            registro_out([
+                'exito' => false,
+                'mensaje' => 'La creación de usuarios está reservada al administrador general.',
+            ], 403);
+        }
+    }
+
+    $raw = file_get_contents('php://input');
+    $data = json_decode($raw ?: '{}', true);
+    if (!is_array($data)) {
+        $data = $_POST ?? [];
+    }
+
+    $nombre = trim((string)($data['nombre'] ?? ''));
     $contrasena = (string)($data['contrasena'] ?? '');
-    $rol        = strtolower(trim((string)($data['rol'] ?? '')));
+    $alcance = strtolower(trim((string)($data['alcance'] ?? 'balto')));
 
-    // Validaciones
-    if ($nombre === '' || $contrasena === '' || $rol === '') {
-        echo json_encode(['exito' => false, 'mensaje' => 'Faltan datos.']);
-        exit;
+    if ($nombre === '' || $contrasena === '') {
+        registro_out(['exito' => false, 'mensaje' => 'Faltan datos.'], 422);
     }
     if (mb_strlen($nombre) < 4 || mb_strlen($nombre) > 100) {
-        echo json_encode(['exito' => false, 'mensaje' => 'El usuario debe tener entre 4 y 100 caracteres.']);
-        exit;
+        registro_out(['exito' => false, 'mensaje' => 'El usuario debe tener entre 4 y 100 caracteres.'], 422);
     }
-    if (strlen($contrasena) < 6) {
-        echo json_encode(['exito' => false, 'mensaje' => 'La contraseña debe tener al menos 6 caracteres.']);
-        exit;
+    if (strlen($contrasena) < 8) {
+        registro_out(['exito' => false, 'mensaje' => 'La contraseña debe tener al menos 8 caracteres.'], 422);
     }
-    if (!in_array($rol, ['vista','admin'], true)) {
-        echo json_encode(['exito' => false, 'mensaje' => 'Rol inválido (use "vista" o "admin").']);
-        exit;
+    if (!in_array($alcance, ['total', 'balto'], true)) {
+        registro_out(['exito' => false, 'mensaje' => 'Tipo de acceso inválido.'], 422);
     }
 
-    // Unicidad por Nombre_Completo (la columna es UNIQUE)
-    $st = $pdo->prepare("SELECT COUNT(*) FROM `usuarios` WHERE UPPER(`Nombre_Completo`) = UPPER(:n)");
-    $st->execute([':n' => $nombre]);
-    if ((int)$st->fetchColumn() > 0) {
-        echo json_encode(['exito' => false, 'mensaje' => 'El usuario ya existe.']);
-        exit;
+    $check = $pdo->prepare("
+        SELECT idUsuario
+        FROM usuarios
+        WHERE UPPER(Nombre_Completo) = UPPER(:nombre)
+        LIMIT 1
+    ");
+    $check->execute([':nombre' => $nombre]);
+    if ($check->fetchColumn()) {
+        registro_out(['exito' => false, 'mensaje' => 'El usuario ya existe.'], 409);
     }
 
-    // Hash seguro
+    $targets = [];
+    if ($alcance === 'total') {
+        // Para crear un administrador total, quien lo crea debe ser admin en todas las organizaciones activas.
+        $activeOrganizations = $pdo->query("
+            SELECT id_organizacion, codigo, nombre
+            FROM organizaciones
+            WHERE activo = 1
+            ORDER BY id_organizacion
+        ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $callerAdminIds = [];
+        foreach ($caller['organizaciones'] as $org) {
+            if (($org['rol'] ?? '') === 'admin') {
+                $callerAdminIds[(int)$org['id_organizacion']] = true;
+            }
+        }
+
+        foreach ($activeOrganizations as $org) {
+            $id = (int)$org['id_organizacion'];
+            if (!isset($callerAdminIds[$id])) {
+                registro_out([
+                    'exito' => false,
+                    'mensaje' => 'No tenés permisos de administrador en todas las organizaciones.',
+                ], 403);
+            }
+            $targets[] = [
+                'id_organizacion' => $id,
+                'codigo' => (string)$org['codigo'],
+                'nombre' => (string)$org['nombre'],
+                'rol' => 'admin',
+                'es_predeterminada' => ((string)$org['codigo'] === '3DEVS') ? 1 : 0,
+            ];
+        }
+    } else {
+        $stBalto = $pdo->prepare("
+            SELECT id_organizacion, codigo, nombre
+            FROM organizaciones
+            WHERE codigo = 'BALTO' AND activo = 1
+            LIMIT 1
+        ");
+        $stBalto->execute();
+        $balto = $stBalto->fetch(PDO::FETCH_ASSOC);
+        if (!$balto) {
+            registro_out(['exito' => false, 'mensaje' => 'La organización BALTO no está disponible.'], 409);
+        }
+
+        $callerCanManageBalto = false;
+        foreach ($caller['organizaciones'] as $org) {
+            if ((int)$org['id_organizacion'] === (int)$balto['id_organizacion'] && ($org['rol'] ?? '') === 'admin') {
+                $callerCanManageBalto = true;
+                break;
+            }
+        }
+        if (!$callerCanManageBalto) {
+            registro_out(['exito' => false, 'mensaje' => 'No tenés permisos para crear usuarios de BALTO.'], 403);
+        }
+
+        $targets[] = [
+            'id_organizacion' => (int)$balto['id_organizacion'],
+            'codigo' => (string)$balto['codigo'],
+            'nombre' => (string)$balto['nombre'],
+            'rol' => 'contador',
+            'es_predeterminada' => 1,
+        ];
+    }
+
+    $pdo->beginTransaction();
+
     $hash = password_hash($contrasena, PASSWORD_BCRYPT);
+    $globalRole = $alcance === 'total' ? 'admin' : 'contador';
 
-    // Insert directo a la nueva estructura
-    $st = $pdo->prepare("
-        INSERT INTO `usuarios` (`Nombre_Completo`, `Hash_Contrasena`, `rol`)
+    $insertUser = $pdo->prepare("
+        INSERT INTO usuarios (Nombre_Completo, Hash_Contrasena, rol)
         VALUES (:nombre, :hash, :rol)
     ");
-    $ok = $st->execute([
+    $insertUser->execute([
         ':nombre' => $nombre,
-        ':hash'   => $hash,
-        ':rol'    => $rol,
+        ':hash' => $hash,
+        ':rol' => $globalRole,
     ]);
+    $idUsuario = (int)$pdo->lastInsertId();
 
-    if (!$ok) {
-        echo json_encode(['exito' => false, 'mensaje' => 'Error al registrar usuario.']);
-        exit;
+    $insertAccess = $pdo->prepare("
+        INSERT INTO usuarios_organizaciones
+            (id_usuario, id_organizacion, rol, activo, es_predeterminada)
+        VALUES
+            (:id_usuario, :id_organizacion, :rol, 1, :es_predeterminada)
+    ");
+
+    foreach ($targets as $target) {
+        $insertAccess->execute([
+            ':id_usuario' => $idUsuario,
+            ':id_organizacion' => (int)$target['id_organizacion'],
+            ':rol' => (string)$target['rol'],
+            ':es_predeterminada' => (int)$target['es_predeterminada'],
+        ]);
     }
 
-    $id = (int)$pdo->lastInsertId();
+    $pdo->commit();
 
-    echo json_encode([
-        'exito'   => true,
+    registro_out([
+        'exito' => true,
+        'mensaje' => $alcance === 'total'
+            ? 'Usuario con control total creado.'
+            : 'Usuario con acceso exclusivo a BALTO creado.',
         'usuario' => [
-            'idUsuario'       => $id,
+            'idUsuario' => $idUsuario,
             'Nombre_Completo' => $nombre,
-            'rol'             => $rol, // 'admin' | 'vista'
+            'rol' => $globalRole,
+            'organizaciones' => $targets,
         ],
-    ], JSON_UNESCAPED_UNICODE);
-
+    ]);
 } catch (Throwable $e) {
+    if ($pdo instanceof PDO && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+
     http_response_code(500);
     echo json_encode([
-        'exito'   => false,
-        'mensaje' => 'Error del servidor.',
-        // 'detalle' => $e->getMessage(), // descomentar solo para depurar
+        'exito' => false,
+        'mensaje' => 'Error del servidor al registrar el usuario.',
     ], JSON_UNESCAPED_UNICODE);
+    exit;
 }

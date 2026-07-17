@@ -2,14 +2,8 @@
 // backend/modules/login/route.php
 declare(strict_types=1);
 
-/**
- * Router del módulo LOGIN.
- * OJO: se ejecuta dentro de una función, por eso hay que traer $pdo con global
- */
 function route_login(string $action): bool
 {
-    // ✅ Importantísimo: traer el $pdo global al scope de esta función,
-    // así los requires (inicio.php / registro.php) lo ven.
     global $pdo;
 
     switch ($action) {
@@ -19,6 +13,14 @@ function route_login(string $action): bool
 
         case 'registro':
             require __DIR__ . '/registro.php';
+            return true;
+
+        case 'logout':
+            require __DIR__ . '/logout.php';
+            return true;
+
+        case 'sesion_actual':
+            require __DIR__ . '/sesion_actual.php';
             return true;
 
         default:

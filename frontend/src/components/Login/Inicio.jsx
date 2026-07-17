@@ -5,38 +5,12 @@ import BASE_URL from '../../config/config';
 import './inicio.css';
 import logoRH from '../../imagenes/Logo_3devs.jpeg';
 import Toast from '../Global/Toast';
+import { storeLoginResponse } from '../Global/session';
 
 const STORAGE_KEYS = {
   rememberFlag: 'rememberLogin',
   user: 'remember_nombre',
-  pass: 'remember_contrasena', // base64
 };
-
-function decodeJwtPayload(token) {
-  try {
-    const [, payloadB64] = token.split('.');
-    if (!payloadB64) return null;
-    const b64 = payloadB64.replace(/-/g, '+').replace(/_/g, '/');
-    const json = atob(b64);
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
-}
-
-function normalizeRol(value) {
-  if (value == null) return 'vista';
-  const v = String(value).trim().toLowerCase();
-  if (
-    v === '1' ||
-    v === 'admin' ||
-    v === 'administrator' ||
-    v === 'administrador' ||
-    v === 'superadmin'
-  )
-    return 'admin';
-  return 'vista';
-}
 
 const Inicio = () => {
   const [nombre, setNombre] = useState('');
@@ -53,37 +27,25 @@ const Inicio = () => {
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.rememberFlag) === '1';
-    if (saved) {
-      const savedUser = localStorage.getItem(STORAGE_KEYS.user) || '';
-      const savedPassB64 = localStorage.getItem(STORAGE_KEYS.pass) || '';
-      let savedPass = '';
-      try {
-        savedPass = savedPassB64 ? atob(savedPassB64) : '';
-      } catch {
-        savedPass = '';
-      }
-      setRemember(true);
-      setNombre(savedUser);
-      setContrasena(savedPass);
-    }
+    const savedUser = saved ? localStorage.getItem(STORAGE_KEYS.user) || '' : '';
+
+    // Limpia el formato anterior que guardaba la contraseña en base64.
+    localStorage.removeItem('remember_contrasena');
+
+    setRemember(saved);
+    setNombre(savedUser);
+    setContrasena('');
   }, []);
 
-  const persistRemember = (user, pass, flag) => {
+  const persistRemember = (user, flag) => {
     if (flag) {
       localStorage.setItem(STORAGE_KEYS.rememberFlag, '1');
       localStorage.setItem(STORAGE_KEYS.user, user ?? '');
-      localStorage.setItem(STORAGE_KEYS.pass, btoa(pass ?? ''));
     } else {
       localStorage.removeItem(STORAGE_KEYS.rememberFlag);
       localStorage.removeItem(STORAGE_KEYS.user);
-      localStorage.removeItem(STORAGE_KEYS.pass);
     }
   };
-
-  useEffect(() => {
-    if (remember) persistRemember(nombre, contrasena, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nombre, contrasena, remember]);
 
   const togglePasswordVisibility = () => setShowPassword((v) => !v);
 
@@ -135,25 +97,8 @@ const Inicio = () => {
         return;
       }
 
-      const token = data.token;
-      if (token) localStorage.setItem('token', token);
-
-      const usuarioResp = data.usuario || {};
-      let rol = (usuarioResp.rol ?? data.rol ?? '').toString();
-
-      if ((!rol || rol === '') && token && token.split('.').length === 3) {
-        const payload = decodeJwtPayload(token);
-        const fromJwt = (payload?.rol || payload?.role || payload?.scope || '').toString();
-        if (fromJwt) rol = fromJwt;
-      }
-
-      const usuarioFinal = {
-        ...usuarioResp,
-        rol: normalizeRol(rol),
-      };
-      localStorage.setItem('usuario', JSON.stringify(usuarioFinal));
-
-      persistRemember(nombre, contrasena, remember);
+      storeLoginResponse(data);
+      persistRemember(nombre, remember);
 
       navigate('/panel');
     } catch {
@@ -193,6 +138,7 @@ const Inicio = () => {
               className="ini_input"
               autoComplete="username"
               inputMode="text"
+              name="username"
             />
           </div>
 
@@ -205,6 +151,7 @@ const Inicio = () => {
               onChange={(e) => setContrasena(e.target.value)}
               required
               autoComplete="current-password"
+              name="password"
             />
             <button
               type="button"

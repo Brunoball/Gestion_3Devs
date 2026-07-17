@@ -3,181 +3,197 @@
 declare(strict_types=1);
 
 /**
- * GET /api.php?action=pagos&op=equipo_sistema&id_sistema=5&anio=2026&mes=1
- * - anio y mes son opcionales (si no vienen, trae el último pago del sistema)
- *
- * Respuesta:
- * {
- *   "exito": true,
- *   "id_sistema": 5,
- *   "trabajadores": [...],
- *   "pago": { ... } | null
- * }
+ * Resumen de distribución de un sistema puntual.
+ * Mantiene compatibilidad con llamadas antiguas y usa snapshot cuando existe pago.
  */
-
 function pagos_equipo_sistema(): void
 {
   global $pdo;
 
-  // helpers json_ok/json_error/resolver_id_mes ya están en pagos.php
-  // (este archivo se incluye desde pagos.php)
+  $orgId = pagos_org_id();
+  $idSistema = isset($_GET['id_sistema']) && is_numeric($_GET['id_sistema'])
+    ? (int)$_GET['id_sistema'] : 0;
+  if ($idSistema <= 0) json_error('Falta id_sistema');
 
-  $id_sistema = isset($_GET['id_sistema']) && is_numeric($_GET['id_sistema'])
-    ? (int)$_GET['id_sistema']
-    : 0;
+  $stSys = $pdo->prepare("\n    SELECT cs.id_sistema, cs.nombre AS sistema_nombre, cs.monto_mensual,\n           c.id_cliente, c.nombre AS cliente_nombre\n    FROM clientes_sistemas cs\n    INNER JOIN clientes c\n      ON c.id_organizacion = cs.id_organizacion\n     AND c.id_cliente = cs.id_cliente\n    WHERE cs.id_organizacion = :org\n      AND cs.id_sistema = :sistema\n    LIMIT 1\n  ");
+  $stSys->execute([':org' => $orgId, ':sistema' => $idSistema]);
+  $sistema = $stSys->fetch(PDO::FETCH_ASSOC);
+  if (!$sistema) json_error('Sistema inexistente en la organización activa.');
 
-  if ($id_sistema <= 0) json_error("Falta id_sistema");
-
-  // validar que exista el sistema
-  $stSys = $pdo->prepare("SELECT id_sistema FROM clientes_sistemas WHERE id_sistema = ? LIMIT 1");
-  $stSys->execute([$id_sistema]);
-  if (!$stSys->fetchColumn()) {
-    json_error("Sistema inexistente (id_sistema=$id_sistema)");
-  }
-
-  // =========================
-  // 1) trabajadores del sistema
-  // =========================
-  $sqlT = "
-    SELECT
-      t.id AS id_trabajador,
-      t.nombre,
-      t.apellido,
-      t.email,
-      t.rol,
-      t.alias_pago,
-      t.activo,
-      st.rol_en_sistema,
-      st.fecha_asignacion
-    FROM sistemas_trabajadores st
-    INNER JOIN trabajadores t ON t.id = st.id_trabajador
-    WHERE st.id_sistema = :id_sistema
-    ORDER BY t.activo DESC, t.apellido ASC, t.nombre ASC
-  ";
-
-  $stT = $pdo->prepare($sqlT);
-  $stT->execute([':id_sistema' => $id_sistema]);
-  $rowsT = $stT->fetchAll(PDO::FETCH_ASSOC);
-
-  $trabajadores = [];
-  foreach ($rowsT as $r) {
-    $trabajadores[] = [
-      'id_trabajador'   => (int)($r['id_trabajador'] ?? 0),
-      'nombre'          => (string)($r['nombre'] ?? ''),
-      'apellido'        => (string)($r['apellido'] ?? ''),
-      'email'           => $r['email'] ?? null,
-      'rol'             => (string)($r['rol'] ?? ''),
-      'rol_en_sistema'  => $r['rol_en_sistema'] ?? null,
-      'alias_pago'      => $r['alias_pago'] ?? null,
-      'activo'          => (int)($r['activo'] ?? 0),
-      'fecha_asignacion'=> $r['fecha_asignacion'] ?? null,
-    ];
-  }
-
-  // =========================
-  // 2) monto cobrado (pago) del sistema
-  //    - si viene anio+mes => busca ese periodo
-  //    - si no => trae el último pago del sistema
-  // =========================
   $anio = isset($_GET['anio']) && is_numeric($_GET['anio']) ? (int)$_GET['anio'] : 0;
   $mesParam = isset($_GET['mes']) ? trim((string)$_GET['mes']) : '';
-
   $pago = null;
 
-  try {
-    if ($anio >= 2000 && $anio <= 2100 && $mesParam !== '') {
-      $idMes = resolver_id_mes($pdo, $mesParam);
-
-      $sqlP = "
-        SELECT
-          p.id_pago,
-          p.id_sistema,
-          p.id_mes,
-          m.mes AS mes_nombre,
-          p.monto,
-          p.fecha_pago,
-          p.id_medio_pago,
-          mp.nombre AS medio_pago
-        FROM pagos p
-        INNER JOIN meses m        ON m.id_mes = p.id_mes
-        INNER JOIN medios_pago mp ON mp.id_medio_pago = p.id_medio_pago
-        WHERE p.id_sistema = :id_sistema
-          AND p.id_mes = :id_mes
-          AND YEAR(p.fecha_pago) = :anio
-        ORDER BY p.fecha_pago DESC, p.id_pago DESC
-        LIMIT 1
-      ";
-
-      $stP = $pdo->prepare($sqlP);
-      $stP->execute([
-        ':id_sistema' => $id_sistema,
-        ':id_mes'     => $idMes,
-        ':anio'       => $anio,
-      ]);
-
-      $rowP = $stP->fetch(PDO::FETCH_ASSOC);
-
-      if ($rowP) {
-        $pago = [
-          'id_pago'       => (int)($rowP['id_pago'] ?? 0),
-          'id_sistema'    => (int)($rowP['id_sistema'] ?? 0),
-          'id_mes'        => (int)($rowP['id_mes'] ?? 0),
-          'mes'           => $rowP['mes_nombre'] ?? null,
-          'anio'          => $anio,
-          'monto'         => isset($rowP['monto']) ? (float)$rowP['monto'] : null,
-          'fecha_pago'    => $rowP['fecha_pago'] ?? null,
-          'id_medio_pago' => (int)($rowP['id_medio_pago'] ?? 0),
-          'medio_pago'    => $rowP['medio_pago'] ?? null,
-        ];
-      }
-    } else {
-      // fallback: último pago del sistema
-      $sqlLast = "
-        SELECT
-          p.id_pago,
-          p.id_sistema,
-          p.id_mes,
-          m.mes AS mes_nombre,
-          YEAR(p.fecha_pago) AS anio,
-          p.monto,
-          p.fecha_pago,
-          p.id_medio_pago,
-          mp.nombre AS medio_pago
-        FROM pagos p
-        INNER JOIN meses m        ON m.id_mes = p.id_mes
-        INNER JOIN medios_pago mp ON mp.id_medio_pago = p.id_medio_pago
-        WHERE p.id_sistema = :id_sistema
-        ORDER BY p.fecha_pago DESC, p.id_pago DESC
-        LIMIT 1
-      ";
-
-      $stLast = $pdo->prepare($sqlLast);
-      $stLast->execute([':id_sistema' => $id_sistema]);
-      $rowLast = $stLast->fetch(PDO::FETCH_ASSOC);
-
-      if ($rowLast) {
-        $pago = [
-          'id_pago'       => (int)($rowLast['id_pago'] ?? 0),
-          'id_sistema'    => (int)($rowLast['id_sistema'] ?? 0),
-          'id_mes'        => (int)($rowLast['id_mes'] ?? 0),
-          'mes'           => $rowLast['mes_nombre'] ?? null,
-          'anio'          => isset($rowLast['anio']) ? (int)$rowLast['anio'] : null,
-          'monto'         => isset($rowLast['monto']) ? (float)$rowLast['monto'] : null,
-          'fecha_pago'    => $rowLast['fecha_pago'] ?? null,
-          'id_medio_pago' => (int)($rowLast['id_medio_pago'] ?? 0),
-          'medio_pago'    => $rowLast['medio_pago'] ?? null,
-        ];
-      }
+  if ($anio >= 2000 && $anio <= 2100 && $mesParam !== '') {
+    $idMes = resolver_id_mes($pdo, $mesParam);
+    $stP = $pdo->prepare("\n      SELECT p.id_pago, p.id_sistema, p.id_mes, p.anio_periodo,\n             m.mes AS mes_nombre, p.monto, p.fecha_pago,\n             p.id_medio_pago, mp.nombre AS medio_pago\n      FROM pagos p\n      INNER JOIN meses m ON m.id_mes = p.id_mes\n      INNER JOIN medios_pago mp\n        ON mp.id_organizacion = p.id_organizacion\n       AND mp.id_medio_pago = p.id_medio_pago\n      WHERE p.id_organizacion = :org\n        AND p.id_sistema = :sistema\n        AND p.id_mes = :mes\n        AND p.anio_periodo = :anio\n      ORDER BY p.fecha_pago DESC, p.id_pago DESC\n      LIMIT 1\n    ");
+    $stP->execute([':org'=>$orgId, ':sistema'=>$idSistema, ':mes'=>$idMes, ':anio'=>$anio]);
+    $row = $stP->fetch(PDO::FETCH_ASSOC);
+    if ($row) {
+      $pago = [
+        'id_pago'=>(int)$row['id_pago'], 'id_sistema'=>(int)$row['id_sistema'],
+        'id_mes'=>(int)$row['id_mes'], 'mes'=>(string)$row['mes_nombre'],
+        'anio'=>(int)$row['anio_periodo'], 'monto'=>(float)$row['monto'],
+        'fecha_pago'=>(string)$row['fecha_pago'], 'id_medio_pago'=>(int)$row['id_medio_pago'],
+        'medio_pago'=>(string)$row['medio_pago'],
+      ];
     }
+  }
+
+  try {
+    $reparto = $pago
+      ? reparto_resumen_pago($pdo, $orgId, (int)$pago['id_pago'])
+      : reparto_resumen_sistema($pdo, $orgId, $idSistema, (float)$sistema['monto_mensual']);
+    if (!$pago) $reparto['origen'] = 'estimacion_servicio';
   } catch (Throwable $e) {
-    // no cortamos todo por error de pago: devolvemos trabajadores igual
-    $pago = null;
+    json_error('No se pudo resolver la distribución contable.', ['error' => $e->getMessage()]);
   }
 
   json_ok([
-    'exito' => true,
-    'id_sistema' => $id_sistema,
-    'trabajadores' => $trabajadores,
-    'pago' => $pago,
+    'exito'=>true,
+    'id_sistema'=>$idSistema,
+    'sistema'=>[
+      'id_sistema'=>(int)$sistema['id_sistema'], 'nombre'=>(string)$sistema['sistema_nombre'],
+      'id_cliente'=>(int)$sistema['id_cliente'], 'cliente'=>(string)$sistema['cliente_nombre'],
+      'monto_mensual'=>(float)$sistema['monto_mensual'],
+    ],
+    'modelo_reparto'=>$reparto['modelo_reparto'],
+    'reparto'=>$reparto,
+    'trabajadores'=>$reparto['items'],
+    'pago'=>$pago,
+  ]);
+}
+
+/**
+ * Distribución consolidada de todos los sistemas de un cliente para un período.
+ * - Si hay pago, usa el snapshot histórico.
+ * - Si no hay pago, muestra una estimación con el monto mensual acordado.
+ */
+function pagos_distribucion_cliente(): void
+{
+  global $pdo;
+
+  $orgId = pagos_org_id();
+  $idCliente = isset($_GET['id_cliente']) && is_numeric($_GET['id_cliente'])
+    ? (int)$_GET['id_cliente'] : 0;
+  $anio = isset($_GET['anio']) && is_numeric($_GET['anio']) ? (int)$_GET['anio'] : 0;
+  $idMes = isset($_GET['id_mes']) && is_numeric($_GET['id_mes'])
+    ? (int)$_GET['id_mes'] : 0;
+
+  if ($idCliente <= 0) json_error('Falta id_cliente válido.');
+  if ($anio < 2000 || $anio > 2100) json_error('Año inválido.');
+  if ($idMes < 1 || $idMes > 12) json_error('Mes inválido.');
+
+  $stCliente = $pdo->prepare('SELECT id_cliente, nombre FROM clientes WHERE id_organizacion=:org AND id_cliente=:cliente AND activo=1 LIMIT 1');
+  $stCliente->execute([':org'=>$orgId, ':cliente'=>$idCliente]);
+  $cliente = $stCliente->fetch(PDO::FETCH_ASSOC);
+  if (!$cliente) json_error('Cliente inexistente en la entidad activa.');
+
+  $periodDate = new DateTime(sprintf('%04d-%02d-01', $anio, $idMes));
+  $periodEnd = $periodDate->modify('last day of this month')->format('Y-m-d');
+  $st = $pdo->prepare("\n    SELECT cs.id_sistema, cs.nombre, cs.descripcion, cs.monto_mensual, cs.estado,\n           p.id_pago, p.monto AS monto_pagado, p.fecha_pago, mp.nombre AS medio_pago\n    FROM clientes_sistemas cs\n    LEFT JOIN pagos p\n      ON p.id_organizacion = cs.id_organizacion\n     AND p.id_sistema = cs.id_sistema\n     AND p.anio_periodo = :anio\n     AND p.id_mes = :mes\n    LEFT JOIN medios_pago mp\n      ON mp.id_organizacion = p.id_organizacion\n     AND mp.id_medio_pago = p.id_medio_pago\n    WHERE cs.id_organizacion = :org\n      AND cs.id_cliente = :cliente\n      AND cs.estado <> 'finalizado'\n      AND COALESCE(cs.fecha_inicio, DATE(cs.created_at)) <= :period_end\n    ORDER BY cs.nombre\n  ");
+  $st->execute([
+    ':anio'=>$anio, ':mes'=>$idMes, ':org'=>$orgId,
+    ':cliente'=>$idCliente, ':period_end'=>$periodEnd,
+  ]);
+  $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+  $sistemas = [];
+  $aggregate = [];
+  $montoTotal = 0.0;
+  $pagados = 0;
+  $estimados = 0;
+  $configurado = true;
+
+  foreach ($rows as $row) {
+    $idSistema = (int)$row['id_sistema'];
+    $idPago = $row['id_pago'] !== null ? (int)$row['id_pago'] : 0;
+    $montoBase = $idPago > 0 ? (float)$row['monto_pagado'] : (float)$row['monto_mensual'];
+
+    try {
+      $resumen = $idPago > 0
+        ? reparto_resumen_pago($pdo, $orgId, $idPago)
+        : reparto_resumen_sistema($pdo, $orgId, $idSistema, $montoBase);
+      $resumen['origen'] = $resumen['origen'] ?? ($idPago > 0 ? 'snapshot_pago' : 'estimacion_servicio');
+    } catch (Throwable $e) {
+      $resumen = [
+        'configurado'=>false, 'total_porcentaje'=>0, 'monto_base'=>$montoBase,
+        'modelo_reparto'=>'', 'origen'=>'error', 'regla_directa'=>[], 'items'=>[],
+        'error'=>$e->getMessage(),
+      ];
+    }
+
+    if (!$resumen['configurado'] || abs((float)$resumen['total_porcentaje'] - 100.0) > 0.0001) {
+      $configurado = false;
+    }
+
+    foreach ($resumen['items'] as $item) {
+      $key = $item['tipo_beneficiario'] === 'trabajador'
+        ? 't:' . (int)($item['id_trabajador'] ?? 0)
+        : 'o:' . (int)($item['id_organizacion_beneficiaria'] ?? 0);
+      if (!isset($aggregate[$key])) {
+        $aggregate[$key] = $item;
+        $aggregate[$key]['monto_estimado'] = 0.0;
+        $aggregate[$key]['porcentaje_ponderado_numerador'] = 0.0;
+        $aggregate[$key]['rutas'] = [];
+      }
+      $aggregate[$key]['monto_estimado'] += (float)($item['monto_estimado'] ?? 0);
+      $aggregate[$key]['porcentaje_ponderado_numerador'] += $montoBase * (float)($item['porcentaje'] ?? 0);
+      foreach (($item['rutas'] ?? []) as $ruta) $aggregate[$key]['rutas'][] = $ruta;
+    }
+
+    $montoTotal += $montoBase;
+    if ($idPago > 0) $pagados++; else $estimados++;
+    $sistemas[] = [
+      'id_sistema'=>$idSistema,
+      'nombre'=>(string)$row['nombre'],
+      'descripcion'=>$row['descripcion'] !== null ? (string)$row['descripcion'] : null,
+      'estado'=>(string)$row['estado'],
+      'monto_base'=>round($montoBase, 2),
+      'pagado'=>$idPago > 0,
+      'id_pago'=>$idPago > 0 ? $idPago : null,
+      'fecha_pago'=>$row['fecha_pago'] !== null ? (string)$row['fecha_pago'] : null,
+      'medio_pago'=>$row['medio_pago'] !== null ? (string)$row['medio_pago'] : null,
+      'origen'=>$resumen['origen'],
+      'configurado'=>(bool)$resumen['configurado'],
+      'items'=>$resumen['items'],
+    ];
+  }
+
+  $itemsFinales = [];
+  foreach ($aggregate as $item) {
+    $item['monto_estimado'] = round((float)$item['monto_estimado'], 2);
+    $item['porcentaje'] = $montoTotal > 0
+      ? round((float)$item['porcentaje_ponderado_numerador'] / $montoTotal, 4)
+      : 0.0;
+    unset($item['porcentaje_ponderado_numerador']);
+    $item['rutas'] = array_values(array_unique($item['rutas']));
+    $itemsFinales[] = $item;
+  }
+  usort($itemsFinales, static fn(array $a, array $b): int => strcmp(
+    (string)($a['beneficiario_nombre'] ?? ''),
+    (string)($b['beneficiario_nombre'] ?? '')
+  ));
+
+  $orgConfig = reparto_organizacion_config($pdo, $orgId);
+  $reglaDirecta = $orgConfig['modelo_reparto'] === 'por_entidad'
+    ? reparto_aplicar_montos_exactos(reparto_items_organizacion($pdo, $orgId), $montoTotal)
+    : [];
+
+  json_ok([
+    'exito'=>true,
+    'cliente'=>['id_cliente'=>(int)$cliente['id_cliente'], 'nombre'=>(string)$cliente['nombre']],
+    'anio'=>$anio,
+    'id_mes'=>$idMes,
+    'organizacion'=>$orgConfig,
+    'modelo_reparto'=>$orgConfig['modelo_reparto'],
+    'configurado'=>$configurado && count($rows) > 0,
+    'monto_total'=>round($montoTotal, 2),
+    'estado_periodo'=>$pagados > 0 && $estimados === 0 ? 'pagado' : ($pagados > 0 ? 'mixto' : 'estimado'),
+    'sistemas_pagados'=>$pagados,
+    'sistemas_estimados'=>$estimados,
+    'regla_directa'=>$reglaDirecta,
+    'items'=>$itemsFinales,
+    'sistemas'=>$sistemas,
   ]);
 }

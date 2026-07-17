@@ -3,20 +3,86 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../config/db.php';
+require_once __DIR__ . '/../auth/session.php';
+require_once __DIR__ . '/../reparto/reparto.service.php';
 
 /* =========================
-   HELPERS (compartidos)
+   HELPERS DEL MÓDULO
 ========================= */
-function json_out(array $arr): void {
-  http_response_code(200);
+function json_out(array $arr, int $status = 200): never
+{
+  http_response_code($status);
   echo json_encode($arr, JSON_UNESCAPED_UNICODE);
   exit;
 }
 
-function read_json(): array {
+function read_json(): array
+{
   $raw = file_get_contents('php://input');
   $in = json_decode($raw ?: '[]', true);
   return is_array($in) ? $in : [];
+}
+
+function clientes_set_context(array $context): void
+{
+  $GLOBALS['CLIENTES_AUTH_CONTEXT'] = $context;
+}
+
+function clientes_context(): array
+{
+  $context = $GLOBALS['CLIENTES_AUTH_CONTEXT'] ?? null;
+  if (!is_array($context) || empty($context['id_organizacion'])) {
+    json_out(['exito' => false, 'mensaje' => 'Contexto de organización no disponible.'], 500);
+  }
+  return $context;
+}
+
+function clientes_org_id(): int
+{
+  return (int)clientes_context()['id_organizacion'];
+}
+
+function clientes_require_write(): void
+{
+  $role = (string)(clientes_context()['rol_organizacion'] ?? 'vista');
+  if (!in_array($role, ['admin', 'contador'], true)) {
+    json_out([
+      'exito' => false,
+      'mensaje' => 'Tu usuario tiene acceso de solo lectura en esta organización.',
+    ], 403);
+  }
+}
+
+function clientes_cliente_exists(PDO $pdo, int $idOrganizacion, int $idCliente): bool
+{
+  $st = $pdo->prepare("
+    SELECT 1
+    FROM clientes
+    WHERE id_organizacion = :id_organizacion
+      AND id_cliente = :id_cliente
+    LIMIT 1
+  ");
+  $st->execute([
+    ':id_organizacion' => $idOrganizacion,
+    ':id_cliente' => $idCliente,
+  ]);
+  return (bool)$st->fetchColumn();
+}
+
+function clientes_sistema_exists(PDO $pdo, int $idOrganizacion, int $idSistema): bool
+{
+  $st = $pdo->prepare("
+    SELECT 1
+    FROM clientes_sistemas
+    WHERE id_organizacion = :id_organizacion
+      AND id_sistema = :id_sistema
+    LIMIT 1
+  ");
+  $st->execute([
+    ':id_organizacion' => $idOrganizacion,
+    ':id_sistema' => $idSistema,
+  ]);
+  return (bool)$st->fetchColumn();
 }
 
 /* =========================
@@ -29,138 +95,149 @@ require_once __DIR__ . '/sistema_trabajadores.repo.php';
 require_once __DIR__ . '/planes_mantenimiento.repo.php';
 
 /* =========================================================
-   ✅ HANDLERS: FACTURACIÓN
+   FACTURACIÓN
 ========================================================= */
-
-/**
- * ✅ GET
- * /api.php?action=clientes&op=facturacion_get&id_cliente=123
- */
 function clientes_facturacion_get_op(): void
 {
   global $pdo;
 
   try {
-    if (!($pdo instanceof PDO)) {
-      json_out(['exito' => false, 'mensaje' => 'Conexión PDO no disponible.']);
-    }
-
-    $id_cliente = isset($_GET['id_cliente']) && is_numeric($_GET['id_cliente'])
+    $idCliente = isset($_GET['id_cliente']) && is_numeric($_GET['id_cliente'])
       ? (int)$_GET['id_cliente']
       : 0;
+    $idOrganizacion = clientes_org_id();
 
-    if ($id_cliente <= 0) {
-      json_out(['exito' => false, 'mensaje' => 'id_cliente inválido']);
+    if ($idCliente <= 0) {
+      json_out(['exito' => false, 'mensaje' => 'id_cliente inválido'], 422);
+    }
+    if (!clientes_cliente_exists($pdo, $idOrganizacion, $idCliente)) {
+      json_out(['exito' => false, 'mensaje' => 'Cliente inexistente en la organización seleccionada.'], 404);
     }
 
-    $fact = clientes_facturacion_get($pdo, $id_cliente);
+    $facturacion = clientes_facturacion_get($pdo, $idOrganizacion, $idCliente);
 
     json_out([
       'exito' => true,
-      'facturacion' => $fact, // null si no hay
+      'facturacion' => $facturacion,
     ]);
   } catch (Throwable $e) {
     json_out([
       'exito' => false,
       'mensaje' => 'Error al obtener datos de facturación.',
-      'error' => $e->getMessage(),
-    ]);
+    ], 500);
   }
 }
 
-/**
- * ✅ POST
- * /api.php?action=clientes&op=facturacion_upsert
- */
 function clientes_facturacion_upsert_op(): void
 {
   global $pdo;
+  clientes_require_write();
 
   try {
-    if (!($pdo instanceof PDO)) {
-      json_out(['exito' => false, 'mensaje' => 'Conexión PDO no disponible.']);
-    }
-
     $in = read_json();
-
-    $id_cliente = isset($in['id_cliente']) && is_numeric($in['id_cliente']) ? (int)$in['id_cliente'] : 0;
-    $doc_tipo   = isset($in['doc_tipo']) && is_numeric($in['doc_tipo']) ? (int)$in['doc_tipo'] : 0;
-
-    $doc_nro_raw   = (string)($in['doc_nro'] ?? '');
-    $doc_nro_clean = preg_replace('/\D+/', '', $doc_nro_raw);
-
-    $razon_social = trim((string)($in['razon_social'] ?? ''));
-    $domicilio    = trim((string)($in['domicilio'] ?? ''));
-
-    // ✅ NUEVO: condición iva por ID (ARCA)
-    $id_condicion_iva = isset($in['id_condicion_iva']) && is_numeric($in['id_condicion_iva'])
+    $idOrganizacion = clientes_org_id();
+    $idCliente = isset($in['id_cliente']) && is_numeric($in['id_cliente']) ? (int)$in['id_cliente'] : 0;
+    $docTipo = isset($in['doc_tipo']) && is_numeric($in['doc_tipo']) ? (int)$in['doc_tipo'] : 0;
+    $docNro = preg_replace('/\D+/', '', (string)($in['doc_nro'] ?? ''));
+    $razonSocial = trim((string)($in['razon_social'] ?? ''));
+    $domicilio = trim((string)($in['domicilio'] ?? ''));
+    $idCondicionIva = isset($in['id_condicion_iva']) && is_numeric($in['id_condicion_iva'])
       ? (int)$in['id_condicion_iva']
       : 4;
+    $condVenta = trim((string)($in['cond_venta'] ?? 'Contado / Transferencia Bancaria'));
 
-    $cond_venta = trim((string)($in['cond_venta'] ?? 'Contado / Transferencia Bancaria'));
-
-    if ($id_cliente <= 0) json_out(['exito' => false, 'mensaje' => 'id_cliente inválido']);
-    if (!in_array($doc_tipo, [80, 96], true)) json_out(['exito' => false, 'mensaje' => 'doc_tipo inválido (80/96)']);
-    if ($doc_nro_clean === '') json_out(['exito' => false, 'mensaje' => 'doc_nro obligatorio (solo números)']);
-    if ($razon_social === '') json_out(['exito' => false, 'mensaje' => 'razon_social obligatoria']);
-
-    // ✅ Validar que el ID exista en iva_condiciones (activo=1)
-    if (!iva_condicion_existe($pdo, $id_condicion_iva)) {
-      json_out(['exito' => false, 'mensaje' => 'Condición IVA inválida']);
+    if ($idCliente <= 0) json_out(['exito' => false, 'mensaje' => 'id_cliente inválido'], 422);
+    if (!clientes_cliente_exists($pdo, $idOrganizacion, $idCliente)) {
+      json_out(['exito' => false, 'mensaje' => 'Cliente inexistente en la organización seleccionada.'], 404);
+    }
+    if (!in_array($docTipo, [80, 96], true)) json_out(['exito' => false, 'mensaje' => 'doc_tipo inválido (80/96)'], 422);
+    if ($docNro === '') json_out(['exito' => false, 'mensaje' => 'doc_nro obligatorio (solo números)'], 422);
+    if ($razonSocial === '') json_out(['exito' => false, 'mensaje' => 'razon_social obligatoria'], 422);
+    if (!iva_condicion_existe($pdo, $idCondicionIva)) {
+      json_out(['exito' => false, 'mensaje' => 'Condición IVA inválida'], 422);
     }
 
-    $payload = [
-      'id_cliente'        => $id_cliente,
-      'doc_tipo'          => $doc_tipo,
-      'doc_nro'           => $doc_nro_clean, // string numérico
-      'razon_social'      => $razon_social,
-      'domicilio'         => $domicilio,
-      'id_condicion_iva'  => $id_condicion_iva,
-      'cond_venta'        => ($cond_venta !== '' ? $cond_venta : 'Contado / Transferencia Bancaria'),
-    ];
-
-    clientes_facturacion_upsert($pdo, $payload);
-
-    json_out([
-      'exito' => true,
-      'mensaje' => 'Datos de facturación guardados',
+    clientes_facturacion_upsert($pdo, [
+      'id_organizacion' => $idOrganizacion,
+      'id_cliente' => $idCliente,
+      'doc_tipo' => $docTipo,
+      'doc_nro' => $docNro,
+      'razon_social' => $razonSocial,
+      'domicilio' => $domicilio,
+      'id_condicion_iva' => $idCondicionIva,
+      'cond_venta' => $condVenta !== '' ? $condVenta : 'Contado / Transferencia Bancaria',
     ]);
+
+    json_out(['exito' => true, 'mensaje' => 'Datos de facturación guardados']);
+  } catch (PDOException $e) {
+    if ((string)$e->getCode() === '23000') {
+      json_out([
+        'exito' => false,
+        'mensaje' => 'Ese documento ya está asociado a otro cliente de esta organización.',
+      ], 409);
+    }
+    json_out(['exito' => false, 'mensaje' => 'Error al guardar datos de facturación.'], 500);
   } catch (Throwable $e) {
-    json_out([
-      'exito' => false,
-      'mensaje' => 'Error al guardar datos de facturación.',
-      'error' => $e->getMessage(),
-    ]);
+    json_out(['exito' => false, 'mensaje' => 'Error al guardar datos de facturación.'], 500);
   }
 }
 
-/* =========================================================
-   ✅ PLANES DE MANTENIMIENTO (tu handler)
-========================================================= */
+
+function clientes_reparto_resumen(): void
+{
+  global $pdo;
+  try {
+    $idOrganizacion = clientes_org_id();
+    $idSistema = isset($_GET['id_sistema']) && is_numeric($_GET['id_sistema'])
+      ? (int)$_GET['id_sistema']
+      : 0;
+    $monto = isset($_GET['monto']) && is_numeric($_GET['monto'])
+      ? max(0.0, (float)$_GET['monto'])
+      : 0.0;
+
+    if ($idSistema > 0 && !clientes_sistema_exists($pdo, $idOrganizacion, $idSistema)) {
+      json_out(['exito' => false, 'mensaje' => 'Sistema inexistente en esta organización.'], 404);
+    }
+
+    $org = reparto_organizacion_config($pdo, $idOrganizacion);
+    $resumen = $idSistema > 0
+      ? reparto_resumen_sistema($pdo, $idOrganizacion, $idSistema, $monto)
+      : [
+          'organizacion' => $org,
+          'modelo_reparto' => $org['modelo_reparto'],
+          'configurado' => true,
+          'total_porcentaje' => 0,
+          'monto_base' => $monto,
+          'regla_directa' => [],
+          'items' => [],
+        ];
+
+    if ($idSistema <= 0 && $org['modelo_reparto'] === 'por_entidad') {
+      $directos = reparto_items_organizacion($pdo, $idOrganizacion);
+      $items = reparto_expandir_organizacion($pdo, $idOrganizacion);
+      $resumen['regla_directa'] = reparto_aplicar_montos_exactos($directos, $monto);
+      $resumen['items'] = reparto_aplicar_montos_exactos($items, $monto);
+      $resumen['total_porcentaje'] = reparto_redondear(array_sum(array_column($items, 'porcentaje')));
+      $resumen['configurado'] = count($directos) > 0
+        && abs(array_sum(array_column($directos, 'porcentaje')) - 100.0) <= 0.0001
+        && count($items) > 0
+        && !array_filter($items, static fn(array $item): bool => empty($item['configurado']));
+    }
+
+    json_out(['exito' => true, 'reparto' => $resumen]);
+  } catch (Throwable $e) {
+    json_out(['exito' => false, 'mensaje' => 'No se pudo resolver el reparto contable.'], 500);
+  }
+}
 
 function planes_mantenimiento_listar(): void
 {
   global $pdo;
 
   try {
-    if (!($pdo instanceof PDO)) {
-      json_out([
-        'exito' => false,
-        'mensaje' => 'Conexión PDO no disponible.'
-      ]);
-    }
-
-    $data = repo_planes_mantenimiento_listar($pdo);
-
-    json_out([
-      'exito' => true,
-      'data'  => $data
-    ]);
+    $data = repo_planes_mantenimiento_listar($pdo, clientes_org_id());
+    json_out(['exito' => true, 'data' => $data]);
   } catch (Throwable $e) {
-    json_out([
-      'exito' => false,
-      'mensaje' => 'Error al listar planes de mantenimiento.',
-      'error' => $e->getMessage()
-    ]);
+    json_out(['exito' => false, 'mensaje' => 'Error al listar planes de mantenimiento.'], 500);
   }
 }

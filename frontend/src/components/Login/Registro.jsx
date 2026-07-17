@@ -1,83 +1,112 @@
-// src/components/Auth/Registro.jsx
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import BASE_URL from '../../config/config';
-import './registro.css';
-import logoRH from '../../imagenes/Logo_3devs.jpeg';
-import Toast from '../Global/Toast';
+import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import BASE_URL from "../../config/config";
+import "./registro.css";
+import logoRH from "../../imagenes/Logo_3devs.jpeg";
+import Toast from "../Global/Toast";
+import {
+  buildAuthHeaders,
+  getOrganizations,
+  getStoredToken,
+  getStoredUser,
+  normalizeRole,
+} from "../Global/session";
 
-const ROLES = [
-  { value: 'vista', label: 'Rol: Vista (solo lectura)' },
-  { value: 'admin', label: 'Rol: Admin (administrador)' },
+const ACCESS_OPTIONS = [
+  {
+    value: "total",
+    label: "Control total: 3DEVS + BALTO",
+    help: "Administrador en las dos organizaciones.",
+  },
+  {
+    value: "balto",
+    label: "Solo BALTO",
+    help: "Cuenta de contador, sin acceso a datos de 3DEVS.",
+  },
 ];
 
 const Registro = () => {
-  const [nombre, setNombre] = useState('');
-  const [contrasena, setContrasena] = useState('');
-  const [confirmarContrasena, setConfirmarContrasena] = useState('');
-  const [rol, setRol] = useState('vista');
+  const [nombre, setNombre] = useState("");
+  const [contrasena, setContrasena] = useState("");
+  const [confirmarContrasena, setConfirmarContrasena] = useState("");
+  const [alcance, setAlcance] = useState("balto");
   const [cargando, setCargando] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [toast, setToast] = useState(null);
   const navigate = useNavigate();
 
+  const selectedAccess = ACCESS_OPTIONS.find((item) => item.value === alcance);
+
+  useEffect(() => {
+    const token = getStoredToken();
+    const user = getStoredUser();
+    const organizations = getOrganizations(user);
+    const hasFullControl =
+      normalizeRole(user?.rol) === "admin" && organizations.length > 1;
+
+    if (!token || !hasFullControl) {
+      navigate("/panel", { replace: true });
+    }
+  }, [navigate]);
+
   const mostrarToast = (tipo, mensaje, duracion = 3000) => {
     setToast({ tipo, mensaje, duracion });
-    setTimeout(() => setToast(null), duracion);
   };
 
   const manejarRegistro = async (e) => {
     e.preventDefault();
     if (cargando) return;
 
-    const nombreTrim = (nombre || '').trim();
-
-    if (!nombreTrim || !contrasena || !confirmarContrasena || !rol) {
-      mostrarToast('error', 'Por favor, completá todos los campos.');
+    const nombreTrim = nombre.trim();
+    if (!nombreTrim || !contrasena || !confirmarContrasena) {
+      mostrarToast("advertencia", "Completá todos los campos.");
       return;
     }
     if (nombreTrim.length < 4) {
-      mostrarToast('error', 'El nombre debe tener al menos 4 caracteres.');
+      mostrarToast("advertencia", "El usuario debe tener al menos 4 caracteres.");
       return;
     }
-    if (contrasena.length < 6) {
-      mostrarToast('error', 'La contraseña debe tener al menos 6 caracteres.');
+    if (contrasena.length < 8) {
+      mostrarToast("advertencia", "La contraseña debe tener al menos 8 caracteres.");
       return;
     }
     if (contrasena !== confirmarContrasena) {
-      mostrarToast('error', 'Las contraseñas no coinciden.');
-      return;
-    }
-    if (!['vista', 'admin'].includes(rol)) {
-      mostrarToast('error', 'Rol inválido.');
+      mostrarToast("advertencia", "Las contraseñas no coinciden.");
       return;
     }
 
     try {
       setCargando(true);
-      mostrarToast('cargando', 'Registrando usuario...', 10000);
 
-      const respuesta = await fetch(`${BASE_URL}/api.php?action=registro`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nombre: nombreTrim, contrasena, rol })
+      const response = await fetch(`${BASE_URL}/api.php?action=registro`, {
+        method: "POST",
+        headers: buildAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          nombre: nombreTrim,
+          contrasena,
+          alcance,
+        }),
       });
 
-      const data = await respuesta.json();
-      setCargando(false);
+      const text = await response.text();
+      let data = null;
+      try {
+        data = JSON.parse(text || "{}");
+      } catch {}
 
-      if (data.exito) {
-        localStorage.setItem('usuario', JSON.stringify(data.usuario));
-        mostrarToast('exito', '¡Registro exitoso! Redirigiendo...', 1800);
-        setTimeout(() => navigate('/panel'), 1800);
-      } else {
-        mostrarToast('error', data.mensaje || 'Error al registrar usuario.');
+      if (!response.ok || !data?.exito) {
+        throw new Error(data?.mensaje || `No se pudo crear el usuario (HTTP ${response.status}).`);
       }
-    } catch (err) {
-      console.error(err);
+
+      mostrarToast("exito", data.mensaje || "Usuario creado correctamente.", 4000);
+      setNombre("");
+      setContrasena("");
+      setConfirmarContrasena("");
+    } catch (error) {
+      mostrarToast("error", error.message || "Error del servidor.");
+    } finally {
       setCargando(false);
-      mostrarToast('error', 'Error del servidor.');
     }
   };
 
@@ -94,13 +123,14 @@ const Registro = () => {
 
       <div className="reg_contenedor">
         <div className="reg_encabezado">
-          <img src={logoRH} alt="Logo IPET 50" className="reg_logo" />
-          <h1 className="reg_titulo">Crear Cuenta</h1>
-          <p className="reg_subtitulo">Registrate para acceder al sistema de la Cooperadora</p>
+          <img src={logoRH} alt="Logo 3Devs" className="reg_logo" />
+          <h1 className="reg_titulo">Crear usuario</h1>
+          <p className="reg_subtitulo">
+            Asigná control total o acceso exclusivo a BALTO.
+          </p>
         </div>
 
         <form onSubmit={manejarRegistro} className="reg_formulario">
-          {/* Usuario */}
           <div className="reg_campo">
             <input
               type="text"
@@ -109,31 +139,31 @@ const Registro = () => {
               onChange={(e) => setNombre(e.target.value)}
               required
               className="reg_input"
-              autoComplete="username"
+              autoComplete="off"
             />
           </div>
 
-          {/* Rol (debajo de Usuario) */}
           <div className="reg_campo reg_campo-rol">
             <select
               className="reg_input"
-              value={rol}
-              onChange={(e) => setRol(e.target.value)}
+              value={alcance}
+              onChange={(e) => setAlcance(e.target.value)}
               required
-              aria-label="Seleccionar rol"
-              title="Seleccionar rol"
+              aria-label="Seleccionar alcance del usuario"
             >
-              {ROLES.map(r => (
-                <option key={r.value} value={r.value}>{r.label}</option>
+              {ACCESS_OPTIONS.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
               ))}
             </select>
+            <small className="reg_access-help">{selectedAccess?.help}</small>
           </div>
 
-          {/* Contraseña + Confirmación (misma fila) */}
           <div className="reg_fila-2">
             <div className="reg_campo reg_campo-password reg_col-6">
               <input
-                type={showPassword ? 'text' : 'password'}
+                type={showPassword ? "text" : "password"}
                 className="reg_input"
                 placeholder="Contraseña"
                 value={contrasena}
@@ -144,30 +174,17 @@ const Registro = () => {
               <button
                 type="button"
                 className="reg_toggle-password"
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                title={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                onClick={() => setShowPassword((value) => !value)}
+                aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  {showPassword ? (
-                    <>
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                      <line x1="1" y1="1" x2="23" y2="23"></line>
-                    </>
-                  ) : (
-                    <>
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                      <circle cx="12" cy="12" r="3"></circle>
-                    </>
-                  )}
-                </svg>
+                {showPassword ? "Ocultar" : "Ver"}
               </button>
             </div>
 
             <div className="reg_campo reg_campo-password reg_col-6">
               <input
-                type={showConfirmPassword ? 'text' : 'password'}
-                placeholder="Confirmar Contraseña"
+                type={showConfirmPassword ? "text" : "password"}
+                placeholder="Confirmar contraseña"
                 value={confirmarContrasena}
                 onChange={(e) => setConfirmarContrasena(e.target.value)}
                 required
@@ -177,37 +194,25 @@ const Registro = () => {
               <button
                 type="button"
                 className="reg_toggle-password"
-                onClick={() => setShowConfirmPassword((v) => !v)}
-                aria-label={showConfirmPassword ? 'Ocultar confirmación' : 'Mostrar confirmación'}
-                title={showConfirmPassword ? 'Ocultar confirmación' : 'Mostrar confirmación'}
+                onClick={() => setShowConfirmPassword((value) => !value)}
+                aria-label={showConfirmPassword ? "Ocultar confirmación" : "Mostrar confirmación"}
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  {showConfirmPassword ? (
-                    <>
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                      <line x1="1" y1="1" x2="23" y2="23"></line>
-                    </>
-                  ) : (
-                    <>
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                      <circle cx="12" cy="12" r="3"></circle>
-                    </>
-                  )}
-                </svg>
+                {showConfirmPassword ? "Ocultar" : "Ver"}
               </button>
             </div>
           </div>
 
           <div className="reg_footer">
             <button type="submit" className="reg_boton" disabled={cargando}>
-              {cargando ? 'Registrando...' : 'Registrarse'}
+              {cargando ? "Creando..." : "Crear usuario"}
             </button>
             <button
               type="button"
-              onClick={() => navigate('/panel')}
+              onClick={() => navigate("/panel")}
               className="reg_boton reg_boton-secundario"
+              disabled={cargando}
             >
-              Volver atrás
+              Volver al panel
             </button>
           </div>
         </form>

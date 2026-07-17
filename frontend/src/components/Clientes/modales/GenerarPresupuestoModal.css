@@ -438,3 +438,10 @@
     font-size: .78rem;
   }
 }
+
+.pres_modal_org {
+  margin-top: 4px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  opacity: 0.8;
+}

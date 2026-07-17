@@ -20,6 +20,7 @@ export default function ModalAnularFactura({
   data = null,
 }) {
   const cancelRef = useRef(null);
+  const tieneCAE = Boolean(data?.cae && String(data.cae) !== "00000000000000");
 
   useEffect(() => {
     if (!open) return;
@@ -27,19 +28,21 @@ export default function ModalAnularFactura({
 
     const onKey = (e) => {
       if (e.key === "Escape") onClose?.();
-      if (e.key === "Enter") onConfirm?.();
+      if (e.key === "Enter") {
+        if (tieneCAE) onClose?.();
+        else onConfirm?.();
+      }
     };
 
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose, onConfirm]);
+  }, [open, onClose, onConfirm, tieneCAE]);
 
   if (!open) return null;
 
   const cliente = data?.labelCliente || data?.cliente || "—";
   const sistema = data?.labelSistema || data?.sistema || "—";
   const idFactura = data?.id_factura || "—";
-  const tieneCAE = Boolean(data?.cae && String(data.cae) !== "00000000000000");
 
   const cerrar = () => {
     if (loading) return;
@@ -72,14 +75,14 @@ export default function ModalAnularFactura({
         </div>
 
         <h3 id="modal-anular-factura-title" className="mpdel-title mpdel-title--danger">
-          {tieneCAE ? "Anular factura con Nota de Crédito" : "Eliminar factura"}
+          {tieneCAE ? "Factura emitida en ARCA" : "Eliminar factura"}
         </h3>
 
         <p className="mpdel-body">
           {tieneCAE ? (
             <>
-              Esta factura tiene CAE. Primero se emitirá una <b>Nota de Crédito C</b> asociada
-              en ARCA, se descargará un PDF simple con el QR oficial y después se limpiará la factura del sistema.
+              Esta factura tiene CAE y está protegida. No se eliminará desde este flujo: primero debe
+              emitirse la <b>Nota de Crédito correspondiente en ARCA</b> y registrarse de forma trazable.
             </>
           ) : (
             <>
@@ -127,16 +130,10 @@ export default function ModalAnularFactura({
           <button
             type="button"
             className="mpdel-btn mpdel-btn--solid-danger"
-            onClick={onConfirm}
+            onClick={tieneCAE ? cerrar : onConfirm}
             disabled={loading}
           >
-            {loading
-              ? tieneCAE
-                ? "Emitiendo NC..."
-                : "Eliminando..."
-              : tieneCAE
-              ? "Emitir NC, descargar PDF y eliminar factura"
-              : "Eliminar factura"}
+            {loading ? "Eliminando..." : tieneCAE ? "Cerrar" : "Eliminar factura"}
           </button>
         </div>
       </div>

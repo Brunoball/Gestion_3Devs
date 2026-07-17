@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { FaCoins, FaTimes, FaCheck, FaEye, FaBan } from "react-icons/fa";
 import BASE_URL from "../../../config/config";
+import { fetchJSONAuth } from "../../Global/api";
 import { saveArcaCreditNotePdf } from "./arcaPdfBuilder";
 
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
@@ -129,6 +130,7 @@ export default function ModalPago({
   onFacturaAnulada,
   anioSeleccionado,
   mesSeleccionado,
+  idOrganizacion,
 }) {
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState("");
@@ -150,15 +152,10 @@ export default function ModalPago({
   const API        = useMemo(() => `${BASE_URL}/api.php`, []);
   const LISTAS_API = useMemo(() => `${API}?action=listas`, [API]);
 
-  const fetchJSON = useCallback(async (url, opts) => {
-    const res = await fetch(url, opts);
-    let data = null;
-    try { data = await res.json(); } catch { data = null; }
-    if (!res.ok) throw new Error(data?.mensaje || data?.error || `HTTP ${res.status}`);
-    if (data && typeof data === "object" && data?.exito === false)
-      throw new Error(data?.mensaje || "Error en el servidor");
-    return data;
-  }, []);
+  const fetchJSON = useCallback(
+    (url, opts = {}) => fetchJSONAuth(url, opts, idOrganizacion),
+    [idOrganizacion]
+  );
 
   const normalizarMedios = useCallback((data) => {
     const raw = data?.listas?.medios_pago || data?.medios_pago || data?.mediosPago || [];
@@ -410,10 +407,15 @@ export default function ModalPago({
     if (!Number.isFinite(idFactura) || idFactura <= 0) return;
 
     const tieneCAE = Boolean(factura?.cae && String(factura.cae) !== "00000000000000");
+    if (tieneCAE) {
+      setError(
+        "La factura fue emitida en ARCA y está protegida. Primero debe emitirse y registrarse la Nota de Crédito correspondiente."
+      );
+      return;
+    }
+
     const ok = window.confirm(
-      tieneCAE
-        ? "Esta factura tiene CAE. Se emitirá una Nota de Crédito C en ARCA y después se eliminará la factura/PDF del sistema. ¿Continuar?"
-        : "Esta factura no tiene CAE válido. Se eliminará la factura/PDF del sistema. ¿Continuar?"
+      "Esta factura no tiene CAE válido. Se eliminará la factura/PDF local del sistema. ¿Continuar?"
     );
     if (!ok) return;
 
@@ -642,8 +644,15 @@ export default function ModalPago({
                         type="button"
                         className="mit-btn mit-btn--ghost pay-btn-small"
                         onClick={handleAnularFactura}
-                        disabled={anulandoFactura}
-                        title="Emitir Nota de Crédito si corresponde y eliminar factura"
+                        disabled={
+                          anulandoFactura ||
+                          Boolean(factura?.cae && String(factura.cae) !== "00000000000000")
+                        }
+                        title={
+                          factura?.cae && String(factura.cae) !== "00000000000000"
+                            ? "Factura emitida en ARCA: requiere Nota de Crédito trazable"
+                            : "Eliminar factura local"
+                        }
                       >
                         <FaBan /> {anulandoFactura ? "Anulando..." : "Anular"}
                       </button>

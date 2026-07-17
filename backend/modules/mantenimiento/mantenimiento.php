@@ -3,390 +3,211 @@
 declare(strict_types=1);
 
 global $pdo;
+$op = strtolower(trim((string)($_GET['op'] ?? '')));
 
-$op = $_GET['op'] ?? '';
+if (!headers_sent()) header('Content-Type: application/json; charset=utf-8');
 
-/* =========================
-   Helpers JSON
-========================= */
-function json_ok(array $extra = []): void {
+function mant_ok(array $extra = []): never
+{
   http_response_code(200);
   echo json_encode(array_merge(['exito' => true], $extra), JSON_UNESCAPED_UNICODE);
   exit;
 }
 
-function json_fail(string $mensaje, array $extra = []): void {
-  http_response_code(200);
+function mant_fail(string $mensaje, int $status = 422, array $extra = []): never
+{
+  http_response_code($status);
   echo json_encode(array_merge(['exito' => false, 'mensaje' => $mensaje], $extra), JSON_UNESCAPED_UNICODE);
   exit;
 }
 
-/**
- * Lee body JSON (React fetch) y mergea con $_POST.
- * - Si viene JSON -> lo usa
- * - Si viene form-data/x-www-form-urlencoded -> usa $_POST
- */
-function body_params(): array {
+function mant_auth(): array
+{
+  $ctx = $GLOBALS['MANTENIMIENTO_AUTH'] ?? null;
+  if (!is_array($ctx) || empty($ctx['id_organizacion'])) {
+    mant_fail('No se pudo resolver la organización activa.', 401);
+  }
+  return $ctx;
+}
+
+function mant_org_id(): int
+{
+  return (int)mant_auth()['id_organizacion'];
+}
+
+function mant_require_write(): void
+{
+  $role = strtolower((string)(mant_auth()['rol_organizacion'] ?? 'vista'));
+  if (!in_array($role, ['admin', 'contador'], true)) {
+    mant_fail('Tu usuario tiene acceso de solo lectura en esta entidad.', 403);
+  }
+}
+
+function mant_body(): array
+{
   $raw = file_get_contents('php://input');
-  $json = [];
-  if (is_string($raw) && trim($raw) !== '') {
-    $decoded = json_decode($raw, true);
-    if (is_array($decoded)) $json = $decoded;
+  $json = json_decode($raw ?: '{}', true);
+  return array_merge($_POST ?? [], is_array($json) ? $json : []);
+}
+
+function mant_method(string $expected): void
+{
+  if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== strtoupper($expected)) {
+    mant_fail('Método no permitido.', 405);
   }
-  // prioridad a JSON, pero mergea por si mandan query/body mezclado
-  return array_merge($_POST ?? [], $json);
 }
 
-function to_int01($v, int $default = 1): int {
-  if ($v === null || $v === '') return $default;
-  $n = (int)$v;
-  return ($n === 1) ? 1 : 0;
+function mant_str(mixed $value, int $max): string
+{
+  $value = trim((string)$value);
+  return mb_strlen($value) > $max ? mb_substr($value, 0, $max) : $value;
 }
 
-function sanitize_str($v, int $maxLen = 255): string {
-  $s = trim((string)$v);
-  if (mb_strlen($s) > $maxLen) $s = mb_substr($s, 0, $maxLen);
-  return $s;
+function mant_money(mixed $value): float
+{
+  $normalized = str_replace(',', '.', trim((string)$value));
+  if ($normalized === '' || !is_numeric($normalized)) return -1;
+  return round((float)$normalized, 2);
 }
 
-function parse_monto($v): float {
-  // acepta "123.45" o "123,45"
-  $s = str_replace(',', '.', trim((string)$v));
-  if ($s === '' || !is_numeric($s)) return -1;
-  return (float)$s;
-}
+try {
+  if (!($pdo instanceof PDO)) mant_fail('Conexión PDO no disponible.', 500);
+  $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+  $org = mant_org_id();
 
-function is_dup_key(Throwable $e): bool {
-  // MySQL: SQLSTATE 23000 para key duplicada
-  // driverInfo[1] suele ser 1062
-  if (!($e instanceof PDOException)) return false;
-  $sqlState = $e->getCode();
-  return ($sqlState === '23000');
-}
+  switch ($op) {
+    case 'ping':
+      mant_ok(['modulo' => 'mantenimiento', 'organizacion' => $org]);
 
-/* =========================
-   Guardas básicas
-========================= */
-if (!isset($pdo) || !($pdo instanceof PDO)) {
-  json_fail('DB no inicializada ($pdo). Revisá config/db.php');
-}
-
-/* =========================
-   Router ops
-========================= */
-switch ($op) {
-
-  /* ========= Ping ========= */
-  case 'ping':
-    json_ok(['modulo' => 'mantenimiento', 'ok' => true]);
-    break;
-
-  /* =========================================================
-     PLANES (tabla: planes_mantenimiento)
-     Campos: id, nombre(UNIQUE), descripcion(NULL), monto, activo, fecha_creacion
-  ========================================================= */
-
-  // LISTAR PLANES
-  // GET /routes/api.php?action=mantenimiento&op=planes&ver_inactivos=1
-  case 'planes': {
-    $verInactivos = to_int01($_GET['ver_inactivos'] ?? 0, 0);
-
-    $sql = "SELECT id, nombre, descripcion, monto, activo, fecha_creacion
-            FROM planes_mantenimiento
-            " . ($verInactivos ? "" : "WHERE activo = 1") . "
-            ORDER BY id DESC";
-
-    try {
-      $stmt = $pdo->prepare($sql);
-      $stmt->execute();
-      $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-      json_ok(['planes' => $rows]);
-    } catch (Throwable $e) {
-      json_fail('Error listando planes', ['detalle' => $e->getMessage()]);
-    }
-    break;
-  }
-
-  // OBTENER 1 PLAN
-  // GET /routes/api.php?action=mantenimiento&op=plan_get&id=3
-  case 'plan_get': {
-    $id = (int)($_GET['id'] ?? 0);
-    if ($id <= 0) json_fail('ID inválido');
-
-    try {
-      $stmt = $pdo->prepare("SELECT id, nombre, descripcion, monto, activo, fecha_creacion
-                             FROM planes_mantenimiento
-                             WHERE id = :id
-                             LIMIT 1");
-      $stmt->execute([':id' => $id]);
-      $row = $stmt->fetch(PDO::FETCH_ASSOC);
-      if (!$row) json_fail('Plan no encontrado');
-      json_ok(['plan' => $row]);
-    } catch (Throwable $e) {
-      json_fail('Error obteniendo plan', ['detalle' => $e->getMessage()]);
-    }
-    break;
-  }
-
-  // CREAR PLAN
-  // POST /routes/api.php?action=mantenimiento&op=crear_plan
-  // body JSON: { "nombre":"PLAN A", "descripcion":"...", "monto": 15000, "activo":1 }
-  case 'crear_plan': {
-    $p = body_params();
-
-    $nombre = sanitize_str($p['nombre'] ?? '', 80);
-    $descripcion = isset($p['descripcion']) ? sanitize_str($p['descripcion'], 255) : null;
-    $monto = parse_monto($p['monto'] ?? '');
-    $activo = to_int01($p['activo'] ?? 1, 1);
-
-    if ($nombre === '') json_fail('El nombre es obligatorio');
-    if ($monto < 0) json_fail('El monto es inválido');
-
-    try {
-      $stmt = $pdo->prepare("INSERT INTO planes_mantenimiento (nombre, descripcion, monto, activo)
-                             VALUES (:nombre, :descripcion, :monto, :activo)");
-      $stmt->execute([
-        ':nombre' => $nombre,
-        ':descripcion' => ($descripcion === '' ? null : $descripcion),
-        ':monto' => $monto,
-        ':activo' => $activo,
+    case 'planes': {
+      $verInactivos = (int)($_GET['ver_inactivos'] ?? 0) === 1;
+      $sql = "
+        SELECT id, id_organizacion, nombre, descripcion, monto, activo, fecha_creacion
+        FROM planes_mantenimiento
+        WHERE id_organizacion = :org
+      ";
+      if (!$verInactivos) $sql .= ' AND activo = 1';
+      $sql .= ' ORDER BY activo DESC, nombre ASC';
+      $st = $pdo->prepare($sql);
+      $st->execute([':org' => $org]);
+      mant_ok([
+        'planes' => $st->fetchAll(PDO::FETCH_ASSOC) ?: [],
+        'organizacion' => [
+          'id_organizacion' => $org,
+          'codigo' => (string)mant_auth()['organizacion_codigo'],
+          'nombre' => (string)mant_auth()['organizacion_nombre'],
+        ],
       ]);
-
-      json_ok([
-        'mensaje' => 'Plan creado',
-        'id' => (int)$pdo->lastInsertId(),
-      ]);
-    } catch (Throwable $e) {
-      if (is_dup_key($e)) json_fail('Ya existe un plan con ese nombre');
-      json_fail('Error creando plan', ['detalle' => $e->getMessage()]);
     }
-    break;
-  }
 
-  // EDITAR PLAN
-  // POST /routes/api.php?action=mantenimiento&op=editar_plan
-  // body JSON: { "id": 3, "nombre":"PLAN B", "descripcion":"...", "monto": 20000, "activo":1 }
-  case 'editar_plan': {
-    $p = body_params();
-
-    $id = (int)($p['id'] ?? 0);
-    if ($id <= 0) json_fail('ID inválido');
-
-    $nombre = sanitize_str($p['nombre'] ?? '', 80);
-    $descripcion = array_key_exists('descripcion', $p) ? sanitize_str($p['descripcion'], 255) : null;
-    $monto = array_key_exists('monto', $p) ? parse_monto($p['monto']) : null;
-    $activo = array_key_exists('activo', $p) ? to_int01($p['activo'], 1) : null;
-
-    if ($nombre === '') json_fail('El nombre es obligatorio');
-    if ($monto !== null && $monto < 0) json_fail('El monto es inválido');
-
-    try {
-      // aseguramos que exista
-      $chk = $pdo->prepare("SELECT id FROM planes_mantenimiento WHERE id = :id LIMIT 1");
-      $chk->execute([':id' => $id]);
-      if (!$chk->fetchColumn()) json_fail('Plan no encontrado');
-
-      $stmt = $pdo->prepare("UPDATE planes_mantenimiento
-                             SET nombre = :nombre,
-                                 descripcion = :descripcion,
-                                 monto = :monto,
-                                 activo = :activo
-                             WHERE id = :id");
-      $stmt->execute([
-        ':id' => $id,
-        ':nombre' => $nombre,
-        ':descripcion' => ($descripcion === '' ? null : $descripcion),
-        ':monto' => ($monto ?? 0),      // si querés “parcial”, decime y te lo hago por campos
-        ':activo' => ($activo ?? 1),
-      ]);
-
-      json_ok(['mensaje' => 'Plan actualizado']);
-    } catch (Throwable $e) {
-      if (is_dup_key($e)) json_fail('Ya existe un plan con ese nombre');
-      json_fail('Error editando plan', ['detalle' => $e->getMessage()]);
+    case 'plan_get': {
+      $id = (int)($_GET['id'] ?? 0);
+      if ($id <= 0) mant_fail('ID inválido.');
+      $st = $pdo->prepare("
+        SELECT id, id_organizacion, nombre, descripcion, monto, activo, fecha_creacion
+        FROM planes_mantenimiento
+        WHERE id_organizacion = :org AND id = :id
+        LIMIT 1
+      ");
+      $st->execute([':org' => $org, ':id' => $id]);
+      $row = $st->fetch(PDO::FETCH_ASSOC);
+      if (!$row) mant_fail('Plan no encontrado en esta entidad.', 404);
+      mant_ok(['plan' => $row]);
     }
-    break;
-  }
 
-  // ELIMINAR PLAN (soft delete por activo=0)
-  // POST /routes/api.php?action=mantenimiento&op=eliminar_plan
-  // body JSON: { "id": 3, "hard": 0 }
-  case 'eliminar_plan': {
-    $p = body_params();
-    $id = (int)($p['id'] ?? 0);
-    if ($id <= 0) json_fail('ID inválido');
+    case 'crear_plan': {
+      mant_method('POST');
+      mant_require_write();
+      $in = mant_body();
+      $nombre = mant_str($in['nombre'] ?? '', 80);
+      $descripcion = mant_str($in['descripcion'] ?? '', 255);
+      $monto = mant_money($in['monto'] ?? '');
+      $activo = (int)($in['activo'] ?? 1) === 1 ? 1 : 0;
+      if ($nombre === '') mant_fail('El nombre es obligatorio.');
+      if ($monto < 0) mant_fail('El monto es inválido.');
 
-    $hard = to_int01($p['hard'] ?? 0, 0);
-
-    try {
-      if ($hard === 1) {
-        $stmt = $pdo->prepare("DELETE FROM planes_mantenimiento WHERE id = :id");
-        $stmt->execute([':id' => $id]);
-        if ($stmt->rowCount() === 0) json_fail('Plan no encontrado');
-        json_ok(['mensaje' => 'Plan eliminado (hard)']);
-      } else {
-        $stmt = $pdo->prepare("UPDATE planes_mantenimiento SET activo = 0 WHERE id = :id");
-        $stmt->execute([':id' => $id]);
-        if ($stmt->rowCount() === 0) json_fail('Plan no encontrado');
-        json_ok(['mensaje' => 'Plan eliminado (baja lógica)']);
+      try {
+        $st = $pdo->prepare("
+          INSERT INTO planes_mantenimiento
+            (id_organizacion, nombre, descripcion, monto, activo)
+          VALUES
+            (:org, :nombre, :descripcion, :monto, :activo)
+        ");
+        $st->execute([
+          ':org' => $org,
+          ':nombre' => $nombre,
+          ':descripcion' => $descripcion === '' ? null : $descripcion,
+          ':monto' => $monto,
+          ':activo' => $activo,
+        ]);
+        mant_ok(['mensaje' => 'Plan creado.', 'id' => (int)$pdo->lastInsertId()]);
+      } catch (PDOException $e) {
+        if ((string)$e->getCode() === '23000') mant_fail('Ya existe un plan con ese nombre en esta entidad.', 409);
+        throw $e;
       }
-    } catch (Throwable $e) {
-      json_fail('Error eliminando plan', ['detalle' => $e->getMessage()]);
     }
-    break;
-  }
 
+    case 'editar_plan': {
+      mant_method('POST');
+      mant_require_write();
+      $in = mant_body();
+      $id = (int)($in['id'] ?? 0);
+      $nombre = mant_str($in['nombre'] ?? '', 80);
+      $descripcion = mant_str($in['descripcion'] ?? '', 255);
+      $monto = mant_money($in['monto'] ?? '');
+      $activo = (int)($in['activo'] ?? 1) === 1 ? 1 : 0;
+      if ($id <= 0 || $nombre === '') mant_fail('Datos del plan incompletos.');
+      if ($monto < 0) mant_fail('El monto es inválido.');
 
-  /* =========================================================
-     CLIENTES (tabla: clientes)
-     Campos: id_cliente, nombre(UNIQUE), notas(NULL), activo, created_at, updated_at
-  ========================================================= */
-
-  // LISTAR CLIENTES
-  // GET /routes/api.php?action=mantenimiento&op=clientes&ver_inactivos=1
-  case 'clientes': {
-    $verInactivos = to_int01($_GET['ver_inactivos'] ?? 0, 0);
-
-    $sql = "SELECT id_cliente, nombre, notas, activo, created_at, updated_at
-            FROM clientes
-            " . ($verInactivos ? "" : "WHERE activo = 1") . "
-            ORDER BY id_cliente DESC";
-
-    try {
-      $stmt = $pdo->prepare($sql);
-      $stmt->execute();
-      $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-      json_ok(['clientes' => $rows]);
-    } catch (Throwable $e) {
-      json_fail('Error listando clientes', ['detalle' => $e->getMessage()]);
-    }
-    break;
-  }
-
-  // OBTENER 1 CLIENTE
-  // GET /routes/api.php?action=mantenimiento&op=cliente_get&id_cliente=5
-  case 'cliente_get': {
-    $id = (int)($_GET['id_cliente'] ?? 0);
-    if ($id <= 0) json_fail('ID inválido');
-
-    try {
-      $stmt = $pdo->prepare("SELECT id_cliente, nombre, notas, activo, created_at, updated_at
-                             FROM clientes
-                             WHERE id_cliente = :id
-                             LIMIT 1");
-      $stmt->execute([':id' => $id]);
-      $row = $stmt->fetch(PDO::FETCH_ASSOC);
-      if (!$row) json_fail('Cliente no encontrado');
-      json_ok(['cliente' => $row]);
-    } catch (Throwable $e) {
-      json_fail('Error obteniendo cliente', ['detalle' => $e->getMessage()]);
-    }
-    break;
-  }
-
-  // CREAR CLIENTE
-  // POST /routes/api.php?action=mantenimiento&op=crear_cliente
-  // body JSON: { "nombre":"ACME", "notas":"...", "activo":1 }
-  case 'crear_cliente': {
-    $p = body_params();
-
-    $nombre = sanitize_str($p['nombre'] ?? '', 120);
-    $notas = isset($p['notas']) ? trim((string)$p['notas']) : null;
-    $activo = to_int01($p['activo'] ?? 1, 1);
-
-    if ($nombre === '') json_fail('El nombre es obligatorio');
-
-    try {
-      $stmt = $pdo->prepare("INSERT INTO clientes (nombre, notas, activo)
-                             VALUES (:nombre, :notas, :activo)");
-      $stmt->execute([
-        ':nombre' => $nombre,
-        ':notas' => ($notas === '' ? null : $notas),
-        ':activo' => $activo,
-      ]);
-
-      json_ok([
-        'mensaje' => 'Cliente creado',
-        'id_cliente' => (int)$pdo->lastInsertId(),
-      ]);
-    } catch (Throwable $e) {
-      if (is_dup_key($e)) json_fail('Ya existe un cliente con ese nombre');
-      json_fail('Error creando cliente', ['detalle' => $e->getMessage()]);
-    }
-    break;
-  }
-
-  // EDITAR CLIENTE
-  // POST /routes/api.php?action=mantenimiento&op=editar_cliente
-  // body JSON: { "id_cliente": 5, "nombre":"ACME SRL", "notas":"...", "activo":1 }
-  case 'editar_cliente': {
-    $p = body_params();
-
-    $id = (int)($p['id_cliente'] ?? 0);
-    if ($id <= 0) json_fail('ID inválido');
-
-    $nombre = sanitize_str($p['nombre'] ?? '', 120);
-    $notas = array_key_exists('notas', $p) ? trim((string)$p['notas']) : null;
-    $activo = array_key_exists('activo', $p) ? to_int01($p['activo'], 1) : null;
-
-    if ($nombre === '') json_fail('El nombre es obligatorio');
-
-    try {
-      $chk = $pdo->prepare("SELECT id_cliente FROM clientes WHERE id_cliente = :id LIMIT 1");
-      $chk->execute([':id' => $id]);
-      if (!$chk->fetchColumn()) json_fail('Cliente no encontrado');
-
-      $stmt = $pdo->prepare("UPDATE clientes
-                             SET nombre = :nombre,
-                                 notas = :notas,
-                                 activo = :activo
-                             WHERE id_cliente = :id");
-      $stmt->execute([
-        ':id' => $id,
-        ':nombre' => $nombre,
-        ':notas' => ($notas === '' ? null : $notas),
-        ':activo' => ($activo ?? 1),
-      ]);
-
-      json_ok(['mensaje' => 'Cliente actualizado']);
-    } catch (Throwable $e) {
-      if (is_dup_key($e)) json_fail('Ya existe un cliente con ese nombre');
-      json_fail('Error editando cliente', ['detalle' => $e->getMessage()]);
-    }
-    break;
-  }
-
-  // ELIMINAR CLIENTE (soft delete)
-  // POST /routes/api.php?action=mantenimiento&op=eliminar_cliente
-  // body JSON: { "id_cliente": 5, "hard": 0 }
-  case 'eliminar_cliente': {
-    $p = body_params();
-    $id = (int)($p['id_cliente'] ?? 0);
-    if ($id <= 0) json_fail('ID inválido');
-
-    $hard = to_int01($p['hard'] ?? 0, 0);
-
-    try {
-      if ($hard === 1) {
-        $stmt = $pdo->prepare("DELETE FROM clientes WHERE id_cliente = :id");
-        $stmt->execute([':id' => $id]);
-        if ($stmt->rowCount() === 0) json_fail('Cliente no encontrado');
-        json_ok(['mensaje' => 'Cliente eliminado (hard)']);
-      } else {
-        $stmt = $pdo->prepare("UPDATE clientes SET activo = 0 WHERE id_cliente = :id");
-        $stmt->execute([':id' => $id]);
-        if ($stmt->rowCount() === 0) json_fail('Cliente no encontrado');
-        json_ok(['mensaje' => 'Cliente eliminado (baja lógica)']);
+      try {
+        $st = $pdo->prepare("
+          UPDATE planes_mantenimiento
+          SET nombre = :nombre,
+              descripcion = :descripcion,
+              monto = :monto,
+              activo = :activo
+          WHERE id_organizacion = :org AND id = :id
+        ");
+        $st->execute([
+          ':nombre' => $nombre,
+          ':descripcion' => $descripcion === '' ? null : $descripcion,
+          ':monto' => $monto,
+          ':activo' => $activo,
+          ':org' => $org,
+          ':id' => $id,
+        ]);
+        if ($st->rowCount() === 0) {
+          $check = $pdo->prepare('SELECT 1 FROM planes_mantenimiento WHERE id_organizacion=:org AND id=:id');
+          $check->execute([':org' => $org, ':id' => $id]);
+          if (!$check->fetchColumn()) mant_fail('Plan no encontrado en esta entidad.', 404);
+        }
+        mant_ok(['mensaje' => 'Plan actualizado.']);
+      } catch (PDOException $e) {
+        if ((string)$e->getCode() === '23000') mant_fail('Ya existe un plan con ese nombre en esta entidad.', 409);
+        throw $e;
       }
-    } catch (Throwable $e) {
-      json_fail('Error eliminando cliente', ['detalle' => $e->getMessage()]);
     }
-    break;
-  }
 
-  default:
-    json_fail('OP no válida en mantenimiento', [
-      'modulo' => 'mantenimiento',
-      'op_recibida' => $op
-    ]);
+    case 'eliminar_plan': {
+      mant_method('POST');
+      mant_require_write();
+      $id = (int)(mant_body()['id'] ?? 0);
+      if ($id <= 0) mant_fail('ID inválido.');
+
+      // Baja lógica: un sistema puede seguir referenciando el plan históricamente.
+      $st = $pdo->prepare("
+        UPDATE planes_mantenimiento
+        SET activo = 0
+        WHERE id_organizacion = :org AND id = :id
+      ");
+      $st->execute([':org' => $org, ':id' => $id]);
+      if ($st->rowCount() === 0) mant_fail('Plan no encontrado o ya inactivo.', 404);
+      mant_ok(['mensaje' => 'Plan dado de baja.']);
+    }
+
+    default:
+      mant_fail('OP no válida en mantenimiento: ' . $op, 404);
+  }
+} catch (Throwable $e) {
+  mant_fail('Error interno en Mantenimiento.', 500, ['detalle' => $e->getMessage()]);
 }

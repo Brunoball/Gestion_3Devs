@@ -1,300 +1,177 @@
-// src/components/Trabajadores/modales/ModalAgregarTrabajador.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import BASE_URL from "../../../config/config";
 import Toast from "../../Global/Toast";
-import "./ModalEditarTrabajador.css"; // ✅ reutilizamos el mismo CSS que Editar
+import { fetchJSONAuth } from "../../Global/api";
+import "./ModalEditarTrabajador.css";
 
 const ROLES = [
-  { value: "admin", label: "Admin" },
+  { value: "admin", label: "Administrador" },
+  { value: "contador", label: "Contador" },
   { value: "desarrollador", label: "Desarrollador" },
   { value: "soporte", label: "Soporte" },
   { value: "vista", label: "Vista" },
 ];
 
-const emptyForm = {
-  id: null,
+const EMPTY = {
   nombre: "",
   apellido: "",
   email: "",
   rol: "vista",
   alias_pago: "",
-  activo: 1,
+  id_trabajador_existente: "",
 };
 
-const apiPost = async (url, payload) => {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload ?? {}),
-  });
-  return await res.json();
-};
-
-export default function ModalAgregarTrabajador({ open, onClose, onSaved }) {
-  const [form, setForm] = useState(emptyForm);
+export default function ModalAgregarTrabajador({
+  open,
+  onClose,
+  onSaved,
+  idOrganizacion,
+  organizacion,
+  trabajadoresDisponibles = [],
+}) {
+  const [mode, setMode] = useState("nuevo");
+  const [form, setForm] = useState(EMPTY);
   const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState({ open: false, tipo: "info", mensaje: "" });
 
-  // Toast local
-  const [toast, setToast] = useState({
-    open: false,
-    tipo: "info",
-    mensaje: "",
-    duracion: 2600,
-  });
-
-  const showToast = (tipo, mensaje, duracion = 2600) => {
-    setToast({ open: false, tipo: "info", mensaje: "", duracion: 0 });
-    setTimeout(() => setToast({ open: true, tipo, mensaje, duracion }), 0);
-  };
-  const closeToast = () => setToast((t) => ({ ...t, open: false }));
-
-  // Reset al abrir/cerrar
   useEffect(() => {
     if (!open) return;
-    setForm(emptyForm);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+    setMode(trabajadoresDisponibles.length ? "existente" : "nuevo");
+    setForm(EMPTY);
+  }, [open, trabajadoresDisponibles.length]);
 
-  // ESC cierra (como InfoAlumno)
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e) => e.key === "Escape" && cerrar();
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, loading]);
-
-  const nombreCompleto = useMemo(() => {
-    const ap = (form.apellido || "").trim();
-    const no = (form.nombre || "").trim();
-    const armado = `${ap} ${no}`.trim();
-    return armado || "—";
-  }, [form.apellido, form.nombre]);
+  const title = useMemo(
+    () => (mode === "existente" ? "Vincular persona existente" : "Nueva persona"),
+    [mode]
+  );
 
   if (!open) return null;
 
-  const cerrar = () => {
-    if (loading) return;
-    setForm(emptyForm);
-    onClose?.();
+  const close = () => {
+    if (!loading) onClose?.();
   };
 
-  const guardar = async (e) => {
-    e.preventDefault();
-
-    const nombre = (form.nombre ?? "").trim();
-    const apellido = (form.apellido ?? "").trim();
-
-    if (!nombre || !apellido) {
-      showToast("advertencia", "Nombre y apellido son obligatorios.", 3000);
-      return;
+  const save = async (event) => {
+    event.preventDefault();
+    if (mode === "existente" && !form.id_trabajador_existente) {
+      return setToast({ open: true, tipo: "advertencia", mensaje: "Seleccioná una persona." });
+    }
+    if (mode === "nuevo" && (!form.nombre.trim() || !form.apellido.trim())) {
+      return setToast({ open: true, tipo: "advertencia", mensaje: "Nombre y apellido son obligatorios." });
     }
 
     setLoading(true);
-    showToast("cargando", "Guardando...", 1200);
-
     try {
-      const url = `${BASE_URL}/api.php?action=trabajadores&op=crear`;
-
-      const payload = {
-        ...form,
-        nombre,
-        apellido,
-        email: (form.email ?? "").trim(),
-        alias_pago: (form.alias_pago ?? "").trim(),
-        // activo no lo mando porque al crear siempre es 1 (si tu backend lo usa, dejalo)
-        activo: 1,
-      };
-
-      const data = await apiPost(url, payload);
-
-      if (!data?.exito) {
-        showToast("error", data?.mensaje || "No se pudo guardar", 3500);
-        return;
-      }
-
-      showToast("exito", "Trabajador creado", 2200);
+      await fetchJSONAuth(
+        `${BASE_URL}/api.php?action=trabajadores&op=crear`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            mode === "existente"
+              ? {
+                  id_trabajador_existente: Number(form.id_trabajador_existente),
+                  rol: form.rol,
+                }
+              : {
+                  nombre: form.nombre.trim(),
+                  apellido: form.apellido.trim(),
+                  email: form.email.trim(),
+                  alias_pago: form.alias_pago.trim(),
+                  rol: form.rol,
+                }
+          ),
+        },
+        idOrganizacion
+      );
       onSaved?.();
-      cerrar();
-    } catch (err) {
-      showToast("error", String(err?.message || err || "Error al guardar"), 3500);
+    } catch (error) {
+      setToast({ open: true, tipo: "error", mensaje: error?.message || "No se pudo guardar." });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div
-      className="mi-modal__overlay"
-      onClick={(e) =>
-        e.target.classList.contains("mi-modal__overlay") && cerrar()
-      }
-    >
-      {toast.open && (
-        <Toast
-          tipo={toast.tipo}
-          mensaje={toast.mensaje}
-          duracion={toast.duracion}
-          onClose={closeToast}
-        />
-      )}
-
-      <div
-        className="mi-modal__container"
-        role="dialog"
-        aria-modal="true"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header azul (viene por variables --mi-* que ya linkeaste a --blue-inst-*) */}
+    <div className="mi-modal__overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+      {toast.open && <Toast {...toast} onClose={() => setToast((t) => ({ ...t, open: false }))} />}
+      <div className="mi-modal__container" role="dialog" aria-modal="true">
         <div className="mi-modal__header">
-          <div className="mi-modal__head-left">
-            <h2 className="mi-modal__title">Nuevo trabajador</h2>
-            <p className="mi-modal__subtitle">
-              {nombreCompleto !== "—" ? nombreCompleto : "Completá los datos"}
-            </p>
+          <div>
+            <h2 className="mi-modal__title">{title}</h2>
+            <p className="mi-modal__subtitle">Entidad: {organizacion?.nombre || "—"}</p>
           </div>
-
-          <button className="mi-modal__close" onClick={cerrar} aria-label="Cerrar">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+          <button className="mi-modal__close" type="button" onClick={close}>✕</button>
         </div>
 
-        {/* Body (cards como Editar) */}
-        <form className="mit-modal__body" onSubmit={guardar}>
-          <div className="mi-tabpanel is-active">
-            <div className="mi-grid">
-              {/* Datos personales */}
-              <article className="mi-card">
-                <h3 className="mi-card__title">Datos personales</h3>
-
-                <div className="fl-grid">
-                  {/* ✅ Nombre y Apellido uno abajo del otro */}
-                  <div className="fl-col-full">
-                    <div className="fl-field">
-                      <input
-                        className="fl-input"
-                        placeholder=" "
-                        value={form.nombre}
-                        onChange={(e) =>
-                          setForm((f) => ({
-                            ...f,
-                            nombre: e.target.value.toUpperCase(),
-                          }))
-                        }
-                        disabled={loading}
-                      />
-                      <label className="fl-label">Nombre *</label>
-                    </div>
-
-                    <div className="fl-field" style={{ marginTop: 12 }}>
-                      <input
-                        className="fl-input"
-                        placeholder=" "
-                        value={form.apellido}
-                        onChange={(e) =>
-                          setForm((f) => ({
-                            ...f,
-                            apellido: e.target.value.toUpperCase(),
-                          }))
-                        }
-                        disabled={loading}
-                      />
-                      <label className="fl-label">Apellido *</label>
-                    </div>
-                  </div>
-                </div>
-              </article>
-
-              {/* Cuenta */}
-              <article className="mi-card">
-                <h3 className="mi-card__title">Cuenta</h3>
-
-                <div className="fl-grid">
-                  <div className="fl-field fl-col-full">
-                    <input
-                      className="fl-input"
-                      placeholder=" "
-                      value={form.email}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, email: e.target.value }))
-                      }
-                      disabled={loading}
-                    />
-                    <label className="fl-label">Email (opcional)</label>
-                  </div>
-
-                  <div className="fl-field">
-                    <select
-                      className="fl-input fl-select"
-                      value={form.rol}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, rol: e.target.value }))
-                      }
-                      disabled={loading}
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r.value} value={r.value}>
-                          {r.label}
-                        </option>
-                      ))}
-                    </select>
-                    <label className="fl-label">Rol</label>
-                  </div>
-
-                  <div className="fl-field alias-pago">
-                    <input
-                      className="fl-input"
-                      placeholder=" "
-                      value={form.alias_pago}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, alias_pago: e.target.value }))
-                      }
-                      disabled={loading}
-                    />
-                    <label className="fl-label">Alias de pago (opcional)</label>
-                  </div>
-                </div>
-              </article>
-
-              {/* Estado (al crear no lo mostramos, se crea activo) */}
-              <article className="mi-card mi-card--full">
-                <h3 className="mi-card__title">Estado</h3>
-                <div className="mit-hint">
-                  El trabajador se crea como <strong>Activo</strong>.
-                </div>
-              </article>
-            </div>
+        <form className="mit-modal__body" onSubmit={save}>
+          <div className="TP-LinkMode">
+            <button type="button" className={mode === "existente" ? "is-active" : ""} onClick={() => setMode("existente")} disabled={!trabajadoresDisponibles.length}>
+              Vincular existente
+            </button>
+            <button type="button" className={mode === "nuevo" ? "is-active" : ""} onClick={() => setMode("nuevo")}>
+              Crear persona
+            </button>
           </div>
 
-          {/* Footer acciones */}
-          <div className="mit-actions">
-            <button
-              type="button"
-              className="mit-btn mit-btn--ghost"
-              onClick={cerrar}
-              disabled={loading}
-            >
-              Cancelar
-            </button>
+          <div className="mi-grid">
+            {mode === "existente" ? (
+              <article className="mi-card mi-card--full">
+                <h3 className="mi-card__title">Persona ya cargada</h3>
+                <div className="fl-field fl-col-full">
+                  <select className="fl-input fl-select" value={form.id_trabajador_existente} onChange={(e) => setForm((f) => ({ ...f, id_trabajador_existente: e.target.value }))}>
+                    <option value="">Seleccionar persona</option>
+                    {trabajadoresDisponibles.map((worker) => (
+                      <option key={worker.id} value={worker.id}>
+                        {worker.apellido}, {worker.nombre}{worker.email ? ` — ${worker.email}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="fl-label">Persona</label>
+                </div>
+                {!trabajadoresDisponibles.length && <p>No hay personas de otra entidad disponibles para vincular.</p>}
+              </article>
+            ) : (
+              <>
+                <article className="mi-card">
+                  <h3 className="mi-card__title">Datos personales</h3>
+                  <div className="fl-field fl-col-full">
+                    <input className="fl-input" placeholder=" " value={form.nombre} onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value.toUpperCase() }))} />
+                    <label className="fl-label">Nombre *</label>
+                  </div>
+                  <div className="fl-field fl-col-full" style={{ marginTop: 12 }}>
+                    <input className="fl-input" placeholder=" " value={form.apellido} onChange={(e) => setForm((f) => ({ ...f, apellido: e.target.value.toUpperCase() }))} />
+                    <label className="fl-label">Apellido *</label>
+                  </div>
+                </article>
+                <article className="mi-card">
+                  <h3 className="mi-card__title">Contacto y pago</h3>
+                  <div className="fl-field fl-col-full">
+                    <input className="fl-input" placeholder=" " value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+                    <label className="fl-label">Email</label>
+                  </div>
+                  <div className="fl-field fl-col-full" style={{ marginTop: 12 }}>
+                    <input className="fl-input" placeholder=" " value={form.alias_pago} onChange={(e) => setForm((f) => ({ ...f, alias_pago: e.target.value }))} />
+                    <label className="fl-label">Alias de pago</label>
+                  </div>
+                </article>
+              </>
+            )}
 
-            <button
-              type="submit"
-              className="mit-btn mit-btn--solid"
-              disabled={loading}
-            >
-              Crear trabajador
-            </button>
+            <article className="mi-card mi-card--full">
+              <h3 className="mi-card__title">Rol dentro de esta entidad</h3>
+              <div className="fl-field fl-col-full">
+                <select className="fl-input fl-select" value={form.rol} onChange={(e) => setForm((f) => ({ ...f, rol: e.target.value }))}>
+                  {ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}
+                </select>
+                <label className="fl-label">Rol</label>
+              </div>
+            </article>
+          </div>
+
+          <div className="mit-actions">
+            <button type="button" className="mit-btn mit-btn--ghost" onClick={close} disabled={loading}>Cancelar</button>
+            <button type="submit" className="mit-btn mit-btn--solid" disabled={loading}>{loading ? "Guardando…" : "Guardar"}</button>
           </div>
         </form>
       </div>

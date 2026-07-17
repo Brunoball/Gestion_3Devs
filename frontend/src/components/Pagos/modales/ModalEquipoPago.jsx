@@ -1,283 +1,176 @@
-// src/components/Pagos/modales/ModalEquipoPago.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { FaUsers } from "react-icons/fa";
-import "../../Trabajadores/modales/ModalEditarTrabajador.css"; // ✅ MISMA estética
-import "./ModalEquipoPago.css"; // ✅ solo ajustes (tabla/hints)
+import { FaChartPie, FaCheckCircle, FaExclamationTriangle } from "react-icons/fa";
+import "../../Trabajadores/modales/ModalEditarTrabajador.css";
+import "./ModalEquipoPago.css";
+import { fetchJSONAuth } from "../../Global/api";
 
 function formatARS(value) {
-  const n = Number(
-    typeof value === "string" ? value.replace(/[^\d.-]/g, "") : value
-  );
-  if (!Number.isFinite(n)) return "—";
-  try {
-    return n.toLocaleString("es-AR", {
-      style: "currency",
-      currency: "ARS",
-      maximumFractionDigits: 2,
-    });
-  } catch {
-    return `$ ${n.toFixed(2)}`;
-  }
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return "—";
+  return number.toLocaleString("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 2,
+  });
 }
 
-export default function ModalEquipoPago({ open, onClose, apiBase, action, data }) {
+function formatPct(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number)
+    ? number.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+    : "0,00";
+}
+
+export default function ModalEquipoPago({ open, onClose, apiBase, action, data, idOrganizacion }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [trabajadores, setTrabajadores] = useState([]);
-  const [montoCobrado, setMontoCobrado] = useState("");
+  const [summary, setSummary] = useState(null);
 
-  const id_sistema = data?.id_sistema || null;
-
-  const tituloSistema = useMemo(() => {
-    const s = data?.labelSistema ? String(data.labelSistema) : "Sistema";
-    const c = data?.labelCliente ? String(data.labelCliente) : "";
-    return c ? `${s} — ${c}` : s;
+  const periodLabel = useMemo(() => {
+    const month = data?.mes || data?.mesLabel || "";
+    const year = data?.anio || "";
+    return `${month}${year ? ` / ${year}` : ""}` || "—";
   }, [data]);
-
-  const periodoLabel = useMemo(() => {
-    const mes = data?.mes ?? "";
-    const anio = data?.anio ?? "";
-    return `${mes}${anio ? ` / ${anio}` : ""}`.trim() || "—";
-  }, [data]);
-
-  const trabajadoresActivos = useMemo(() => {
-    return (trabajadores || []).filter((t) => String(t?.activo ?? 1) === "1");
-  }, [trabajadores]);
-
-  const montoNumerico = useMemo(() => {
-    const n = Number(String(montoCobrado).replace(/[^\d.-]/g, ""));
-    return Number.isFinite(n) ? n : 0;
-  }, [montoCobrado]);
-
-  const montoPorTrabajador = useMemo(() => {
-    const cant = trabajadoresActivos.length;
-    if (!cant || !montoNumerico) return 0;
-    return montoNumerico / cant;
-  }, [montoNumerico, trabajadoresActivos.length]);
-
-  const cerrar = () => {
-    if (loading) return;
-    onClose?.();
-  };
 
   useEffect(() => {
     if (!open) return;
-
     setError("");
-    setTrabajadores([]);
-
-    // precarga (si viene del row)
-    if (data?.monto != null && data?.monto !== "") setMontoCobrado(String(data.monto));
-    else setMontoCobrado("");
+    setSummary(null);
 
     const run = async () => {
-      if (!id_sistema) {
-        setError("Falta id_sistema.");
+      if (!data?.id_cliente || !data?.anio || !data?.id_mes) {
+        setError("Faltan datos del cliente o del período.");
         return;
       }
-
       setLoading(true);
       try {
         const url =
           `${apiBase}?action=${encodeURIComponent(action)}` +
-          `&op=equipo_sistema&id_sistema=${encodeURIComponent(id_sistema)}` +
-          (data?.anio ? `&anio=${encodeURIComponent(data.anio)}` : "") +
-          (data?.mes ? `&mes=${encodeURIComponent(data.mes)}` : "");
-
-        const res = await fetch(url, { method: "GET" });
-        const json = await res.json().catch(() => null);
-
-        if (!res.ok) throw new Error(json?.mensaje || json?.error || `HTTP ${res.status}`);
-        if (json && typeof json === "object" && json?.exito === false) {
-          throw new Error(json?.mensaje || "Error en el servidor");
-        }
-
-        const arr = Array.isArray(json?.trabajadores)
-          ? json.trabajadores
-          : Array.isArray(json)
-          ? json
-          : [];
-
-        setTrabajadores(arr);
-
-        // ✅ monto real del periodo (si existe)
-        if (json?.pago?.monto != null && json?.pago?.monto !== "") {
-          setMontoCobrado(String(json.pago.monto));
-        }
-      } catch (e) {
-        setError(e?.message || "No se pudo cargar el equipo del sistema");
+          `&op=distribucion_cliente` +
+          `&id_cliente=${encodeURIComponent(data.id_cliente)}` +
+          `&anio=${encodeURIComponent(data.anio)}` +
+          `&id_mes=${encodeURIComponent(data.id_mes)}`;
+        const json = await fetchJSONAuth(url, { method: "GET" }, idOrganizacion);
+        setSummary(json);
+      } catch (requestError) {
+        setError(requestError?.message || "No se pudo cargar la distribución del período.");
       } finally {
         setLoading(false);
       }
     };
-
     run();
-  }, [open, apiBase, action, id_sistema, data]);
+  }, [open, apiBase, action, data, idOrganizacion]);
 
-  // ESC para cerrar (igual a los otros)
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => e.key === "Escape" && cerrar();
+    const onKey = (event) => event.key === "Escape" && !loading && onClose?.();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, loading]);
+  }, [open, loading, onClose]);
 
   if (!open) return null;
 
+  const direct = summary?.regla_directa || [];
+  const effective = summary?.items || [];
+  const systems = summary?.sistemas || [];
+  const isHistorical = summary?.estado_periodo === "pagado";
+
   return (
-    <div
-      className="mi-modal__overlay"
-      onClick={(e) => e.target.classList.contains("mi-modal__overlay") && cerrar()}
-    >
-      <div
-        className="mi-modal__container"
-        role="dialog"
-        aria-modal="true"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header azul */}
+    <div className="mi-modal__overlay" onClick={(event) => event.target === event.currentTarget && !loading && onClose?.()}>
+      <div className="mi-modal__container mep-modal" role="dialog" aria-modal="true">
         <div className="mi-modal__header">
           <div className="mi-modal__head-left">
-            <h2 className="mi-modal__title">
-              <span className="mep-inlineicon">
-                <FaUsers />
-              </span>
-              Equipo / Monto cobrado
-            </h2>
-            <p className="mi-modal__subtitle">{tituloSistema}</p>
+            <h2 className="mi-modal__title"><FaChartPie /> Distribución del ingreso</h2>
+            <p className="mi-modal__subtitle">{data?.labelCliente || summary?.cliente?.nombre || "Cliente"} — {periodLabel}</p>
           </div>
-
-          <button className="mi-modal__close" onClick={cerrar} aria-label="Cerrar">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+          <button className="mi-modal__close" type="button" onClick={onClose} disabled={loading}>✕</button>
         </div>
 
-        {/* Body estilo cards */}
-        <div className="mit-modal__body">
-          <div className="mi-tabpanel is-active">
-            {error && <div className="mep-alert mep-alert--error">{error}</div>}
+        <div className="mit-modal__body mep-body">
+          {error && <div className="mep-alert mep-alert--error">{error}</div>}
+          {loading && <div className="mep-empty">Calculando distribución…</div>}
 
-            <div className="mi-grid">
-              {/* Resumen */}
-              <article className="mi-card mep-card--full">
-                <h3 className="mi-card__title">Resumen</h3>
-
-                <div className="fl-grid">
-                  <div className="fl-field fl-col-full">
-                    <input
-                      className="fl-input"
-                      placeholder=" "
-                      value={montoCobrado === "" ? "" : formatARS(montoCobrado)}
-                      readOnly
-                    />
-                    <label className="fl-label">Monto cobrado</label>
-                    <div className="mep-hint">
-                      Se toma del pago registrado para este período.
-                    </div>
-                  </div>
-
-                  <div className="fl-field">
-                    <input className="fl-input" placeholder=" " value={periodoLabel} readOnly />
-                    <label className="fl-label">Período</label>
-                    <div className="mep-hint">Mes/año seleccionado en Pagos.</div>
-                  </div>
-
-                  <div className="fl-field">
-                    <input
-                      className="fl-input"
-                      placeholder=" "
-                      value={`${trabajadoresActivos.length} trabajador(es)`}
-                      readOnly
-                    />
-                    <label className="fl-label">Reparto entre activos</label>
-                    <div className="mep-hint">
-                      Monto por trabajador:{" "}
-                      <b>{trabajadoresActivos.length ? formatARS(montoPorTrabajador) : "—"}</b>
-                    </div>
-                  </div>
+          {!loading && summary && (
+            <>
+              <div className={`mep-status ${summary.configurado ? "is-ok" : "is-warning"}`}>
+                {summary.configurado ? <FaCheckCircle /> : <FaExclamationTriangle />}
+                <div>
+                  <strong>{isHistorical ? "Distribución histórica del pago" : "Estimación del período"}</strong>
+                  <span>
+                    {isHistorical
+                      ? "Los pagos nuevos quedan congelados para que cambios futuros no alteren este período."
+                      : "Se calcula con los montos mensuales y porcentajes vigentes; se congela al registrar el pago."}
+                  </span>
                 </div>
-              </article>
+              </div>
 
-              {/* Equipo */}
-              <article className="mi-card mi-card--full">
-                <h3 className="mi-card__title">Trabajadores del sistema</h3>
+              <div className="mep-summary-grid">
+                <div><small>Monto total</small><strong>{formatARS(summary.monto_total)}</strong></div>
+                <div><small>Sistemas pagados</small><strong>{summary.sistemas_pagados || 0}</strong></div>
+                <div><small>Sistemas estimados</small><strong>{summary.sistemas_estimados || 0}</strong></div>
+                <div><small>Modelo</small><strong>{summary.modelo_reparto === "por_entidad" ? "Regla por entidad" : "Por sistema"}</strong></div>
+              </div>
 
-                {loading ? (
-                  <div className="mep-empty">Cargando equipo...</div>
-                ) : trabajadores.length === 0 ? (
-                  <div className="mep-empty">No hay trabajadores asignados a este sistema.</div>
+              {direct.length > 0 && (
+                <section className="mep-section">
+                  <h3>Regla institucional directa</h3>
+                  <div className="mep-direct-list">
+                    {direct.map((item, index) => (
+                      <div key={`${item.id_trabajador || item.id_organizacion_beneficiaria}-${index}`}>
+                        <span>{item.beneficiario_nombre}</span>
+                        <b>{formatPct(item.porcentaje)}%</b>
+                        <strong>{formatARS(item.monto_estimado)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <section className="mep-section">
+                <h3>Resultado efectivo por beneficiario</h3>
+                {!effective.length ? (
+                  <div className="mep-empty">No hay una distribución válida configurada.</div>
                 ) : (
-                  <>
-                    <div className="mep-tablewrap">
-                      <table className="mep-table">
-                        <thead>
-                          <tr>
-                            <th>Trabajador</th>
-                            <th>Alias pago</th>
-                            <th>Monto a cobrar</th>
+                  <div className="mep-tablewrap">
+                    <table className="mep-table">
+                      <thead><tr><th>Beneficiario</th><th>Origen</th><th>Participación</th><th>Monto</th></tr></thead>
+                      <tbody>
+                        {effective.map((item, index) => (
+                          <tr key={`${item.id_trabajador || item.id_organizacion_beneficiaria}-${index}`}>
+                            <td><strong>{item.beneficiario_nombre}</strong><small>{item.alias_pago || item.rol || ""}</small></td>
+                            <td>{item.rutas?.length ? item.rutas.join(" / ") : "Directo"}</td>
+                            <td>{formatPct(item.porcentaje)}%</td>
+                            <td><b>{formatARS(item.monto_estimado)}</b></td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {trabajadores.map((t, i) => {
-                            const isActivo = String(t?.activo ?? 1) === "1";
-                            const nombre = `${(t?.apellido || "").toString().trim()} ${(t?.nombre || "")
-                              .toString()
-                              .trim()}`.trim() || "—";
-
-                            return (
-                              <tr
-                                key={t?.id_trabajador || t?.id || i}
-                                className={!isActivo ? "is-inactivo" : ""}
-                                title={!isActivo ? "Trabajador inactivo (no participa del reparto)" : ""}
-                              >
-                                <td>{nombre}</td>
-                                <td>{t?.alias_pago || "—"}</td>
-                                <td>
-                                  {isActivo && montoPorTrabajador
-                                    ? formatARS(montoPorTrabajador)
-                                    : "—"}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <div className="mep-hint" style={{ marginTop: 10 }}>
-                      * Los trabajadores inactivos aparecen atenuados y no participan del reparto.
-                    </div>
-                  </>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
-              </article>
-            </div>
-          </div>
+              </section>
 
-          {/* Footer acciones (igual estilo) */}
+              <section className="mep-section">
+                <h3>Detalle por sistema</h3>
+                <div className="mep-systems">
+                  {systems.map((system) => (
+                    <article key={system.id_sistema}>
+                      <div>
+                        <strong>{system.nombre}</strong>
+                        <span>{system.pagado ? `Pagado ${system.fecha_pago || ""}` : "Pendiente / estimado"}</span>
+                      </div>
+                      <div><small>Monto base</small><b>{formatARS(system.monto_base)}</b></div>
+                      <span className={system.configurado ? "is-ok" : "is-warning"}>{system.configurado ? "Configurado" : "Revisar reparto"}</span>
+                    </article>
+                  ))}
+                  {!systems.length && <div className="mep-empty">El cliente no tiene sistemas exigibles en este período.</div>}
+                </div>
+              </section>
+            </>
+          )}
+
           <div className="mit-actions">
-            <button
-              type="button"
-              className="mit-btn mit-btn--ghost"
-              onClick={cerrar}
-              disabled={loading}
-            >
-              Cerrar
-            </button>
+            <button type="button" className="mit-btn mit-btn--ghost" onClick={onClose} disabled={loading}>Cerrar</button>
           </div>
-
-          <div className="mit-help">* Este modal es solo informativo (reparto estimado).</div>
         </div>
       </div>
     </div>

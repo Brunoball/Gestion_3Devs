@@ -387,7 +387,14 @@ function estimatePlanBoxHeight(doc, w, desc) {
   return 10 + descH + 6;
 }
 
-export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
+export default function GenerarPresupuestoModal({
+  open,
+  onClose,
+  onToast,
+  sessionKey = "",
+  organizationId = 0,
+  organizationName = "",
+}) {
   const [activeTab, setActiveTab] = useState("cliente");
   const [razonSocial, setRazonSocial] = useState("");
   const [proyecto, setProyecto] = useState("");
@@ -460,7 +467,12 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
     (async () => {
       try {
         const url = `${BASE_URL}/api.php?action=clientes&op=planes_mantenimiento_list`;
-        const res = await fetch(url);
+        const res = await fetch(url, {
+          headers: {
+            "X-Session": sessionKey,
+            "X-Organization": String(organizationId || ""),
+          },
+        });
         const data = await res.json();
 
         if (!data?.exito) {
@@ -486,7 +498,7 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, sessionKey, organizationId]);
 
   const onChangeRow = (id, key, value) => {
     setRows((prev) =>
@@ -867,6 +879,9 @@ export default function GenerarPresupuestoModal({ open, onClose, onToast }) {
         <div className="mi-modal__header pres_modal_header">
           <div className="mi-modal__head-left">
             <h2 className="mi-modal__title">Generar presupuesto</h2>
+            {organizationName ? (
+              <div className="pres_modal_org">Empresa: {organizationName}</div>
+            ) : null}
             <p className="mi-modal__subtitle">
               Completá los datos y generá el PDF
             </p>

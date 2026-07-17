@@ -1,4 +1,4 @@
-const BASE_URL = process.env.REACT_APP_API_URL || "https://app.3devsnet.com/api/routes/api.php";
+const BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:3001/routes";
 
 export default BASE_URL;
 
@@ -6,5 +6,11 @@ export default BASE_URL;
 //Hostinger: https://app.3devsnet.com/api/routes/api.php
 //Local: http://localhost:3001/routes
 
-//local: cd backend/ http://localhost:3001/routes
-//usuario: brunoo  contraseña:1234
+//local: cd backend/ php -c "C:\php\php.ini" -S localhost:3001
+
+
+
+//usuario completo: admin_3devs  @3devs2026
+//usuario simple: admin_balto    @Cr3devs2026
+
+
