@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Toast from "../../Global/Toast";
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
+import "./AgregarSistemaModal.css";
+import "./ModalesClientesMejoras.css";
 
 const ESTADOS = [
   { value: "activo", label: "Activo" },

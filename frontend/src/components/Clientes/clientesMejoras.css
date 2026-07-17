@@ -1,0 +1,65 @@
+.CL-Toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px;
+}
+
+.CL-Toolbar > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: #203550;
+}
+
+.CL-Toolbar > div span {
+  color: #718096;
+  font-size: 13px;
+}
+
+.CL-Toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 11px;
+  background: #174b9b;
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(23, 75, 155, 0.2);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.CL-TableBody {
+  max-height: 20vh;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.CL-TableBody::-webkit-scrollbar {
+  width: 8px;
+}
+
+.CL-TableBody::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(36, 88, 172, 0.35);
+  background-clip: padding-box;
+}
+
+.CL-TableBody::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (max-width: 600px) {
+  .CL-TableBody {
+    max-height: 45vh;
+  }
+
+  .CL-Toolbar { align-items: stretch; flex-direction: column; }
+  .CL-Toolbar button { width: 100%; }
+}

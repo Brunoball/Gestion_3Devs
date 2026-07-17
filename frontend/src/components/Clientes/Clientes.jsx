@@ -25,6 +25,7 @@ import {
   setStoredActiveOrganization,
 } from "../Global/session";
 import "./clientes.css";
+import "./clientesMejoras.css";
 import "../Global/roots.css";
 
 import SistemasModal from "./modales/SistemasModal";
@@ -33,6 +34,7 @@ import EliminarClienteModal from "./modales/EliminarClienteModal";
 import EliminarSistemaModal from "./modales/EliminarSistemaModal";
 import GenerarPresupuestoModal from "./modales/GenerarPresupuestoModal";
 import DatosFacturacionModal from "./modales/DatosFacturacionModal";
+import AgregarClienteModal from "./modales/AgregarClienteModal";
 
 const API = `${BASE_URL}/api.php?action=clientes`;
 
@@ -221,6 +223,8 @@ export default function Clientes() {
   const [toast, setToast] = useState({ show: false, tipo: "exito", mensaje: "", key: 0 });
 
   const [newClient, setNewClient] = useState({ nombre: "", notas: "" });
+  const [addClientOpen, setAddClientOpen] = useState(false);
+  const [savingClient, setSavingClient] = useState(false);
   const [editClientId, setEditClientId] = useState(null);
   const [editClient, setEditClient] = useState({ nombre: "", notas: "" });
 
@@ -304,6 +308,7 @@ export default function Clientes() {
 
   const createClient = async () => {
     if (!newClient.nombre.trim()) return showToast("advertencia", "Ingresá el nombre del cliente.");
+    setSavingClient(true);
     try {
       const data = await request(`${API}&op=create`, {
         method: "POST",
@@ -311,10 +316,15 @@ export default function Clientes() {
         body: JSON.stringify({ nombre: newClient.nombre.trim(), notas: newClient.notas.trim() }),
       });
       setNewClient({ nombre: "", notas: "" });
+      setAddClientOpen(false);
       showToast("exito", data?.mensaje || "Cliente creado.");
       await loadBase();
+      return true;
     } catch (error) {
       showToast("error", error?.message || "No se pudo crear el cliente.");
+      return false;
+    } finally {
+      setSavingClient(false);
     }
   };
 
@@ -529,10 +539,9 @@ export default function Clientes() {
           </div>
 
           {puedeEditar && (
-            <div className="CL-NewClient">
-              <input value={newClient.nombre} onChange={(e) => setNewClient((current) => ({ ...current, nombre: e.target.value }))} placeholder="Nombre del cliente" />
-              <input value={newClient.notas} onChange={(e) => setNewClient((current) => ({ ...current, notas: e.target.value }))} placeholder="Nota breve (opcional)" />
-              <button type="button" onClick={createClient}><FaPlus /> Agregar cliente</button>
+            <div className="CL-Toolbar">
+              <div><strong>Clientes registrados</strong><span>Administrá sus datos, sistemas y facturación.</span></div>
+              <button type="button" onClick={() => { setNewClient({ nombre: "", notas: "" }); setAddClientOpen(true); }}><FaPlus /> Agregar cliente</button>
             </div>
           )}
 
@@ -673,6 +682,14 @@ export default function Clientes() {
         onSubmit={createSystem}
         submitting={savingSystem}
         planes={planes}
+      />
+      <AgregarClienteModal
+        open={addClientOpen}
+        onClose={() => !savingClient && setAddClientOpen(false)}
+        form={newClient}
+        onChange={(key, value) => setNewClient((current) => ({ ...current, [key]: value }))}
+        onSubmit={createClient}
+        submitting={savingClient}
       />
       <EliminarClienteModal open={deleteClientOpen} onClose={() => setDeleteClientOpen(false)} onConfirm={confirmDeleteClient} loading={deleting} cliente={deleteClient} mensaje="También se eliminarán sus sistemas sin movimientos asociados." />
       <EliminarSistemaModal open={deleteSystemOpen} onClose={() => setDeleteSystemOpen(false)} onConfirm={confirmDeleteSystem} loading={deleting} sistema={deleteSystem} mensaje="No se puede eliminar si tiene pagos o facturas." />
