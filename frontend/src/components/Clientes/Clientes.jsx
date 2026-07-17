@@ -5,6 +5,7 @@ import {
   FaBuilding,
   FaCubes,
   FaFileInvoice,
+  FaInfoCircle,
   FaPen,
   FaPlus,
   FaSave,
@@ -516,73 +517,85 @@ export default function Clientes() {
       <main className="CL-Wrap">
         <section className="CL-Card">
           <header className="CL-Header">
-            <div>
-              <h2>Clientes y sistemas</h2>
-              <p>Cada entidad conserva sus propios clientes. El reparto se configura donde realmente corresponde.</p>
+            <h2><FaCubes /> Clientes y sistemas</h2>
+            <div className="CL-OrgTabs" role="tablist" aria-label="Entidad de clientes">
+              {organizaciones.map((org) => (
+                <button
+                  key={org.id_organizacion}
+                  type="button"
+                  role="tab"
+                  aria-selected={Number(org.id_organizacion) === idOrganizacion}
+                  className={Number(org.id_organizacion) === idOrganizacion ? "is-active" : ""}
+                  onClick={() => changeOrganization(org.id_organizacion)}
+                >
+                  {org.codigo || org.nombre}<small>{org.rol}</small>
+                </button>
+              ))}
             </div>
-            <FaCubes />
+            <button className="CL-HeaderBack" type="button" onClick={() => navigate("/panel")}>
+              <FaArrowLeft /> Volver
+            </button>
           </header>
 
-          <div className="CL-OrgTabs">
-            {organizaciones.map((org) => (
-              <button key={org.id_organizacion} type="button" className={Number(org.id_organizacion) === idOrganizacion ? "is-active" : ""} onClick={() => changeOrganization(org.id_organizacion)}>
-                {org.codigo || org.nombre}<small>{org.rol}</small>
-              </button>
-            ))}
-          </div>
-
-          <div className="CL-Policy">
-            <FaBalanceScale />
-            <div>
-              <strong>{modeloReparto === "por_sistema" ? "Reparto por sistema" : "Reparto general por entidad"}</strong>
-              <span>{modeloReparto === "por_sistema" ? "En cada sistema de 3DEVS se define quién trabajó y qué porcentaje recibe." : "Todos los clientes BALTO usan automáticamente el 50% contador / 50% 3DEVS configurado en Trabajadores."}</span>
-            </div>
-          </div>
-
-          {puedeEditar && (
-            <div className="CL-Toolbar">
-              <div><strong>Clientes registrados</strong><span>Administrá sus datos, sistemas y facturación.</span></div>
-              <button type="button" onClick={() => { setNewClient({ nombre: "", notas: "" }); setAddClientOpen(true); }}><FaPlus /> Agregar cliente</button>
-            </div>
-          )}
-
-          <div className="CL-Table">
-            <div className="CL-TableHead"><span>Cliente</span><span>Notas</span><span>Estado</span><span /></div>
-            <div className="CL-TableBody">
-              {loading ? <div className="CL-Empty">Cargando clientes…</div> : !sortedClients.length ? <div className="CL-Empty">No hay clientes en esta entidad.</div> : sortedClients.map((client) => {
-                const editing = editClientId === client.id_cliente;
-                return (
-                  <div className="CL-ClientRow" key={client.id_cliente}>
-                    <div>
-                      {editing ? <input value={editClient.nombre} onChange={(e) => setEditClient((current) => ({ ...current, nombre: e.target.value }))} /> : <strong>{client.nombre}</strong>}
+          <div className="CL-ContentGrid">
+            <section className="CL-ClientsIsland">
+              {puedeEditar && (
+                <div className="CL-Toolbar">
+                  <div>
+                    <div className="CL-ToolbarTitle">
+                      <strong>Clientes registrados</strong>
+                      <span className="CL-PolicyInfo" tabIndex={0} aria-label="Información sobre el reparto">
+                        <FaInfoCircle />
+                        <span className="CL-PolicyTooltip" role="tooltip">
+                          <strong>{modeloReparto === "por_sistema" ? "Reparto por sistema" : "Reparto general por entidad"}</strong>
+                          <span>{modeloReparto === "por_sistema" ? "En cada sistema de 3DEVS se define quién trabajó y qué porcentaje recibe." : "Todos los clientes BALTO usan automáticamente el 50% contador / 50% 3DEVS configurado en Trabajadores."}</span>
+                        </span>
+                      </span>
                     </div>
-                    <div>{editing ? <input value={editClient.notas} onChange={(e) => setEditClient((current) => ({ ...current, notas: e.target.value }))} /> : <span>{client.notas || "—"}</span>}</div>
-                    <div><span className="CL-Status">Activo</span></div>
-                    <div className="CL-Actions">
-                      <button type="button" onClick={() => openSystems(client)} title="Sistemas"><FaCubes /></button>
-                      <button type="button" onClick={() => { setBillingClient(client); setBillingOpen(true); }} title="Facturación"><FaFileInvoice /></button>
-                      {puedeEditar && (editing ? (
-                        <>
-                          <button type="button" onClick={saveClient} title="Guardar"><FaSave /></button>
-                          <button type="button" onClick={() => setEditClientId(null)} title="Cancelar"><FaTimes /></button>
-                        </>
-                      ) : (
-                        <>
-                          <button type="button" onClick={() => { setEditClientId(client.id_cliente); setEditClient({ nombre: client.nombre, notas: client.notas || "" }); }} title="Editar"><FaPen /></button>
-                          <button type="button" className="is-danger" onClick={() => { setDeleteClient(client); setDeleteClientOpen(true); }} title="Eliminar"><FaTrashAlt /></button>
-                        </>
-                      ))}
-                    </div>
+                    <span>Administrá sus datos, sistemas y facturación.</span>
                   </div>
-                );
-              })}
-            </div>
-          </div>
+                  <div className="CL-ToolbarActions">
+                    <button type="button" onClick={() => setBudgetOpen(true)}><FaFileInvoice /> Generar presupuesto</button>
+                    <button type="button" onClick={() => { setNewClient({ nombre: "", notas: "" }); setAddClientOpen(true); }}><FaPlus /> Agregar cliente</button>
+                  </div>
+                </div>
+              )}
 
-          <footer className="CL-Footer">
-            <button type="button" onClick={() => navigate("/panel")}><FaArrowLeft /> Volver</button>
-            {puedeEditar && <button type="button" className="is-primary" onClick={() => setBudgetOpen(true)}><FaFileInvoice /> Generar presupuesto</button>}
-          </footer>
+              <div className="CL-Table">
+                <div className="CL-TableHead"><span>Cliente</span><span>Notas</span><span>Estado</span><span /></div>
+                <div className="CL-TableBody">
+                  {loading ? <div className="CL-Empty">Cargando clientes…</div> : !sortedClients.length ? <div className="CL-Empty">No hay clientes en esta entidad.</div> : sortedClients.map((client) => {
+                    const editing = editClientId === client.id_cliente;
+                    return (
+                      <div className="CL-ClientRow" key={client.id_cliente}>
+                        <div>
+                          {editing ? <input value={editClient.nombre} onChange={(e) => setEditClient((current) => ({ ...current, nombre: e.target.value }))} /> : <strong>{client.nombre}</strong>}
+                        </div>
+                        <div>{editing ? <input value={editClient.notas} onChange={(e) => setEditClient((current) => ({ ...current, notas: e.target.value }))} /> : <span>{client.notas || "—"}</span>}</div>
+                        <div><span className="CL-Status">Activo</span></div>
+                        <div className="CL-Actions">
+                          <button type="button" onClick={() => openSystems(client)} title="Sistemas"><FaCubes /></button>
+                          <button type="button" onClick={() => { setBillingClient(client); setBillingOpen(true); }} title="Facturación"><FaFileInvoice /></button>
+                          {puedeEditar && (editing ? (
+                            <>
+                              <button type="button" onClick={saveClient} title="Guardar"><FaSave /></button>
+                              <button type="button" onClick={() => setEditClientId(null)} title="Cancelar"><FaTimes /></button>
+                            </>
+                          ) : (
+                            <>
+                              <button type="button" onClick={() => { setEditClientId(client.id_cliente); setEditClient({ nombre: client.nombre, notas: client.notas || "" }); }} title="Editar"><FaPen /></button>
+                              <button type="button" className="is-danger" onClick={() => { setDeleteClient(client); setDeleteClientOpen(true); }} title="Eliminar"><FaTrashAlt /></button>
+                            </>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+            </section>
+          </div>
         </section>
       </main>
 

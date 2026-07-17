@@ -12,6 +12,8 @@ import {
   faScaleBalanced,
   faDiagramProject,
   faBuilding,
+  faCircleInfo,
+  faUsers,
   faUserTie,
 } from "@fortawesome/free-solid-svg-icons";
 import BASE_URL from "../../config/config";
@@ -27,6 +29,7 @@ import {
   setStoredActiveOrganization,
 } from "../Global/session";
 import "./Trabajadores.css";
+import "./TrabajadoresMejoras.css";
 
 import ModalAgregarTrabajador from "./modales/ModalAgregarTrabajador";
 import ModalEditarTrabajador from "./modales/ModalEditarTrabajador";
@@ -271,51 +274,67 @@ export default function Trabajadores() {
       <main className="TP-Wrap TP-Workers">
         <section className="TP-Card">
           <header className="TP-Header TP-Header--multi">
-            <div>
-              <h2 className="TP-Title">Personas y distribución</h2>
-              <p className="TP-Subtitle">La persona se carga una sola vez y puede vincularse a una o varias entidades.</p>
+            <h2 className="TP-Title"><FontAwesomeIcon icon={faUsers} /> Personas y distribución</h2>
+            <div className="TP-OrgTabs" role="tablist" aria-label="Entidad">
+              {organizaciones.map((org) => {
+                const active = Number(org.id_organizacion) === idOrganizacion;
+                return (
+                  <button
+                    key={org.id_organizacion}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    className={`TP-OrgTab ${active ? "is-active" : ""}`}
+                    onClick={() => cambiarOrganizacion(org.id_organizacion)}
+                  >
+                    <span>{org.codigo || org.nombre}</span><small>{org.rol}</small>
+                  </button>
+                );
+              })}
             </div>
+            <button className="TP-HeaderBack" type="button" onClick={() => navigate("/panel")}>
+              <FontAwesomeIcon icon={faArrowLeft} /> Volver
+            </button>
           </header>
 
-          <div className="TP-OrgTabs" role="tablist" aria-label="Entidad">
-            {organizaciones.map((org) => {
-              const active = Number(org.id_organizacion) === idOrganizacion;
-              return (
-                <button
-                  key={org.id_organizacion}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  className={`TP-OrgTab ${active ? "is-active" : ""}`}
-                  onClick={() => cambiarOrganizacion(org.id_organizacion)}
-                >
-                  <span>{org.codigo || org.nombre}</span><small>{org.rol}</small>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="TP-ModelBanner">
-            <FontAwesomeIcon icon={isBalto ? faScaleBalanced : faDiagramProject} />
-            <div>
-              <strong>{isBalto ? "BALTO tiene una regla fija institucional" : "3DEVS distribuye sus clientes por sistema"}</strong>
-              <span>
-                {isBalto
-                  ? "Cada cobro BALTO se divide 50% para el contador y 50% para 3DEVS. No se duplican los tres integrantes en cada cliente."
-                  : "El porcentaje de los clientes propios se define en Clientes → Sistemas. Acá solo se define cómo se reparte la parte institucional que 3DEVS recibe desde BALTO."}
-              </span>
-            </div>
-          </div>
-
-          <section className="TP-Tools">
-            <div className="TP-SearchBox">
-              <FontAwesomeIcon icon={faMagnifyingGlass} />
-              <input className="TP-SearchInput" value={q} onChange={(event) => setQ(event.target.value)} placeholder="Buscar persona, rol o entidad…" />
-            </div>
-            <button type="button" className="TP-Btn TP-Btn--ghost" onClick={() => setOpenBajaListado(true)}>
-              <FontAwesomeIcon icon={faUsersSlash} /> Dados de baja
-            </button>
-          </section>
+          <div className="TP-ContentGrid">
+            <section className="TP-MainIsland">
+              <div className="TP-IslandScroll">
+              <section className="TP-Tools">
+                <div className="TP-ToolsTop">
+                  <div className="TP-ToolsCopy">
+                    <div className="TP-ToolsTitle">
+                      <strong>Trabajadores registrados</strong>
+                      <span className="TP-ModelInfo" tabIndex={0} aria-label="Información sobre el modelo de reparto">
+                        <FontAwesomeIcon icon={faCircleInfo} />
+                        <span className="TP-ModelTooltip" role="tooltip">
+                          <strong>{isBalto ? "BALTO tiene una regla fija institucional" : "3DEVS distribuye sus clientes por sistema"}</strong>
+                          <span>
+                            {isBalto
+                              ? "Cada cobro BALTO se divide 50% para el contador y 50% para 3DEVS. No se duplican los tres integrantes en cada cliente."
+                              : "El porcentaje de los clientes propios se define en Clientes → Sistemas. Acá solo se define cómo se reparte la parte institucional que 3DEVS recibe desde BALTO."}
+                          </span>
+                        </span>
+                      </span>
+                    </div>
+                    <span>Administrá las personas, sus roles y las entidades vinculadas.</span>
+                  </div>
+                  <div className="TP-ToolsActions">
+                    <button type="button" className="TP-Btn TP-Btn--ghost" onClick={() => setOpenBajaListado(true)}>
+                      <FontAwesomeIcon icon={faUsersSlash} /> Dados de baja
+                    </button>
+                    {puedeEditar && (
+                      <button className="TP-Btn TP-Btn--primary" type="button" onClick={() => setOpenCrear(true)}>
+                        <FontAwesomeIcon icon={faPlus} /> Agregar o vincular persona
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="TP-SearchBox">
+                  <FontAwesomeIcon icon={faMagnifyingGlass} />
+                  <input className="TP-SearchInput" value={q} onChange={(event) => setQ(event.target.value)} placeholder="Buscar persona, rol o entidad…" />
+                </div>
+              </section>
 
           <div className="TP-PeopleTable">
             <div className="TP-PeopleHead">
@@ -452,12 +471,9 @@ export default function Trabajadores() {
             </section>
           )}
 
-          <footer className="TP-FooterActions">
-            <button className="TP-Btn" onClick={() => navigate("/panel")}><FontAwesomeIcon icon={faArrowLeft} /> Volver</button>
-            {puedeEditar && (
-              <button className="TP-Btn TP-Btn--primary" onClick={() => setOpenCrear(true)}><FontAwesomeIcon icon={faPlus} /> Agregar o vincular persona</button>
-            )}
-          </footer>
+              </div>
+            </section>
+          </div>
         </section>
       </main>
 

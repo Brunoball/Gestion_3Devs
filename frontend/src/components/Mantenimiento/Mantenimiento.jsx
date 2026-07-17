@@ -13,9 +13,10 @@ import {
   setStoredActiveOrganization,
 } from "../Global/session";
 import "./Mantenimiento.css";
+import "./MantenimientoMejoras.css";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowLeft, faPlus, faPenToSquare, faTrashCan, faLayerGroup } from "@fortawesome/free-solid-svg-icons";
+import { faArrowLeft, faPlus, faPenToSquare, faTrashCan, faLayerGroup, faCircleInfo } from "@fortawesome/free-solid-svg-icons";
 
 import ModalCrearPlan from "./modales/ModalCrearPlan";
 import ModalEditarPlan from "./modales/ModalEditarPlan";
@@ -161,61 +162,84 @@ export default function Mantenimiento() {
       <main className="MP-Wrap">
         <section className="MP-Card">
           <header className="MP-Header">
-            <div>
-              <h2>Planes y servicios</h2>
-              <p>Los planes son plantillas por entidad. El monto acordado definitivo se guarda en cada sistema del cliente.</p>
+            <h2><FontAwesomeIcon icon={faLayerGroup} /> Planes y servicios</h2>
+            <div className="MP-OrgTabs" role="tablist" aria-label="Entidad">
+              {organizaciones.map((org) => {
+                const active = Number(org.id_organizacion) === idOrganizacion;
+                return (
+                  <button
+                    key={org.id_organizacion}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    className={active ? "is-active" : ""}
+                    onClick={() => cambiarOrganizacion(org.id_organizacion)}
+                  >
+                    {org.codigo || org.nombre}<small>{org.rol}</small>
+                  </button>
+                );
+              })}
             </div>
-            <FontAwesomeIcon icon={faLayerGroup} />
+            <button className="MP-HeaderBack" type="button" onClick={() => navigate("/panel")}>
+              <FontAwesomeIcon icon={faArrowLeft} /> Volver
+            </button>
           </header>
 
-          <div className="MP-OrgTabs">
-            {organizaciones.map((org) => (
-              <button
-                key={org.id_organizacion}
-                type="button"
-                className={Number(org.id_organizacion) === idOrganizacion ? "is-active" : ""}
-                onClick={() => cambiarOrganizacion(org.id_organizacion)}
-              >
-                {org.codigo || org.nombre}<small>{org.rol}</small>
-              </button>
-            ))}
-          </div>
-
-          <div className="MP-Info">
-            Estás administrando el catálogo de <strong>{organizacionActiva?.nombre}</strong>. Un plan de 3DEVS nunca aparece en BALTO y viceversa.
-          </div>
-
-          <div className="MP-Table">
-            <div className="MP-Head"><span>Plan</span><span>Descripción</span><span>Monto de referencia</span><span /></div>
-            <div className="MP-Body">
-              {loading ? (
-                <div className="MP-Empty">Cargando planes…</div>
-              ) : !planes.length ? (
-                <div className="MP-Empty">No hay planes activos para esta entidad.</div>
-              ) : (
-                planes.map((plan) => (
-                  <div className="MP-Row" key={plan.id}>
-                    <strong>{plan.nombre}</strong>
-                    <span className="MP-Description">{plan.descripcion || "Sin descripción"}</span>
-                    <span className="MP-Amount">{fmtARS(plan.monto)}</span>
-                    <div className="MP-Actions">
-                      {puedeEditar && (
-                        <>
-                          <button type="button" onClick={() => { setPlanSel(plan); setOpenEditar(true); }} title="Editar"><FontAwesomeIcon icon={faPenToSquare} /></button>
-                          <button type="button" className="is-danger" onClick={() => { setPlanSel(plan); setOpenEliminar(true); }} title="Dar de baja"><FontAwesomeIcon icon={faTrashCan} /></button>
-                        </>
-                      )}
+          <div className="MP-ContentGrid">
+            <section className="MP-MainIsland">
+              <div className="MP-IslandScroll">
+                <div className="MP-Toolbar">
+                  <div className="MP-ToolbarCopy">
+                    <div className="MP-ToolbarTitle">
+                      <strong>Planes y servicios registrados</strong>
+                      <span className="MP-InfoTrigger" tabIndex={0} aria-label="Información sobre los planes por entidad">
+                        <FontAwesomeIcon icon={faCircleInfo} />
+                        <span className="MP-InfoTooltip" role="tooltip">
+                          <strong>Catálogo independiente por entidad</strong>
+                          <span>
+                            Estás administrando el catálogo de {organizacionActiva?.nombre || "la entidad activa"}. Un plan de 3DEVS nunca aparece en BALTO y viceversa. El monto acordado definitivo se guarda en cada sistema del cliente.
+                          </span>
+                        </span>
+                      </span>
                     </div>
+                    <span>Administrá las plantillas y sus montos mensuales de referencia.</span>
                   </div>
-                ))
-              )}
-            </div>
-          </div>
+                  {puedeEditar && (
+                    <button type="button" className="MP-NewButton" onClick={() => setOpenCrear(true)}>
+                      <FontAwesomeIcon icon={faPlus} /> Nuevo plan
+                    </button>
+                  )}
+                </div>
 
-          <footer className="MP-Footer">
-            <button type="button" onClick={() => navigate("/panel")}><FontAwesomeIcon icon={faArrowLeft} /> Volver</button>
-            {puedeEditar && <button type="button" className="is-primary" onClick={() => setOpenCrear(true)}><FontAwesomeIcon icon={faPlus} /> Nuevo plan</button>}
-          </footer>
+                <div className="MP-Table">
+                  <div className="MP-Head"><span>Plan</span><span>Descripción</span><span>Monto de referencia</span><span /></div>
+                  <div className="MP-Body">
+                    {loading ? (
+                      <div className="MP-Empty">Cargando planes…</div>
+                    ) : !planes.length ? (
+                      <div className="MP-Empty">No hay planes activos para esta entidad.</div>
+                    ) : (
+                      planes.map((plan) => (
+                        <div className="MP-Row" key={plan.id}>
+                          <strong>{plan.nombre}</strong>
+                          <span className="MP-Description">{plan.descripcion || "Sin descripción"}</span>
+                          <span className="MP-Amount">{fmtARS(plan.monto)}</span>
+                          <div className="MP-Actions">
+                            {puedeEditar && (
+                              <>
+                                <button type="button" onClick={() => { setPlanSel(plan); setOpenEditar(true); }} title="Editar"><FontAwesomeIcon icon={faPenToSquare} /></button>
+                                <button type="button" className="is-danger" onClick={() => { setPlanSel(plan); setOpenEliminar(true); }} title="Dar de baja"><FontAwesomeIcon icon={faTrashCan} /></button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
         </section>
       </main>
 

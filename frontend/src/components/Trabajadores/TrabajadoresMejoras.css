@@ -1,0 +1,346 @@
+.TP-Wrap {
+  width: 100%;
+  max-width: none;
+  height: 100vh;
+  min-height: 100vh;
+  margin: 0;
+  overflow: hidden;
+  background: #e0e7ff;
+  background: linear-gradient(135deg, #ffebee 30%, #2563eb 70%);
+}
+
+.TP-Card {
+  height: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.TP-Header {
+  position: relative;
+  min-height: 64px;
+  padding: 12px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+  color: #2563eb;
+}
+
+.TP-Title {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #2563eb;
+  font-size: 1.45rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.TP-Title svg {
+  font-size: 1.25rem;
+}
+
+.TP-Header .TP-OrgTabs {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid #dbe4f0;
+  border-radius: 999px;
+  background: #f8fafc;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.TP-Header .TP-OrgTab {
+  min-height: 34px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: transparent;
+  color: #475569;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  box-shadow: none;
+}
+
+.TP-Header .TP-OrgTab small {
+  font-size: 0.58rem;
+}
+
+.TP-Header .TP-OrgTab.is-active {
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+}
+
+.TP-HeaderBack {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.TP-ContentGrid {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 18px 2rem 24px;
+}
+
+.TP-MainIsland {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.14);
+}
+
+.TP-IslandScroll {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.TP-IslandScroll::-webkit-scrollbar {
+  width: 9px;
+}
+
+.TP-IslandScroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.TP-IslandScroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.32);
+  background-clip: padding-box;
+}
+
+.TP-Tools {
+  padding: 16px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.TP-ToolsTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.TP-ToolsCopy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: #203550;
+}
+
+.TP-ToolsCopy > span {
+  color: #718096;
+  font-size: 13px;
+}
+
+.TP-ToolsTitle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.TP-ToolsActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.TP-ToolsActions .TP-Btn {
+  min-height: 42px;
+}
+
+.TP-SearchBox {
+  width: min(100%, 520px);
+  flex: 0 1 auto;
+  padding: 10px 16px;
+}
+
+.TP-ModelInfo {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #2563eb;
+  cursor: help;
+  outline: none;
+}
+
+.TP-ModelInfo:hover,
+.TP-ModelInfo:focus-visible {
+  background: #eff6ff;
+}
+
+.TP-ModelTooltip {
+  position: absolute;
+  z-index: 30;
+  left: 50%;
+  top: calc(100% + 10px);
+  width: min(340px, 74vw);
+  padding: 12px 14px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.18);
+  color: #0f172a;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, -4px);
+  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s ease;
+}
+
+.TP-ModelTooltip::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -6px;
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid #dbe4f0;
+  border-left: 1px solid #dbe4f0;
+  background: #fff;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.TP-ModelTooltip strong,
+.TP-ModelTooltip > span {
+  display: block;
+}
+
+.TP-ModelTooltip strong {
+  color: #0f172a;
+  font-size: 0.82rem;
+}
+
+.TP-ModelTooltip > span {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.TP-ModelInfo:hover .TP-ModelTooltip,
+.TP-ModelInfo:focus .TP-ModelTooltip,
+.TP-ModelInfo:focus-within .TP-ModelTooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+.TP-PeopleTable {
+  margin: 0 18px;
+  border-radius: 12px;
+}
+
+.TP-RepartoCard {
+  margin: 18px;
+}
+
+@media (max-width: 1180px) {
+  .TP-Header {
+    flex-wrap: wrap;
+  }
+
+  .TP-Header .TP-OrgTabs {
+    position: static;
+    transform: none;
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 850px) {
+  .TP-Wrap,
+  .TP-Card {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .TP-Header {
+    align-items: stretch;
+    padding: 12px 16px;
+  }
+
+  .TP-Header .TP-OrgTabs {
+    width: 100%;
+    margin-left: 0;
+    overflow-x: auto;
+  }
+
+  .TP-Header .TP-OrgTab {
+    flex: 0 0 auto;
+  }
+
+  .TP-HeaderBack {
+    width: 100%;
+  }
+
+  .TP-ContentGrid {
+    padding: 14px;
+  }
+
+  .TP-MainIsland {
+    height: auto;
+    min-height: 62vh;
+    overflow: hidden;
+  }
+
+  .TP-IslandScroll {
+    height: auto;
+    overflow: visible;
+  }
+
+  .TP-ToolsTop,
+  .TP-ToolsActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .TP-ToolsActions .TP-Btn,
+  .TP-SearchBox {
+    width: 100%;
+    justify-content: center;
+  }
+}

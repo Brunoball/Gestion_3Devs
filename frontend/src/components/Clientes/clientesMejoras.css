@@ -34,8 +34,236 @@
   cursor: pointer;
 }
 
+.CL-Wrap {
+  width: 100%;
+  max-width: none;
+  height: 100vh;
+  min-height: 100vh;
+  margin: 0;
+  overflow: hidden;
+  background: #e0e7ff;
+  background: linear-gradient(135deg, #ffebee 30%, #2563eb 70%);
+}
+
+.CL-Card {
+  height: 100%;
+  min-height: 100vh;
+  border-radius: 0;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+}
+
+.CL-Header {
+  position: relative;
+  min-height: 64px;
+  padding: 12px 22px;
+  background: #fff;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+  color: #2563eb;
+}
+
+.CL-Header h2 {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #2563eb;
+  font-size: 1.45rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.CL-Header h2 svg {
+  font-size: 1.25rem;
+}
+
+.CL-Header .CL-OrgTabs {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid #dbe4f0;
+  border-radius: 999px;
+  background: #f8fafc;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.CL-Header .CL-OrgTabs button {
+  min-height: 34px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  color: #475569;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+}
+
+.CL-Header .CL-OrgTabs button small {
+  font-size: 0.58rem;
+}
+
+.CL-Header .CL-OrgTabs button.is-active {
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+}
+
+.CL-HeaderBack {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.CL-ContentGrid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  padding: 18px 2rem 24px;
+}
+
+.CL-ClientsIsland {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.14);
+}
+
+.CL-ClientsIsland .CL-Toolbar {
+  padding: 16px 18px;
+}
+
+.CL-Toolbar .CL-ToolbarTitle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+}
+
+.CL-PolicyInfo {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #2563eb !important;
+  cursor: help;
+  outline: none;
+}
+
+.CL-PolicyInfo:hover,
+.CL-PolicyInfo:focus-visible {
+  background: #eff6ff;
+}
+
+.CL-PolicyTooltip {
+  position: absolute;
+  z-index: 30;
+  left: 50%;
+  top: calc(100% + 10px);
+  width: min(320px, 72vw);
+  padding: 12px 14px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.18);
+  color: #0f172a !important;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, -4px);
+  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s ease;
+}
+
+.CL-PolicyTooltip::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -6px;
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid #dbe4f0;
+  border-left: 1px solid #dbe4f0;
+  background: #fff;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.CL-PolicyTooltip strong,
+.CL-PolicyTooltip > span {
+  display: block;
+}
+
+.CL-PolicyTooltip strong {
+  color: #0f172a;
+  font-size: 0.82rem;
+}
+
+.CL-PolicyTooltip > span {
+  margin-top: 4px;
+  color: #64748b !important;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.CL-PolicyInfo:hover .CL-PolicyTooltip,
+.CL-PolicyInfo:focus .CL-PolicyTooltip,
+.CL-PolicyInfo:focus-within .CL-PolicyTooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+.CL-Toolbar .CL-ToolbarActions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.CL-ToolbarActions button:first-child {
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  background: #eff6ff;
+  color: #1d4ed8;
+  box-shadow: none;
+}
+
+.CL-Table {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0 14px;
+  border-radius: 12px;
+}
+
 .CL-TableBody {
-  max-height: 20vh;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
@@ -56,10 +284,80 @@
 }
 
 @media (max-width: 600px) {
+  .CL-Wrap,
+  .CL-Card {
+    height: auto;
+    min-height: 100vh;
+  }
+
   .CL-TableBody {
-    max-height: 45vh;
+    overflow-y: visible;
   }
 
   .CL-Toolbar { align-items: stretch; flex-direction: column; }
   .CL-Toolbar button { width: 100%; }
+  .CL-Toolbar .CL-ToolbarActions { align-items: stretch; flex-direction: column; }
+}
+
+@media (max-width: 1180px) {
+  .CL-Header {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .CL-Header .CL-OrgTabs {
+    position: static;
+    transform: none;
+    margin-left: auto;
+  }
+
+  .CL-HeaderBack {
+    margin-left: 0;
+  }
+
+  .CL-ContentGrid {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+}
+
+@media (max-width: 900px) {
+  .CL-Wrap,
+  .CL-Card {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .CL-ContentGrid {
+    display: flex;
+    flex-direction: column;
+    padding: 14px;
+  }
+
+  .CL-ClientsIsland {
+    min-height: 62vh;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 720px) {
+  .CL-Header {
+    align-items: stretch;
+    padding: 12px 16px;
+  }
+
+  .CL-Header .CL-OrgTabs {
+    width: 100%;
+    margin-left: 0;
+    overflow-x: auto;
+  }
+
+  .CL-HeaderBack {
+    width: 100%;
+  }
+
+  .CL-Header .CL-OrgTabs button {
+    flex: 0 0 auto;
+  }
 }
