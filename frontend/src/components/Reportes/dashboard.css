@@ -848,3 +848,19 @@ html, body {
   .reportes-control-strip{grid-template-columns:1fr;}
   .reportes-summary-card strong{font-size:1.15rem;}
 }
+
+.reportes-worker-name span.is-paid{
+  background:#dcfce7;
+  color:#166534;
+}
+.icon-btn.is-paid{
+  border-color:#86efac;
+  background:#dcfce7;
+  color:#166534;
+}
+.icon-btn.is-paid:disabled{
+  opacity:1;
+  border-color:#86efac;
+  background:#dcfce7;
+  color:#166534;
+}

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../reparto/reparto.service.php';
+require_once __DIR__ . '/../reportes/periodos.service.php';
 
 ini_set('display_errors', '0');
 ini_set('html_errors', '0');
@@ -589,6 +590,17 @@ function pagos_registrar_pago(): void
   sort($months);
   if (!$months) json_error('Meses inválidos.');
 
+  // Un período cuya liquidación ya comenzó es inmutable. La validación se
+  // realiza antes de abrir la transacción y vuelve a estar respaldada por los
+  // triggers de la migración para evitar carreras o modificaciones directas.
+  try {
+    foreach ($months as $month) {
+      reportes_periodo_assert_abierto($pdo, $org, $month, $anio);
+    }
+  } catch (Throwable $e) {
+    json_error($e->getMessage());
+  }
+
   $systems = [];
   foreach ($desglose as $item) {
     $sid = (int)($item['id_sistema'] ?? 0);
@@ -691,6 +703,9 @@ function pagos_registrar_pago(): void
               'Ya existe un pago para uno de los sistemas, pero su monto no coincide con la factura actual.'
             );
           }
+          // También se valida y congela un pago preexistente. Así nunca se
+          // acepta silenciosamente un registro antiguo con reparto inválido.
+          reparto_resumen_pago($pdo, $org, $existingId, true);
           $detail[$sid] = ['omitido' => true, 'id_pago' => $existingId];
           continue;
         }
@@ -720,6 +735,12 @@ function pagos_registrar_pago(): void
           ':factura' => $fid,
         ]);
         $idPagoNuevo = (int)$pdo->lastInsertId();
+
+        // El reparto exacto queda congelado en la misma transacción que crea
+        // el pago. Una configuración incompleta o distinta de 100% revierte
+        // todo el alta: jamás llega un ingreso ambiguo a Reportes.
+        reparto_resumen_pago($pdo, $org, $idPagoNuevo, true);
+
         $did = true;
         $detail[$sid] = [
           'id_pago' => $idPagoNuevo,
@@ -786,6 +807,13 @@ function pagos_eliminar_pago(): void
     $st->execute([':org' => $org, ':pago' => $idPago]);
     $info = $st->fetch(PDO::FETCH_ASSOC);
     if (!$info) json_error('No se encontró el pago en esta entidad.');
+
+    reportes_periodo_assert_abierto(
+      $pdo,
+      $org,
+      (int)$info['id_mes'],
+      (int)$info['anio_periodo']
+    );
 
     $pdo->beginTransaction();
     $del = $pdo->prepare("\n      DELETE p\n      FROM pagos p\n      INNER JOIN clientes_sistemas cs\n        ON cs.id_organizacion = p.id_organizacion\n       AND cs.id_sistema = p.id_sistema\n      WHERE p.id_organizacion = :org\n        AND cs.id_cliente = :cliente\n        AND p.anio_periodo = :anio\n        AND p.id_mes = :mes\n    ");

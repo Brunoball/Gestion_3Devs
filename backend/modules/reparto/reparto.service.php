@@ -5,10 +5,12 @@ declare(strict_types=1);
 /**
  * Motor central de distribución de ingresos.
  *
- * Diseño simplificado:
- * - Los pagos se guardan únicamente en `pagos`.
- * - El reparto se calcula en el momento de consultar reportes o resúmenes.
- * - No depende de snapshots ni de la tabla `pagos_reparto`.
+ * Diseño contable:
+ * - Cada pago congela su reparto exacto en `pagos_reparto_snapshots`.
+ * - Cada egreso con pagadores congela sus reembolsos en
+ *   `egresos_reparto_snapshots`.
+ * - Cambiar porcentajes solo afecta movimientos futuros; nunca reescribe el
+ *   historial ya registrado.
  * - En repartos entre entidades, los montos se asignan jerárquicamente para
  *   respetar cada nivel exacto (por ejemplo: BALTO 50/50 y luego 3DEVS 33/33/33).
  */
@@ -16,24 +18,6 @@ declare(strict_types=1);
 function reparto_redondear(float $value, int $scale = 4): float
 {
     return round($value, $scale);
-}
-
-/** @return float[] */
-function reparto_porcentajes_iguales(int $cantidad, int $scale = 4): array
-{
-    if ($cantidad <= 0) return [];
-
-    $factor = 10 ** $scale;
-    $totalUnits = 100 * $factor;
-    $base = intdiv($totalUnits, $cantidad);
-    $remainder = $totalUnits - ($base * $cantidad);
-
-    $out = [];
-    for ($i = 0; $i < $cantidad; $i++) {
-        $units = $base + ($i < $remainder ? 1 : 0);
-        $out[] = $units / $factor;
-    }
-    return $out;
 }
 
 /**
@@ -158,8 +142,9 @@ function reparto_regla_valida(array $items): bool
         $totalUnits += (int)round($pct * 10000);
     }
 
-    // Acepta como máximo una unidad de 0,0001% por diferencias de representación.
-    return abs($totalUnits - 1000000) <= 1;
+    // La configuración se persiste con cuatro decimales: debe sumar 100,0000%
+    // de forma exacta. No se corrigen silenciosamente faltantes ni sobrantes.
+    return $totalUnits === 1000000;
 }
 
 function reparto_organizacion_config(PDO $pdo, int $idOrganizacion): array
@@ -212,16 +197,8 @@ function reparto_items_sistema(PDO $pdo, int $idOrganizacion, int $idSistema): a
     $st->execute([':org' => $idOrganizacion, ':sistema' => $idSistema]);
     $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-    $sumUnits = array_sum(array_map(
-        static fn(array $row): int => (int)round((float)($row['porcentaje_reparto'] ?? 0) * 10000),
-        $rows
-    ));
-    $configured = count($rows) > 0 && abs($sumUnits - 1000000) <= 1;
-    $fallback = $configured ? [] : reparto_porcentajes_iguales(count($rows), 4);
-
     $items = [];
-    foreach ($rows as $index => $row) {
-        $pct = $configured ? (float)$row['porcentaje_reparto'] : (float)($fallback[$index] ?? 0);
+    foreach ($rows as $row) {
         $items[] = [
             'tipo_beneficiario' => 'trabajador',
             'id_trabajador' => (int)$row['id_trabajador'],
@@ -232,19 +209,25 @@ function reparto_items_sistema(PDO $pdo, int $idOrganizacion, int $idSistema): a
             'alias_pago' => $row['alias_pago'] !== null ? (string)$row['alias_pago'] : null,
             'rol' => (string)$row['rol'],
             'rol_en_sistema' => $row['rol_en_sistema'] !== null ? (string)$row['rol_en_sistema'] : null,
-            'porcentaje' => $pct,
+            'porcentaje' => (float)$row['porcentaje_reparto'],
             'activo' => (int)$row['activo'],
             'ruta' => null,
             'rutas' => [],
-            'configurado' => $configured,
+            'configurado' => false,
         ];
     }
-    if ($items) $items = reparto_normalizar_porcentajes($items);
+
+    // Nunca se inventa un reparto igualitario. Si la suma no es exactamente
+    // 100%, el pago queda bloqueado y debe corregirse la configuración.
+    $configured = reparto_regla_valida($items);
+    foreach ($items as &$item) $item['configurado'] = $configured;
+    unset($item);
+    if ($configured) $items = reparto_normalizar_porcentajes($items);
 
     return [
         'items' => $items,
         'configurado' => $configured,
-        'usa_reparto_igualitario' => !$configured && count($rows) > 0,
+        'usa_reparto_igualitario' => false,
         'total' => reparto_redondear(array_sum(array_column($items, 'porcentaje'))),
     ];
 }
@@ -494,20 +477,302 @@ function reparto_resumen_sistema(PDO $pdo, int $idOrganizacion, int $idSistema, 
     ];
 }
 
-/** Obtiene el pago y calcula su reparto con la regla vigente. */
-function reparto_resumen_pago(PDO $pdo, int $idOrganizacion, int $idPago): array
+/** Comprueba la existencia de las tablas de snapshots financieros. */
+function reparto_snapshot_table_exists(PDO $pdo, string $table): bool
 {
-    $st = $pdo->prepare("\n        SELECT id_pago, id_sistema, monto\n        FROM pagos\n        WHERE id_organizacion=:org AND id_pago=:pago\n        LIMIT 1\n    ");
-    $st->execute([':org' => $idOrganizacion, ':pago' => $idPago]);
-    $pago = $st->fetch(PDO::FETCH_ASSOC);
-    if (!$pago) throw new RuntimeException('Pago inexistente en la organización activa.');
+    static $cache = [];
+    if (array_key_exists($table, $cache)) return (bool)$cache[$table];
+    $st = $pdo->prepare("\n        SELECT COUNT(*)\n        FROM information_schema.TABLES\n        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :tabla\n    ");
+    $st->execute([':tabla' => $table]);
+    $cache[$table] = (int)$st->fetchColumn() > 0;
+    return (bool)$cache[$table];
+}
 
-    $resumen = reparto_resumen_sistema(
+function reparto_validar_resumen_contable(array $summary, float $expectedAmount): void
+{
+    $items = is_array($summary['items'] ?? null) ? $summary['items'] : [];
+    $totalPercentage = (float)($summary['total_porcentaje'] ?? 0.0);
+    $totalPercentageUnits = (int)round($totalPercentage * 10000);
+    if (empty($summary['configurado']) || !$items || $totalPercentageUnits !== 1000000) {
+        throw new DomainException('La configuración de reparto está incompleta o no suma exactamente 100%.');
+    }
+    if (!empty($summary['usa_reparto_igualitario'])) {
+        throw new DomainException('No se permite liquidar con un reparto igualitario automático.');
+    }
+
+    $distributed = round(array_sum(array_map(
+        static fn(array $item): float => (float)($item['monto_estimado'] ?? 0),
+        $items
+    )), 2);
+    if (abs($distributed - round($expectedAmount, 2)) > 0.01) {
+        throw new DomainException('El reparto no coincide exactamente con el monto del movimiento.');
+    }
+}
+
+function reparto_pago_snapshot_cargar(PDO $pdo, int $idOrganizacion, int $idPago): ?array
+{
+    if (!reparto_snapshot_table_exists($pdo, 'pagos_reparto_snapshots')) return null;
+    $st = $pdo->prepare("\n        SELECT monto, snapshot_json, snapshot_hash, created_at\n        FROM pagos_reparto_snapshots\n        WHERE id_organizacion = :org AND id_pago = :pago\n        LIMIT 1\n    ");
+    $st->execute([':org' => $idOrganizacion, ':pago' => $idPago]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$row) return null;
+
+    $json = (string)$row['snapshot_json'];
+    $hash = trim((string)($row['snapshot_hash'] ?? ''));
+    if ($hash !== '' && !hash_equals($hash, hash('sha256', $json))) {
+        throw new RuntimeException('El snapshot de reparto del pago está dañado.');
+    }
+    $decoded = json_decode($json, true);
+    if (!is_array($decoded)) throw new RuntimeException('El snapshot de reparto del pago es inválido.');
+    $decoded['origen'] = 'snapshot_pago';
+    $decoded['snapshot_creado_at'] = (string)($row['created_at'] ?? '');
+    return ['monto' => round((float)$row['monto'], 2), 'resumen' => $decoded];
+}
+
+function reparto_pago_snapshot_guardar(
+    PDO $pdo,
+    array $payment,
+    array $summary
+): array {
+    if (!reparto_snapshot_table_exists($pdo, 'pagos_reparto_snapshots')) {
+        throw new RuntimeException('Falta ejecutar la migración de snapshots de pagos.');
+    }
+
+    reparto_validar_resumen_contable($summary, (float)$payment['monto']);
+    $summary['origen'] = 'snapshot_pago';
+    $json = json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
+    if ($json === false) throw new RuntimeException('No se pudo serializar el reparto del pago.');
+
+    $st = $pdo->prepare("\n        INSERT INTO pagos_reparto_snapshots\n            (id_pago, id_organizacion, id_sistema, id_mes, anio, monto, snapshot_json, snapshot_hash)\n        VALUES\n            (:pago, :org, :sistema, :mes, :anio, :monto, :snapshot, :hash)\n        ON DUPLICATE KEY UPDATE id_pago = VALUES(id_pago)\n    ");
+    $st->execute([
+        ':pago' => (int)$payment['id_pago'],
+        ':org' => (int)$payment['id_organizacion'],
+        ':sistema' => (int)$payment['id_sistema'],
+        ':mes' => (int)$payment['id_mes'],
+        ':anio' => (int)$payment['anio_periodo'],
+        ':monto' => round((float)$payment['monto'], 2),
+        ':snapshot' => $json,
+        ':hash' => hash('sha256', $json),
+    ]);
+
+    $loaded = reparto_pago_snapshot_cargar($pdo, (int)$payment['id_organizacion'], (int)$payment['id_pago']);
+    if (!$loaded) throw new RuntimeException('No se pudo confirmar el snapshot del pago.');
+    return $loaded['resumen'];
+}
+
+function reparto_pago_snapshot_eliminar(PDO $pdo, int $idOrganizacion, int $idPago): void
+{
+    if (!reparto_snapshot_table_exists($pdo, 'pagos_reparto_snapshots')) return;
+    $st = $pdo->prepare('DELETE FROM pagos_reparto_snapshots WHERE id_organizacion=:org AND id_pago=:pago');
+    $st->execute([':org' => $idOrganizacion, ':pago' => $idPago]);
+}
+
+/** Obtiene el pago y usa siempre el reparto congelado del movimiento. */
+function reparto_resumen_pago(PDO $pdo, int $idOrganizacion, int $idPago, bool $crearSnapshot = true): array
+{
+    $st = $pdo->prepare("\n        SELECT id_pago, id_organizacion, id_sistema, id_mes, anio_periodo, monto\n        FROM pagos\n        WHERE id_organizacion=:org AND id_pago=:pago\n        LIMIT 1\n    ");
+    $st->execute([':org' => $idOrganizacion, ':pago' => $idPago]);
+    $payment = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$payment) throw new RuntimeException('Pago inexistente en la organización activa.');
+
+    $snapshot = reparto_pago_snapshot_cargar($pdo, $idOrganizacion, $idPago);
+    if ($snapshot) {
+        if (abs((float)$snapshot['monto'] - round((float)$payment['monto'], 2)) > 0.01) {
+            throw new RuntimeException('El monto del pago no coincide con su snapshot contable.');
+        }
+        return $snapshot['resumen'];
+    }
+
+    $summary = reparto_resumen_sistema(
         $pdo,
         $idOrganizacion,
-        (int)$pago['id_sistema'],
-        (float)$pago['monto']
+        (int)$payment['id_sistema'],
+        (float)$payment['monto']
     );
-    $resumen['origen'] = 'regla_vigente';
-    return $resumen;
+    reparto_validar_resumen_contable($summary, (float)$payment['monto']);
+
+    if ($crearSnapshot && reparto_snapshot_table_exists($pdo, 'pagos_reparto_snapshots')) {
+        return reparto_pago_snapshot_guardar($pdo, $payment, $summary);
+    }
+
+    $summary['origen'] = 'regla_vigente_sin_snapshot';
+    $summary['snapshot_faltante'] = true;
+    return $summary;
+}
+
+function reparto_egreso_snapshot_cargar(PDO $pdo, int $idOrganizacion, int $idEgreso): ?array
+{
+    if (!reparto_snapshot_table_exists($pdo, 'egresos_reparto_snapshots')) return null;
+    $st = $pdo->prepare("\n        SELECT monto, pagadores_hash, snapshot_json, snapshot_hash, created_at\n        FROM egresos_reparto_snapshots\n        WHERE id_organizacion=:org AND id_egreso=:egreso\n        LIMIT 1\n    ");
+    $st->execute([':org' => $idOrganizacion, ':egreso' => $idEgreso]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$row) return null;
+    $json = (string)$row['snapshot_json'];
+    $hash = trim((string)($row['snapshot_hash'] ?? ''));
+    if ($hash !== '' && !hash_equals($hash, hash('sha256', $json))) {
+        throw new RuntimeException('El snapshot de reparto del egreso está dañado.');
+    }
+    $decoded = json_decode($json, true);
+    if (!is_array($decoded)) throw new RuntimeException('El snapshot de reparto del egreso es inválido.');
+    return [
+        'monto' => round((float)$row['monto'], 2),
+        'pagadores_hash' => (string)$row['pagadores_hash'],
+        'snapshot' => $decoded,
+        'created_at' => (string)($row['created_at'] ?? ''),
+    ];
+}
+
+function reparto_egreso_pagadores_hash(array $payers): string
+{
+    $normalized = array_map(static function (array $payer): array {
+        return [
+            'tipo_pagador' => (string)($payer['tipo_pagador'] ?? ''),
+            'id_trabajador' => isset($payer['id_trabajador']) ? (int)$payer['id_trabajador'] : null,
+            'id_organizacion_pagadora' => isset($payer['id_organizacion_pagadora'])
+                ? (int)$payer['id_organizacion_pagadora'] : null,
+            'monto' => round((float)($payer['monto'] ?? 0), 2),
+        ];
+    }, $payers);
+    usort($normalized, static fn(array $a, array $b): int => strcmp(json_encode($a), json_encode($b)));
+    return hash('sha256', (string)json_encode($normalized, JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION));
+}
+
+function reparto_egreso_snapshot_eliminar(PDO $pdo, int $idOrganizacion, int $idEgreso): void
+{
+    if (!reparto_snapshot_table_exists($pdo, 'egresos_reparto_snapshots')) return;
+    $st = $pdo->prepare('DELETE FROM egresos_reparto_snapshots WHERE id_organizacion=:org AND id_egreso=:egreso');
+    $st->execute([':org' => $idOrganizacion, ':egreso' => $idEgreso]);
+}
+
+function reparto_resumen_egreso(
+    PDO $pdo,
+    int $idOrganizacion,
+    int $idEgreso,
+    array $payers,
+    bool $crearSnapshot = true
+): array {
+    $st = $pdo->prepare("\n        SELECT id_egreso, id_organizacion, monto, fecha\n        FROM egresos\n        WHERE id_organizacion=:org AND id_egreso=:egreso\n        LIMIT 1\n    ");
+    $st->execute([':org' => $idOrganizacion, ':egreso' => $idEgreso]);
+    $expense = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$expense) throw new RuntimeException('Egreso inexistente en la organización activa.');
+
+    $payerHash = reparto_egreso_pagadores_hash($payers);
+    $stored = reparto_egreso_snapshot_cargar($pdo, $idOrganizacion, $idEgreso);
+    if ($stored) {
+        if (abs((float)$stored['monto'] - round((float)$expense['monto'], 2)) > 0.01
+            || !hash_equals((string)$stored['pagadores_hash'], $payerHash)) {
+            throw new RuntimeException('El egreso no coincide con su snapshot contable.');
+        }
+        return $stored['snapshot'];
+    }
+
+    $workers = [];
+    $organizations = [];
+    $details = [];
+    $total = 0.0;
+    foreach ($payers as $payer) {
+        $amount = round((float)($payer['monto'] ?? 0), 2);
+        if ($amount <= 0) throw new DomainException('Hay un pagador de egreso con monto inválido.');
+        $total += $amount;
+
+        if (($payer['tipo_pagador'] ?? '') === 'trabajador') {
+            $workerId = (int)($payer['id_trabajador'] ?? 0);
+            if ($workerId <= 0) throw new DomainException('Hay un pagador trabajador inválido.');
+            $workerSt = $pdo->prepare('SELECT id_organizacion FROM trabajadores WHERE id=:id LIMIT 1');
+            $workerSt->execute([':id' => $workerId]);
+            $workerOrganization = (int)($workerSt->fetchColumn() ?: 0);
+            if ($workerOrganization <= 0) throw new DomainException('El trabajador pagador no existe.');
+            $workers[$workerId] = round((float)($workers[$workerId] ?? 0) + $amount, 2);
+            $details[] = [
+                'tipo_pagador' => 'trabajador',
+                'id_trabajador' => $workerId,
+                'id_organizacion_trabajador' => $workerOrganization,
+                'id_organizacion_pagadora' => null,
+                'monto' => $amount,
+                'workers' => [$workerId => $amount],
+                'organizations' => [],
+            ];
+            continue;
+        }
+
+        if (($payer['tipo_pagador'] ?? '') !== 'organizacion') {
+            throw new DomainException('Hay un tipo de pagador de egreso inválido.');
+        }
+        $payerOrganization = (int)($payer['id_organizacion_pagadora'] ?? 0);
+        if ($payerOrganization <= 0) throw new DomainException('Hay una organización pagadora inválida.');
+        $tree = reparto_distribuir_organizacion_jerarquico($pdo, $payerOrganization, $amount);
+        $items = reparto_agrupar_items_finales($tree['items'] ?? []);
+        if (empty($tree['configurado']) || !$items) {
+            throw new DomainException('La organización pagadora no tiene un reparto válido.');
+        }
+        $detailWorkers = [];
+        $detailOrganizations = [];
+        $distributed = 0.0;
+        foreach ($items as $item) {
+            $itemAmount = round((float)($item['monto_estimado'] ?? 0), 2);
+            $distributed += $itemAmount;
+            if (($item['tipo_beneficiario'] ?? '') === 'trabajador') {
+                $workerId = (int)($item['id_trabajador'] ?? 0);
+                if ($workerId > 0) {
+                    $detailWorkers[$workerId] = round((float)($detailWorkers[$workerId] ?? 0) + $itemAmount, 2);
+                    $workers[$workerId] = round((float)($workers[$workerId] ?? 0) + $itemAmount, 2);
+                }
+            } else {
+                $organizationId = (int)($item['id_organizacion_beneficiaria'] ?? 0);
+                if ($organizationId > 0) {
+                    $detailOrganizations[$organizationId] = round((float)($detailOrganizations[$organizationId] ?? 0) + $itemAmount, 2);
+                    $organizations[$organizationId] = round((float)($organizations[$organizationId] ?? 0) + $itemAmount, 2);
+                }
+            }
+        }
+        if (abs(round($distributed, 2) - $amount) > 0.01) {
+            throw new DomainException('El reparto del pagador del egreso no coincide con su monto.');
+        }
+        $details[] = [
+            'tipo_pagador' => 'organizacion',
+            'id_trabajador' => null,
+            'id_organizacion_pagadora' => $payerOrganization,
+            'monto' => $amount,
+            'workers' => $detailWorkers,
+            'organizations' => $detailOrganizations,
+        ];
+    }
+
+    if ($payers && abs(round($total, 2) - round((float)$expense['monto'], 2)) > 0.01) {
+        throw new DomainException('La suma de pagadores no coincide exactamente con el monto del egreso.');
+    }
+
+    $summary = [
+        'id_egreso' => $idEgreso,
+        'id_organizacion' => $idOrganizacion,
+        'fecha' => (string)$expense['fecha'],
+        'monto_egreso' => round((float)$expense['monto'], 2),
+        'monto_pagadores' => round($total, 2),
+        'workers' => $workers,
+        'organizations' => $organizations,
+        'payers' => $details,
+        'origen' => 'snapshot_egreso',
+    ];
+
+    if ($crearSnapshot && reparto_snapshot_table_exists($pdo, 'egresos_reparto_snapshots')) {
+        $json = json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
+        if ($json === false) throw new RuntimeException('No se pudo serializar el reparto del egreso.');
+        $ins = $pdo->prepare("\n            INSERT INTO egresos_reparto_snapshots\n                (id_egreso, id_organizacion, fecha, monto, pagadores_hash, snapshot_json, snapshot_hash)\n            VALUES\n                (:egreso, :org, :fecha, :monto, :payers_hash, :snapshot, :snapshot_hash)\n            ON DUPLICATE KEY UPDATE id_egreso = VALUES(id_egreso)\n        ");
+        $ins->execute([
+            ':egreso' => $idEgreso,
+            ':org' => $idOrganizacion,
+            ':fecha' => (string)$expense['fecha'],
+            ':monto' => round((float)$expense['monto'], 2),
+            ':payers_hash' => $payerHash,
+            ':snapshot' => $json,
+            ':snapshot_hash' => hash('sha256', $json),
+        ]);
+        $stored = reparto_egreso_snapshot_cargar($pdo, $idOrganizacion, $idEgreso);
+        if (!$stored) throw new RuntimeException('No se pudo confirmar el snapshot del egreso.');
+        return $stored['snapshot'];
+    }
+
+    $summary['origen'] = 'regla_vigente_sin_snapshot';
+    $summary['snapshot_faltante'] = true;
+    return $summary;
 }

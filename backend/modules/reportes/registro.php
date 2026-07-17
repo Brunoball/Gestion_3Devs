@@ -5,6 +5,7 @@ declare(strict_types=1);
 global $pdo;
 require_once __DIR__ . '/common.php';
 require_once __DIR__ . '/../reparto/reparto.service.php';
+require_once __DIR__ . '/periodos.service.php';
 
 $op = strtolower(trim((string)($_GET['op'] ?? '')));
 
@@ -65,6 +66,227 @@ function repreg_column_exists(PDO $pdo, string $table, string $column): bool
     $st->execute([':tabla' => $table, ':columna' => $column]);
     $cache[$key] = (int)$st->fetchColumn() > 0;
     return (bool)$cache[$key];
+}
+
+
+function repreg_table_exists(PDO $pdo, string $table): bool
+{
+    static $cache = [];
+    if (array_key_exists($table, $cache)) return (bool)$cache[$table];
+
+    $st = $pdo->prepare("
+        SELECT COUNT(*)
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = :tabla
+    ");
+    $st->execute([':tabla' => $table]);
+    $cache[$table] = (int)$st->fetchColumn() > 0;
+    return (bool)$cache[$table];
+}
+
+function repreg_eligible_payer_worker_ids(PDO $pdo, int $org): array
+{
+    $ids = [];
+
+    $st = $pdo->prepare("
+        SELECT tro.id_trabajador
+        FROM trabajadores_organizaciones tro
+        INNER JOIN trabajadores t ON t.id = tro.id_trabajador
+        WHERE tro.id_organizacion = :org
+          AND tro.activo = 1
+          AND t.activo = 1
+    ");
+    $st->execute([':org' => $org]);
+    foreach ($st->fetchAll(PDO::FETCH_COLUMN) ?: [] as $workerId) {
+        $id = (int)$workerId;
+        if ($id > 0) $ids[$id] = true;
+    }
+
+    foreach (reparto_expandir_organizacion($pdo, $org) as $item) {
+        if (($item['tipo_beneficiario'] ?? '') !== 'trabajador') continue;
+        $id = (int)($item['id_trabajador'] ?? 0);
+        if ($id > 0) $ids[$id] = true;
+    }
+
+    return array_keys($ids);
+}
+
+function repreg_validate_payer_worker(PDO $pdo, int $org, ?int $id): int
+{
+    if ($id === null || $id <= 0) repreg_fail('Seleccioná la persona que pagó el egreso.');
+    if (!in_array($id, repreg_eligible_payer_worker_ids($pdo, $org), true)) {
+        repreg_fail('La persona seleccionada no participa del reparto de la entidad activa.');
+    }
+    return $id;
+}
+
+function repreg_validate_payer_organization(PDO $pdo, int $org, ?int $id): int
+{
+    if ($id === null || $id <= 0) repreg_fail('Seleccioná la organización que pagó el egreso.');
+
+    foreach (reparto_items_organizacion($pdo, $org) as $item) {
+        if (($item['tipo_beneficiario'] ?? '') !== 'organizacion') continue;
+        if ((int)($item['id_organizacion_beneficiaria'] ?? 0) === $id) return $id;
+    }
+
+    repreg_fail('La organización seleccionada no participa del reparto de la entidad activa.');
+}
+
+function repreg_expense_payers_from_body(PDO $pdo, int $org, array $body, float $amount): array
+{
+    $mode = strtolower(trim((string)($body['tipo_pagador'] ?? '')));
+
+    // Compatibilidad con formularios anteriores.
+    if ($mode === '') {
+        $legacyWorker = repreg_nullable_uint($body['id_trabajador'] ?? null, 'id_trabajador');
+        if ($legacyWorker === null) return [];
+        $worker = repreg_validate_payer_worker($pdo, $org, $legacyWorker);
+        return [[
+            'tipo_pagador' => 'trabajador',
+            'id_trabajador' => $worker,
+            'id_organizacion_pagadora' => null,
+            'monto' => round($amount, 2),
+        ]];
+    }
+
+    if (!in_array($mode, ['general', 'persona', 'organizacion', 'mixto'], true)) {
+        repreg_fail('La forma de pago del egreso es inválida.');
+    }
+    if ($mode === 'general') return [];
+
+    if (!repreg_table_exists($pdo, 'egresos_pagadores')) {
+        repreg_fail('Falta ejecutar la migración de pagadores de egresos.');
+    }
+
+    $workerId = repreg_nullable_uint(
+        $body['id_trabajador_pagador'] ?? $body['id_trabajador'] ?? null,
+        'id_trabajador_pagador'
+    );
+    $organizationId = repreg_nullable_uint(
+        $body['id_organizacion_pagadora'] ?? null,
+        'id_organizacion_pagadora'
+    );
+
+    $totalCents = (int)round($amount * 100);
+    if ($totalCents <= 0) repreg_fail('El monto debe ser mayor a cero.');
+
+    if ($mode === 'persona') {
+        $worker = repreg_validate_payer_worker($pdo, $org, $workerId);
+        return [[
+            'tipo_pagador' => 'trabajador',
+            'id_trabajador' => $worker,
+            'id_organizacion_pagadora' => null,
+            'monto' => $totalCents / 100,
+        ]];
+    }
+
+    if ($mode === 'organizacion') {
+        $organization = repreg_validate_payer_organization($pdo, $org, $organizationId);
+        return [[
+            'tipo_pagador' => 'organizacion',
+            'id_trabajador' => null,
+            'id_organizacion_pagadora' => $organization,
+            'monto' => $totalCents / 100,
+        ]];
+    }
+
+    $worker = repreg_validate_payer_worker($pdo, $org, $workerId);
+    $organization = repreg_validate_payer_organization($pdo, $org, $organizationId);
+    $workerCents = intdiv($totalCents + 1, 2);
+    $organizationCents = $totalCents - $workerCents;
+
+    return [
+        [
+            'tipo_pagador' => 'trabajador',
+            'id_trabajador' => $worker,
+            'id_organizacion_pagadora' => null,
+            'monto' => $workerCents / 100,
+        ],
+        [
+            'tipo_pagador' => 'organizacion',
+            'id_trabajador' => null,
+            'id_organizacion_pagadora' => $organization,
+            'monto' => $organizationCents / 100,
+        ],
+    ];
+}
+
+function repreg_legacy_worker_from_payers(array $payers, float $expenseAmount): ?int
+{
+    if (count($payers) !== 1) return null;
+    $payer = $payers[0];
+    if (($payer['tipo_pagador'] ?? '') !== 'trabajador') return null;
+    if (abs((float)($payer['monto'] ?? 0) - $expenseAmount) > 0.009) return null;
+    $id = (int)($payer['id_trabajador'] ?? 0);
+    return $id > 0 ? $id : null;
+}
+
+function repreg_save_expense_payers(PDO $pdo, int $expenseId, array $payers): void
+{
+    if (!repreg_table_exists($pdo, 'egresos_pagadores')) {
+        if ($payers) throw new RuntimeException('Falta ejecutar la migración de pagadores de egresos.');
+        return;
+    }
+
+    $delete = $pdo->prepare('DELETE FROM egresos_pagadores WHERE id_egreso = :expense');
+    $delete->execute([':expense' => $expenseId]);
+
+    if (!$payers) return;
+
+    $insert = $pdo->prepare("
+        INSERT INTO egresos_pagadores
+            (id_egreso, tipo_pagador, id_trabajador, id_organizacion_pagadora, monto)
+        VALUES
+            (:expense, :type, :worker, :organization, :amount)
+    ");
+    foreach ($payers as $payer) {
+        $insert->execute([
+            ':expense' => $expenseId,
+            ':type' => (string)$payer['tipo_pagador'],
+            ':worker' => $payer['id_trabajador'] ?? null,
+            ':organization' => $payer['id_organizacion_pagadora'] ?? null,
+            ':amount' => round((float)$payer['monto'], 2),
+        ]);
+    }
+}
+
+function repreg_load_expense_payers(PDO $pdo, array $expenseIds): array
+{
+    $ids = array_values(array_unique(array_filter(array_map('intval', $expenseIds), static fn(int $id): bool => $id > 0)));
+    if (!$ids || !repreg_table_exists($pdo, 'egresos_pagadores')) return [];
+
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $st = $pdo->prepare("
+        SELECT
+            ep.id_egreso, ep.tipo_pagador, ep.id_trabajador,
+            ep.id_organizacion_pagadora, ep.monto,
+            COALESCE(CONCAT(t.apellido, ' ', t.nombre), '') AS trabajador_nombre,
+            COALESCE(o.nombre, '') AS organizacion_nombre,
+            COALESCE(o.codigo, '') AS organizacion_codigo
+        FROM egresos_pagadores ep
+        LEFT JOIN trabajadores t ON t.id = ep.id_trabajador
+        LEFT JOIN organizaciones o ON o.id_organizacion = ep.id_organizacion_pagadora
+        WHERE ep.id_egreso IN ({$placeholders})
+        ORDER BY ep.id_egreso, ep.id_pagador
+    ");
+    $st->execute($ids);
+
+    $result = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+        $expenseId = (int)$row['id_egreso'];
+        $result[$expenseId][] = [
+            'tipo_pagador' => (string)$row['tipo_pagador'],
+            'id_trabajador' => $row['id_trabajador'] !== null ? (int)$row['id_trabajador'] : null,
+            'id_organizacion_pagadora' => $row['id_organizacion_pagadora'] !== null
+                ? (int)$row['id_organizacion_pagadora'] : null,
+            'monto' => round((float)$row['monto'], 2),
+            'trabajador_nombre' => (string)$row['trabajador_nombre'],
+            'organizacion_nombre' => (string)$row['organizacion_nombre'],
+            'organizacion_codigo' => (string)$row['organizacion_codigo'],
+        ];
+    }
+    return $result;
 }
 
 function repreg_valid_date(string $value, string $label = 'fecha'): string
@@ -275,6 +497,9 @@ try {
         $body = repreg_is_multipart() ? ($_POST ?? []) : repreg_json_body();
 
         $fecha = repreg_valid_date((string)($body['fecha'] ?? ''));
+        [$expenseMonth, $expenseYear] = reportes_periodo_desde_fecha($fecha);
+        try { reportes_periodo_assert_abierto($pdo, $org, $expenseMonth, $expenseYear); }
+        catch (Throwable $e) { repreg_fail($e->getMessage()); }
         $concepto = trim((string)($body['concepto'] ?? ''));
         $descripcion = trim((string)($body['descripcion'] ?? ''));
         $monto = is_numeric($body['monto'] ?? null) ? round((float)$body['monto'], 2) : 0.0;
@@ -287,13 +512,12 @@ try {
             repreg_nullable_uint($body['id_medio_pago'] ?? null, 'id_medio_pago'),
             false
         );
-        $worker = repreg_validate_worker(
-            $pdo,
-            $org,
-            repreg_nullable_uint($body['id_trabajador'] ?? null, 'id_trabajador')
-        );
+        $payers = repreg_expense_payers_from_body($pdo, $org, $body, $monto);
+        $legacyWorker = repreg_legacy_worker_from_payers($payers, $monto);
         $proof = repreg_is_multipart() ? repreg_upload('egresos/' . $org, 'comprobante') : null;
 
+        $expenseId = 0;
+        $pdo->beginTransaction();
         try {
             $st = $pdo->prepare("
                 INSERT INTO egresos
@@ -310,18 +534,24 @@ try {
                 ':descripcion' => $descripcion !== '' ? $descripcion : null,
                 ':monto' => $monto,
                 ':medio' => $medio,
-                ':trabajador' => $worker,
+                ':trabajador' => $legacyWorker,
                 ':comprobante' => $proof,
             ]);
+            $expenseId = (int)$pdo->lastInsertId();
+            repreg_save_expense_payers($pdo, $expenseId, $payers);
+            reparto_resumen_egreso($pdo, $org, $expenseId, $payers, true);
+            $pdo->commit();
         } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
             if ($proof) repreg_delete_upload($proof);
             throw $e;
         }
 
         repreg_ok([
-            'id' => (int)$pdo->lastInsertId(),
+            'id' => $expenseId,
             'comprobante' => $proof,
-            'id_trabajador' => $worker,
+            'id_trabajador' => $legacyWorker,
+            'pagadores' => $payers,
             'mensaje' => 'Egreso creado correctamente.',
         ]);
     }
@@ -337,6 +567,9 @@ try {
 
         if ($type === 'egreso') {
             $fecha = repreg_valid_date((string)($body['fecha'] ?? ''));
+            [$newExpenseMonth, $newExpenseYear] = reportes_periodo_desde_fecha($fecha);
+            try { reportes_periodo_assert_abierto($pdo, $org, $newExpenseMonth, $newExpenseYear); }
+            catch (Throwable $e) { repreg_fail($e->getMessage()); }
             $concepto = trim((string)($body['concepto'] ?? ''));
             $descripcion = trim((string)($body['descripcion'] ?? ''));
             $monto = is_numeric($body['monto'] ?? null) ? round((float)$body['monto'], 2) : 0.0;
@@ -348,15 +581,16 @@ try {
                 repreg_nullable_uint($body['id_medio_pago'] ?? null, 'id_medio_pago'),
                 false
             );
-            $worker = repreg_validate_worker(
-                $pdo, $org,
-                repreg_nullable_uint($body['id_trabajador'] ?? null, 'id_trabajador')
-            );
+            $payers = repreg_expense_payers_from_body($pdo, $org, $body, $monto);
+            $legacyWorker = repreg_legacy_worker_from_payers($payers, $monto);
 
-            $cur = $pdo->prepare('SELECT comprobante FROM egresos WHERE id_organizacion=:org AND id_egreso=:id LIMIT 1');
+            $cur = $pdo->prepare('SELECT fecha, comprobante FROM egresos WHERE id_organizacion=:org AND id_egreso=:id LIMIT 1');
             $cur->execute([':org' => $org, ':id' => $id]);
             $row = $cur->fetch(PDO::FETCH_ASSOC);
             if (!$row) repreg_fail('El egreso no existe en la entidad seleccionada.');
+            [$oldExpenseMonth, $oldExpenseYear] = reportes_periodo_desde_fecha((string)$row['fecha']);
+            try { reportes_periodo_assert_abierto($pdo, $org, $oldExpenseMonth, $oldExpenseYear); }
+            catch (Throwable $e) { repreg_fail($e->getMessage()); }
 
             $oldPath = trim((string)($row['comprobante'] ?? ''));
             $delete = in_array(strtolower(trim((string)($body['delete_comprobante'] ?? '0'))), ['1', 'true'], true);
@@ -364,7 +598,9 @@ try {
             $newPath = $delete ? null : ($oldPath !== '' ? $oldPath : null);
             if ($uploaded) $newPath = $uploaded;
 
+            $pdo->beginTransaction();
             try {
+                reparto_egreso_snapshot_eliminar($pdo, $org, $id);
                 $up = $pdo->prepare("
                     UPDATE egresos
                     SET fecha=:fecha, concepto=:concepto, descripcion=:descripcion,
@@ -378,12 +614,16 @@ try {
                     ':descripcion' => $descripcion !== '' ? $descripcion : null,
                     ':monto' => $monto,
                     ':medio' => $medio,
-                    ':trabajador' => $worker,
+                    ':trabajador' => $legacyWorker,
                     ':comprobante' => $newPath,
                     ':org' => $org,
                     ':id' => $id,
                 ]);
+                repreg_save_expense_payers($pdo, $id, $payers);
+                reparto_resumen_egreso($pdo, $org, $id, $payers, true);
+                $pdo->commit();
             } catch (Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
                 if ($uploaded) repreg_delete_upload($uploaded);
                 throw $e;
             }
@@ -391,7 +631,11 @@ try {
             if (($delete || $uploaded) && $oldPath !== '' && $oldPath !== (string)$newPath) {
                 repreg_delete_upload($oldPath);
             }
-            repreg_ok(['mensaje' => 'Egreso actualizado.', 'comprobante' => $newPath ?? '']);
+            repreg_ok([
+                'mensaje' => 'Egreso actualizado.',
+                'comprobante' => $newPath ?? '',
+                'pagadores' => $payers,
+            ]);
         }
 
         if ($type === 'pago') {
@@ -404,12 +648,16 @@ try {
                 true
             );
 
-            $exists = $pdo->prepare('SELECT 1 FROM pagos WHERE id_organizacion=:org AND id_pago=:id LIMIT 1');
+            $exists = $pdo->prepare('SELECT id_mes, anio_periodo FROM pagos WHERE id_organizacion=:org AND id_pago=:id LIMIT 1');
             $exists->execute([':org' => $org, ':id' => $id]);
-            if (!$exists->fetchColumn()) repreg_fail('El pago no existe en la entidad seleccionada.');
+            $paymentPeriod = $exists->fetch(PDO::FETCH_ASSOC);
+            if (!$paymentPeriod) repreg_fail('El pago no existe en la entidad seleccionada.');
+            try { reportes_periodo_assert_abierto($pdo, $org, (int)$paymentPeriod['id_mes'], (int)$paymentPeriod['anio_periodo']); }
+            catch (Throwable $e) { repreg_fail($e->getMessage()); }
 
             $pdo->beginTransaction();
             try {
+                reparto_pago_snapshot_eliminar($pdo, $org, $id);
                 $up = $pdo->prepare("
                     UPDATE pagos
                     SET fecha_pago=:fecha, monto=:monto, id_medio_pago=:medio
@@ -422,6 +670,7 @@ try {
                     ':org' => $org,
                     ':id' => $id,
                 ]);
+                reparto_resumen_pago($pdo, $org, $id, true);
                 $pdo->commit();
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) $pdo->rollBack();
@@ -440,10 +689,13 @@ try {
         $id = (int)($body['id'] ?? 0);
         if ($id <= 0) repreg_fail('ID inválido.');
 
-        $st = $pdo->prepare('SELECT comprobante FROM egresos WHERE id_organizacion=:org AND id_egreso=:id LIMIT 1');
+        $st = $pdo->prepare('SELECT fecha, comprobante FROM egresos WHERE id_organizacion=:org AND id_egreso=:id LIMIT 1');
         $st->execute([':org' => $org, ':id' => $id]);
         $row = $st->fetch(PDO::FETCH_ASSOC);
         if (!$row) repreg_fail('El egreso no existe o ya fue eliminado.');
+        [$deleteMonth, $deleteYear] = reportes_periodo_desde_fecha((string)$row['fecha']);
+        try { reportes_periodo_assert_abierto($pdo, $org, $deleteMonth, $deleteYear); }
+        catch (Throwable $e) { repreg_fail($e->getMessage()); }
 
         $del = $pdo->prepare('DELETE FROM egresos WHERE id_organizacion=:org AND id_egreso=:id');
         $del->execute([':org' => $org, ':id' => $id]);
@@ -551,12 +803,55 @@ try {
     $stExpenses->execute($paramsExpenses);
     $expenses = $stExpenses->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
+    $payerMap = repreg_load_expense_payers(
+        $pdo,
+        array_map(static fn(array $row): int => (int)$row['id_egreso'], $expenses)
+    );
+    $reimbursements = 0.0;
+    foreach ($expenses as &$expense) {
+        $expenseId = (int)$expense['id_egreso'];
+        $payers = $payerMap[$expenseId] ?? [];
+
+        // Compatibilidad si todavía existen registros anteriores sin migrar.
+        if (!$payers && $expense['id_trabajador'] !== null) {
+            $payers[] = [
+                'tipo_pagador' => 'trabajador',
+                'id_trabajador' => (int)$expense['id_trabajador'],
+                'id_organizacion_pagadora' => null,
+                'monto' => round((float)$expense['monto'], 2),
+                'trabajador_nombre' => (string)$expense['trabajador'],
+                'organizacion_nombre' => '',
+                'organizacion_codigo' => '',
+            ];
+        }
+
+        $labels = [];
+        foreach ($payers as $payer) {
+            $amount = round((float)($payer['monto'] ?? 0), 2);
+            $reimbursements += $amount;
+            if (($payer['tipo_pagador'] ?? '') === 'trabajador') {
+                $name = trim((string)($payer['trabajador_nombre'] ?? ''));
+                if ($name !== '') $labels[] = $name;
+            } else {
+                $name = trim((string)($payer['organizacion_nombre'] ?? $payer['organizacion_codigo'] ?? ''));
+                if ($name !== '') $labels[] = $name;
+            }
+        }
+
+        $expense['pagadores'] = $payers;
+        $expense['pagador'] = implode(' + ', array_values(array_unique($labels)));
+        $expense['trabajador'] = $expense['pagador'];
+        $expense['tipo_egreso'] = !$payers
+            ? 'general'
+            : (count($payers) > 1 ? 'compartido' : (string)$payers[0]['tipo_pagador']);
+    }
+    unset($expense);
+
     $totalPayments = array_sum(array_map(static fn(array $r): float => (float)$r['monto'], $payments));
     $totalExpenses = array_sum(array_map(static fn(array $r): float => (float)$r['monto'], $expenses));
-    $reimbursements = array_sum(array_map(
-        static fn(array $r): float => $r['id_trabajador'] !== null ? (float)$r['monto'] : 0.0,
-        $expenses
-    ));
+    $periodClosed = $anio > 0 && $mes > 0
+        ? reportes_periodo_cerrado($pdo, $org, $mes, $anio) !== null
+        : false;
 
     repreg_ok([
         'organizacion' => [
@@ -564,12 +859,14 @@ try {
             'codigo' => reportes_org_code(),
         ],
         'filtros' => ['anio' => $anio ?: null, 'mes' => $mes ?: null],
+        'periodo_cerrado' => $periodClosed,
         'resumen' => [
             'total_ingresos' => round($totalPayments, 2),
             'total_egresos' => round($totalExpenses, 2),
             'egresos_generales' => round($totalExpenses - $reimbursements, 2),
             'reembolsos' => round($reimbursements, 2),
             'balance' => round($totalPayments - $totalExpenses, 2),
+            'periodo_cerrado' => $periodClosed,
         ],
         'pagos' => $payments,
         'egresos' => $expenses,

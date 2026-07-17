@@ -36,9 +36,12 @@ function route_reportes(string $action): bool
     if (in_array($op, [
         'trabajadores',
         'trabajadores_activos',
+        'egreso_pagadores',
         'trabajador_subir_comprobante',
         'trabajador_comprobante_latest',
         'trabajador_comprobantes_listar',
+        'trabajador_marcar_pagado',
+        'blindaje_inicializar',
     ], true)) {
         require_once __DIR__ . '/trabajadores.php';
         return true;

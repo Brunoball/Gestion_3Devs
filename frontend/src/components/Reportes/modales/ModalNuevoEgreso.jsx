@@ -10,6 +10,7 @@ import {
   faFilePdf,
   faImage,
   faUser,
+  faBuilding,
 } from "@fortawesome/free-solid-svg-icons";
 
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
@@ -22,6 +23,7 @@ export default function ModalNuevoEgreso({
   loading,
   medios = [],
   trabajadores = [],
+  organizacionesPagadoras = [],
 }) {
   const firstRef = useRef(null);
 
@@ -36,7 +38,9 @@ export default function ModalNuevoEgreso({
   const [descripcion, setDescripcion] = useState("");
   const [monto, setMonto] = useState("");
   const [idMedio, setIdMedio] = useState("");
+  const [tipoPagador, setTipoPagador] = useState("general");
   const [idTrabajador, setIdTrabajador] = useState("");
+  const [idOrganizacionPagadora, setIdOrganizacionPagadora] = useState("");
   const [comprobanteFile, setComprobanteFile] = useState(null);
 
   const toUpperLive = (v) => String(v ?? "").toUpperCase();
@@ -65,6 +69,15 @@ export default function ModalNuevoEgreso({
     });
   }, [trabajadores]);
 
+  const organizacionesOrdenadas = useMemo(() => {
+    return [...(Array.isArray(organizacionesPagadoras) ? organizacionesPagadoras : [])].sort(
+      (a, b) => String(a?.nombre || "").localeCompare(String(b?.nombre || ""), "es")
+    );
+  }, [organizacionesPagadoras]);
+
+  const usaPersona = tipoPagador === "persona" || tipoPagador === "mixto";
+  const usaOrganizacion = tipoPagador === "organizacion" || tipoPagador === "mixto";
+
   const subtitle = useMemo(() => {
     const c = (concepto || "").trim();
     const m = (monto || "").toString().trim();
@@ -81,7 +94,9 @@ export default function ModalNuevoEgreso({
     setDescripcion("");
     setMonto("");
     setIdMedio("");
+    setTipoPagador("general");
     setIdTrabajador("");
+    setIdOrganizacionPagadora("");
     setComprobanteFile(null);
 
     setTimeout(() => firstRef.current?.focus(), 0);
@@ -136,13 +151,25 @@ export default function ModalNuevoEgreso({
       return showError("El monto debe ser un número mayor a 0.");
     }
 
+    if (usaPersona && !idTrabajador) {
+      return showError("Seleccioná la persona que pagó el gasto.");
+    }
+    if (usaOrganizacion && !idOrganizacionPagadora) {
+      return showError("Seleccioná la organización que pagó el gasto.");
+    }
+
     const fd = new FormData();
     fd.append("fecha", fecha);
     fd.append("concepto", concepto.trim());
     fd.append("descripcion", (descripcion || "").trim());
     fd.append("monto", String(montoNum));
     fd.append("id_medio_pago", idMedio ? String(Number(idMedio)) : "");
-    fd.append("id_trabajador", idTrabajador ? String(Number(idTrabajador)) : "");
+    fd.append("tipo_pagador", tipoPagador);
+    fd.append("id_trabajador_pagador", usaPersona ? String(Number(idTrabajador)) : "");
+    fd.append(
+      "id_organizacion_pagadora",
+      usaOrganizacion ? String(Number(idOrganizacionPagadora)) : ""
+    );
     if (comprobanteFile) fd.append("comprobante", comprobanteFile);
 
     onConfirm?.(fd);
@@ -297,21 +324,80 @@ export default function ModalNuevoEgreso({
                   <div className="fl-field fl-col-full">
                     <select
                       className="fl-input fl-select"
-                      value={idTrabajador}
-                      onChange={(e) => setIdTrabajador(e.target.value)}
-                      disabled={loading || !trabajadoresOrdenados.length}
+                      value={tipoPagador}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setTipoPagador(value);
+                        if (value !== "persona" && value !== "mixto") setIdTrabajador("");
+                        if (value !== "organizacion" && value !== "mixto") {
+                          setIdOrganizacionPagadora("");
+                        }
+                      }}
+                      disabled={loading}
                     >
-                      <option value="">(Sin trabajador asignado)</option>
-                      {trabajadoresOrdenados.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {`${t.apellido || ""} ${t.nombre || ""}`.trim()}
-                        </option>
-                      ))}
+                      <option value="general">LO PAGÓ LA ENTIDAD ACTIVA / SIN REEMBOLSO</option>
+                      <option value="persona">LO PAGÓ UNA PERSONA</option>
+                      {organizacionesOrdenadas.length ? (
+                        <option value="organizacion">LO PAGÓ UNA ORGANIZACIÓN</option>
+                      ) : null}
+                      {organizacionesOrdenadas.length ? (
+                        <option value="mixto">PERSONA + ORGANIZACIÓN (50% / 50%)</option>
+                      ) : null}
                     </select>
-                    <label className="fl-label">
-                      <FontAwesomeIcon icon={faUser} /> Trabajador que pagó el gasto
-                    </label>
+                    <label className="fl-label">Quién pagó el egreso *</label>
                   </div>
+
+                  {usaPersona ? (
+                    <div className="fl-field fl-col-full">
+                      <select
+                        className="fl-input fl-select"
+                        value={idTrabajador}
+                        onChange={(e) => setIdTrabajador(e.target.value)}
+                        disabled={loading || !trabajadoresOrdenados.length}
+                      >
+                        <option value="">Seleccionar persona...</option>
+                        {trabajadoresOrdenados.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {`${t.apellido || ""} ${t.nombre || ""}`.trim()}
+                            {t.organizacion_codigo ? ` (${t.organizacion_codigo})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <label className="fl-label">
+                        <FontAwesomeIcon icon={faUser} /> Persona que pagó
+                      </label>
+                    </div>
+                  ) : null}
+
+                  {usaOrganizacion ? (
+                    <div className="fl-field fl-col-full">
+                      <select
+                        className="fl-input fl-select"
+                        value={idOrganizacionPagadora}
+                        onChange={(e) => setIdOrganizacionPagadora(e.target.value)}
+                        disabled={loading || !organizacionesOrdenadas.length}
+                      >
+                        <option value="">Seleccionar organización...</option>
+                        {organizacionesOrdenadas.map((o) => (
+                          <option key={o.id_organizacion ?? o.id} value={o.id_organizacion ?? o.id}>
+                            {o.nombre || o.codigo || ""}
+                          </option>
+                        ))}
+                      </select>
+                      <label className="fl-label">
+                        <FontAwesomeIcon icon={faBuilding} /> Organización que pagó
+                      </label>
+                    </div>
+                  ) : null}
+
+                  {tipoPagador === "mixto" ? (
+                    <div className="fl-field fl-col-full">
+                      <div className="cmp-empty">
+                        El reembolso se dividirá automáticamente 50% para la persona y 50% para la
+                        organización.
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </article>
 
