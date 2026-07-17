@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import BASE_URL from "../../../config/config";
 import Toast from "../../Global/Toast";
 import { fetchJSONAuth } from "../../Global/api";
 import "./ModalEditarTrabajador.css";
+import "./ModalTrabajadorV2.css";
 
 const ROLES = ["admin", "contador", "desarrollador", "soporte", "vista"];
 
@@ -34,18 +36,19 @@ export default function ModalEditarTrabajador({ open, trabajador, onClose, onSav
     }
   };
 
-  return (
-    <div className="mi-modal__overlay" onMouseDown={(e) => e.target === e.currentTarget && !loading && onClose?.()}>
+  return createPortal(
+    <div className="tp-worker-modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && !loading && onClose?.()}>
       {toast.open && <Toast {...toast} onClose={() => setToast((t) => ({ ...t, open: false }))} />}
-      <div className="mi-modal__container" role="dialog" aria-modal="true">
+      <div className="tp-worker-modal" role="dialog" aria-modal="true" aria-labelledby="tp-edit-worker-title">
         <div className="mi-modal__header">
           <div>
-            <h2 className="mi-modal__title">Editar trabajador</h2>
+            <h2 id="tp-edit-worker-title" className="mi-modal__title">Editar trabajador</h2>
             <p className="mi-modal__subtitle">Nombre, email y alias son globales; el rol corresponde a esta entidad.</p>
           </div>
-          <button type="button" className="mi-modal__close" onClick={onClose}>✕</button>
+          <button type="button" className="mi-modal__close" aria-label="Cerrar" onClick={onClose} disabled={loading}>✕</button>
         </div>
         <form className="mit-modal__body" onSubmit={save}>
+          <div className="tp-worker-modal__content">
           <div className="mi-grid">
             <article className="mi-card">
               <h3 className="mi-card__title">Datos personales</h3>
@@ -79,12 +82,14 @@ export default function ModalEditarTrabajador({ open, trabajador, onClose, onSav
               </div>
             </article>
           </div>
+          </div>
           <div className="mit-actions">
             <button type="button" className="mit-btn mit-btn--ghost" onClick={onClose} disabled={loading}>Cancelar</button>
             <button type="submit" className="mit-btn mit-btn--solid" disabled={loading}>{loading ? "Guardando…" : "Guardar"}</button>
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

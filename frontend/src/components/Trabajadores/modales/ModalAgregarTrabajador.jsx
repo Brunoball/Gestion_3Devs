@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import BASE_URL from "../../../config/config";
 import Toast from "../../Global/Toast";
 import { fetchJSONAuth } from "../../Global/api";
 import "./ModalEditarTrabajador.css";
+import "./ModalTrabajadorV2.css";
 
 const ROLES = [
   { value: "admin", label: "Administrador" },
@@ -92,19 +94,20 @@ export default function ModalAgregarTrabajador({
     }
   };
 
-  return (
-    <div className="mi-modal__overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+  return createPortal(
+    <div className="tp-worker-modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}>
       {toast.open && <Toast {...toast} onClose={() => setToast((t) => ({ ...t, open: false }))} />}
-      <div className="mi-modal__container" role="dialog" aria-modal="true">
+      <div className="tp-worker-modal" role="dialog" aria-modal="true" aria-labelledby="tp-add-worker-title">
         <div className="mi-modal__header">
           <div>
-            <h2 className="mi-modal__title">{title}</h2>
+            <h2 id="tp-add-worker-title" className="mi-modal__title">{title}</h2>
             <p className="mi-modal__subtitle">Entidad: {organizacion?.nombre || "—"}</p>
           </div>
-          <button className="mi-modal__close" type="button" onClick={close}>✕</button>
+          <button className="mi-modal__close" type="button" aria-label="Cerrar" onClick={close} disabled={loading}>✕</button>
         </div>
 
         <form className="mit-modal__body" onSubmit={save}>
+          <div className="tp-worker-modal__content">
           <div className="TP-LinkMode">
             <button type="button" className={mode === "existente" ? "is-active" : ""} onClick={() => setMode("existente")} disabled={!trabajadoresDisponibles.length}>
               Vincular existente
@@ -168,6 +171,7 @@ export default function ModalAgregarTrabajador({
               </div>
             </article>
           </div>
+          </div>
 
           <div className="mit-actions">
             <button type="button" className="mit-btn mit-btn--ghost" onClick={close} disabled={loading}>Cancelar</button>
@@ -175,6 +179,7 @@ export default function ModalAgregarTrabajador({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

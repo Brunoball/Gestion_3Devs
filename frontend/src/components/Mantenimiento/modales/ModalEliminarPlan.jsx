@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import "./ModalPlan.css";
 import { FaTrashAlt } from "react-icons/fa";
 
@@ -16,11 +17,11 @@ export default function ModalEliminarPlan({
     setTimeout(() => cancelRef.current?.focus(), 0);
 
     const handleEsc = (e) => {
-      if (e.key === "Escape") onClose?.();
+      if (e.key === "Escape" && !loading) onClose?.();
     };
     document.addEventListener("keydown", handleEsc);
     return () => document.removeEventListener("keydown", handleEsc);
-  }, [open, onClose]);
+  }, [open, onClose, loading]);
 
   if (!open) return null;
 
@@ -29,42 +30,29 @@ export default function ModalEliminarPlan({
     onClose?.();
   };
 
-  return (
+  return createPortal(
     <div
-      className="emp-baja-modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-eliminar-plan-title"
+      className="mnt-plan-modal__overlay"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) cerrar();
       }}
     >
-      <div className="emp-baja-modal emp-baja-modal--danger">
-        <div
-          className="emp-baja-modal__icon emp-baja-modal__icon--danger"
-          aria-hidden="true"
-        >
-          <FaTrashAlt />
+      <div className="mnt-plan-modal mnt-plan-modal--confirm" role="dialog" aria-modal="true" aria-labelledby="modal-eliminar-plan-title">
+        <div className="mnt-plan-modal__confirm-body">
+          <div className="mnt-plan-modal__danger-icon" aria-hidden="true"><FaTrashAlt /></div>
+          <h3 id="modal-eliminar-plan-title" className="mnt-plan-modal__confirm-title">Dar de baja plan</h3>
+          <p className="mnt-plan-modal__confirm-text">
+            ¿Querés dar de baja <strong>{plan?.nombre || "este plan"}</strong>?
+            <br />
+            Dejará de estar disponible para nuevas asignaciones, pero los sistemas que ya lo usan conservarán su referencia histórica.
+          </p>
         </div>
 
-        <h3
-          id="modal-eliminar-plan-title"
-          className="emp-baja-modal__title emp-baja-modal__title--danger"
-        >
-          Dar de baja plan
-        </h3>
-
-        <p className="emp-baja-modal__body">
-          ¿Querés dar de baja <strong>{plan?.nombre || "este plan"}</strong>?
-          <br />
-          Dejará de estar disponible para nuevas asignaciones, pero los sistemas que ya lo usan conservarán su referencia histórica.
-        </p>
-
-        <div className="emp-baja-modal__actions">
+        <div className="mnt-plan-modal__footer">
           <button
             ref={cancelRef}
             type="button"
-            className="emp-baja-btn emp-baja-btn--ghost"
+            className="mnt-plan-modal__button mnt-plan-modal__button--ghost"
             onClick={cerrar}
             disabled={loading}
           >
@@ -73,7 +61,7 @@ export default function ModalEliminarPlan({
 
           <button
             type="button"
-            className="emp-baja-btn emp-baja-btn--solid-danger"
+            className="mnt-plan-modal__button mnt-plan-modal__button--danger"
             onClick={() => onConfirm?.(plan)}
             disabled={loading}
           >
@@ -81,6 +69,7 @@ export default function ModalEliminarPlan({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import "./ModalPlan.css";
 
 function parseAmount(value) {
@@ -39,45 +40,46 @@ export default function ModalEditarPlan({ open, plan, onClose, onConfirm, loadin
     onConfirm?.({ id: form.id, nombre, descripcion: form.descripcion.trim(), monto, activo: 1 });
   };
 
-  return (
-    <div className="mi-modal__overlay" onClick={(event) => event.target === event.currentTarget && !loading && onClose?.()}>
-      <div className="mi-modal__container" role="dialog" aria-modal="true">
-        <div className="mi-modal__header">
+  return createPortal(
+    <div className="mnt-plan-modal__overlay" onMouseDown={(event) => event.target === event.currentTarget && !loading && onClose?.()}>
+      <div className="mnt-plan-modal" role="dialog" aria-modal="true" aria-labelledby="mnt-edit-plan-title">
+        <div className="mnt-plan-modal__header">
           <div>
-            <h2 className="mi-modal__title">Editar plan o servicio</h2>
-            <p className="mi-modal__subtitle">{plan?.nombre || "Plan"}</p>
+            <h2 id="mnt-edit-plan-title" className="mnt-plan-modal__title">Editar plan o servicio</h2>
+            <p className="mnt-plan-modal__subtitle">{plan?.nombre || "Plan"}</p>
           </div>
-          <button type="button" className="mi-modal__close" onClick={onClose} disabled={loading}>✕</button>
+          <button type="button" className="mnt-plan-modal__close" aria-label="Cerrar" onClick={onClose} disabled={loading}>✕</button>
         </div>
 
-        <form className="mit-modal__body" onSubmit={submit}>
-          {error && <div className="mnt-modalError">{error}</div>}
-          <div className="mi-grid">
-            <article className="mi-card mi-card--full">
-              <h3 className="mi-card__title">Datos necesarios</h3>
-              <div className="fl-grid">
-                <div className="fl-field">
-                  <input ref={firstRef} className="fl-input" placeholder=" " value={form.nombre} onChange={(event) => setForm((current) => ({ ...current, nombre: event.target.value }))} disabled={loading} />
-                  <label className="fl-label">Nombre *</label>
+        <form className="mnt-plan-modal__form" onSubmit={submit}>
+          <div className="mnt-plan-modal__body">
+            {error && <div className="mnt-plan-modal__error" role="alert">{error}</div>}
+            <section className="mnt-plan-modal__section">
+              <h3 className="mnt-plan-modal__section-title">Datos necesarios</h3>
+              <div className="mnt-plan-modal__grid">
+                <div className="mnt-plan-modal__field">
+                  <input id="mnt-edit-name" ref={firstRef} className="mnt-plan-modal__input" placeholder=" " value={form.nombre} onChange={(event) => setForm((current) => ({ ...current, nombre: event.target.value }))} disabled={loading} />
+                  <label className="mnt-plan-modal__label" htmlFor="mnt-edit-name">Nombre *</label>
                 </div>
-                <div className="fl-field">
-                  <input className="fl-input" inputMode="decimal" placeholder=" " value={form.monto} onChange={(event) => setForm((current) => ({ ...current, monto: event.target.value }))} disabled={loading} />
-                  <label className="fl-label">Monto mensual de referencia (ARS) *</label>
+                <div className="mnt-plan-modal__field">
+                  <input id="mnt-edit-amount" className="mnt-plan-modal__input" inputMode="decimal" placeholder=" " value={form.monto} onChange={(event) => setForm((current) => ({ ...current, monto: event.target.value }))} disabled={loading} />
+                  <label className="mnt-plan-modal__label" htmlFor="mnt-edit-amount">Monto mensual de referencia (ARS) *</label>
                 </div>
-                <div className="fl-field fl-col-full">
-                  <textarea className="fl-input fl-textarea" placeholder=" " rows={4} value={form.descripcion} onChange={(event) => setForm((current) => ({ ...current, descripcion: event.target.value }))} disabled={loading} />
-                  <label className="fl-label">Descripción</label>
+                <div className="mnt-plan-modal__field mnt-plan-modal__field--full">
+                  <textarea id="mnt-edit-description" className="mnt-plan-modal__input mnt-plan-modal__textarea" placeholder=" " rows={4} value={form.descripcion} onChange={(event) => setForm((current) => ({ ...current, descripcion: event.target.value }))} disabled={loading} />
+                  <label className="mnt-plan-modal__label" htmlFor="mnt-edit-description">Descripción</label>
                 </div>
               </div>
-            </article>
+            </section>
+            <div className="mnt-plan-modal__help">Los sistemas ya creados mantienen su monto acordado aunque cambie el valor de referencia del plan.</div>
           </div>
-          <div className="mit-help">Los sistemas ya creados mantienen su monto acordado aunque cambie el valor de referencia del plan.</div>
-          <div className="mit-actions">
-            <button type="button" className="mit-btn mit-btn--ghost" onClick={onClose} disabled={loading}>Cancelar</button>
-            <button type="submit" className="mit-btn mit-btn--solid" disabled={loading}>{loading ? "Guardando…" : "Guardar cambios"}</button>
+          <div className="mnt-plan-modal__footer">
+            <button type="button" className="mnt-plan-modal__button mnt-plan-modal__button--ghost" onClick={onClose} disabled={loading}>Cancelar</button>
+            <button type="submit" className="mnt-plan-modal__button mnt-plan-modal__button--primary" disabled={loading}>{loading ? "Guardando…" : "Guardar cambios"}</button>
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

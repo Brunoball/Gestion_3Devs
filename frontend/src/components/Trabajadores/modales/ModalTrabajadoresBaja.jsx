@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faUserCheck, faTrashAlt } from "@fortawesome/free-solid-svg-icons";
 import BASE_URL from "../../../config/config";
@@ -6,6 +7,7 @@ import Toast from "../../Global/Toast";
 import { fetchJSONAuth } from "../../Global/api";
 import "./ModalEditarTrabajador.css";
 import "./ModalBajaTrabajador.css";
+import "./ModalTrabajadorV2.css";
 
 export default function ModalTrabajadoresBaja({ open, onClose, onChanged, idOrganizacion, organizacionNombre }) {
   const [rows, setRows] = useState([]);
@@ -54,27 +56,27 @@ export default function ModalTrabajadoresBaja({ open, onClose, onChanged, idOrga
     }
   };
 
-  return (
-    <div className="mi-modal__overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
+  return createPortal(
+    <div className="tp-worker-modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && !loading && onClose?.()}>
       {toast.open && <Toast {...toast} onClose={() => setToast((t) => ({ ...t, open: false }))} />}
-      <div className="mi-modal__container" role="dialog" aria-modal="true">
+      <div className="tp-worker-modal tp-worker-modal--list" role="dialog" aria-modal="true" aria-labelledby="tp-inactive-workers-title">
         <div className="mi-modal__header">
           <div>
-            <h2 className="mi-modal__title">Bajas de {organizacionNombre || "la entidad"}</h2>
+            <h2 id="tp-inactive-workers-title" className="mi-modal__title">Bajas de {organizacionNombre || "la entidad"}</h2>
             <p className="mi-modal__subtitle">Reactivar o desvincular definitivamente de esta entidad.</p>
           </div>
-          <button type="button" className="mi-modal__close" onClick={onClose}>✕</button>
+          <button type="button" className="mi-modal__close" aria-label="Cerrar" onClick={onClose} disabled={loading}>✕</button>
         </div>
-        <div className="mit-modal__body">
+        <div className="tp-worker-modal__content">
           <div className="fl-field fl-col-full">
             <input className="fl-input" placeholder=" " value={q} onChange={(e) => setQ(e.target.value)} />
             <label className="fl-label">Buscar</label>
           </div>
-          <div className="mi-card mi-card--full" style={{ marginTop: 16 }}>
-            {loading && !rows.length ? <p>Cargando…</p> : filtered.length === 0 ? <p>No hay trabajadores dados de baja.</p> : filtered.map((row) => (
-              <div className="mi-row" key={row.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0" }}>
-                <div><strong>{row.apellido}, {row.nombre}</strong><div style={{ opacity: .7 }}>{row.email || "—"}</div></div>
-                <div style={{ display: "flex", gap: 8 }}>
+          <div className="mi-card mi-card--full tp-worker-modal__list">
+            {loading && !rows.length ? <p className="tp-worker-modal__empty">Cargando…</p> : filtered.length === 0 ? <p className="tp-worker-modal__empty">No hay trabajadores dados de baja.</p> : filtered.map((row) => (
+              <div className="tp-worker-modal__list-row" key={row.id}>
+                <div className="tp-worker-modal__person"><strong>{row.apellido}, {row.nombre}</strong><span>{row.email || "—"}</span></div>
+                <div className="tp-worker-modal__row-actions">
                   <button className="mit-btn mit-btn--solid" type="button" onClick={() => act("reactivar", row)} disabled={loading} title="Reactivar"><FontAwesomeIcon icon={faUserCheck} /></button>
                   <button className="mit-btn mit-btn--danger" type="button" onClick={() => act("eliminar", row)} disabled={loading} title="Desvincular de esta entidad"><FontAwesomeIcon icon={faTrashAlt} /></button>
                 </div>
@@ -84,6 +86,7 @@ export default function ModalTrabajadoresBaja({ open, onClose, onChanged, idOrga
         </div>
         <div className="mit-actions"><button className="mit-btn mit-btn--ghost" onClick={onClose}>Cerrar</button></div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

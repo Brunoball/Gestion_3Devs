@@ -78,6 +78,7 @@ export default function Trabajadores() {
   const [loading, setLoading] = useState(false);
   const [savingReparto, setSavingReparto] = useState(false);
   const [q, setQ] = useState("");
+  const [activeSection, setActiveSection] = useState("trabajadores");
 
   const [openCrear, setOpenCrear] = useState(false);
   const [openEditar, setOpenEditar] = useState(false);
@@ -300,6 +301,36 @@ export default function Trabajadores() {
           <div className="TP-ContentGrid">
             <section className="TP-MainIsland">
               <div className="TP-IslandScroll">
+              <nav className="TP-SectionTabs" role="tablist" aria-label="Secciones de trabajadores">
+                <button
+                  type="button"
+                  role="tab"
+                  id="tp-tab-trabajadores"
+                  aria-selected={activeSection === "trabajadores"}
+                  aria-controls="tp-panel-trabajadores"
+                  className={activeSection === "trabajadores" ? "is-active" : ""}
+                  onClick={() => setActiveSection("trabajadores")}
+                >
+                  <FontAwesomeIcon icon={faUsers} />
+                  Trabajadores registrados
+                  <span>{rows.length}</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  id="tp-tab-distribucion"
+                  aria-selected={activeSection === "distribucion"}
+                  aria-controls="tp-panel-distribucion"
+                  className={activeSection === "distribucion" ? "is-active" : ""}
+                  onClick={() => setActiveSection("distribucion")}
+                >
+                  <FontAwesomeIcon icon={faDiagramProject} />
+                  Distribución interna de la participación
+                </button>
+              </nav>
+
+              {activeSection === "trabajadores" && (
+              <div className="TP-SectionPanel" id="tp-panel-trabajadores" role="tabpanel" aria-labelledby="tp-tab-trabajadores">
               <section className="TP-Tools">
                 <div className="TP-ToolsTop">
                   <div className="TP-ToolsCopy">
@@ -375,7 +406,11 @@ export default function Trabajadores() {
               )}
             </div>
           </div>
+              </div>
+              )}
 
+          {activeSection === "distribucion" && (
+          <div className="TP-SectionPanel TP-SectionPanel--distribution" id="tp-panel-distribucion" role="tabpanel" aria-labelledby="tp-tab-distribucion">
           {isBalto ? (
             <section className="TP-RepartoCard">
               <div className="TP-RepartoHeader">
@@ -469,6 +504,8 @@ export default function Trabajadores() {
                 </div>
               )}
             </section>
+          )}
+          </div>
           )}
 
               </div>
