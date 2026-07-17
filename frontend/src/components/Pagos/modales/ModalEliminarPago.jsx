@@ -18,12 +18,12 @@ export default function ModalEliminarPago({
 
     const onKey = (e) => {
       if (e.key === "Escape") onClose?.();
-      if (e.key === "Enter") onConfirm?.();
+      if (e.key === "Enter" && !loading) onConfirm?.();
     };
 
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose, onConfirm]);
+  }, [open, onClose, onConfirm, loading]);
 
   if (!open) return null;
 
@@ -65,18 +65,18 @@ export default function ModalEliminarPago({
           id="modal-eliminar-pago-title"
           className="mpdel-title mpdel-title--danger"
         >
-          Eliminar pago
+          Eliminar pagos del período
         </h3>
 
         <p className="mpdel-body">
-          ¿Seguro que querés eliminar este pago definitivamente?
+          Se eliminarán todos los pagos registrados para este cliente en el período seleccionado, incluidos los de sus distintos sistemas.
           <br />
           Esta acción no se puede deshacer.
         </p>
 
         <div className="mpdel-card">
           <div className="mpdel-row">
-            <span className="mpdel-label">ID Pago</span>
+            <span className="mpdel-label">Pago de referencia</span>
             <span className="mpdel-value">{idPago}</span>
           </div>
           <div className="mpdel-row">
@@ -106,7 +106,7 @@ export default function ModalEliminarPago({
             onClick={onConfirm}
             disabled={loading}
           >
-            {loading ? "Eliminando..." : "Eliminar"}
+            {loading ? "Eliminando..." : "Eliminar pagos"}
           </button>
         </div>
       </div>

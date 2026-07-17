@@ -213,15 +213,7 @@ function clientes_reparto_resumen(): void
         ];
 
     if ($idSistema <= 0 && $org['modelo_reparto'] === 'por_entidad') {
-      $directos = reparto_items_organizacion($pdo, $idOrganizacion);
-      $items = reparto_expandir_organizacion($pdo, $idOrganizacion);
-      $resumen['regla_directa'] = reparto_aplicar_montos_exactos($directos, $monto);
-      $resumen['items'] = reparto_aplicar_montos_exactos($items, $monto);
-      $resumen['total_porcentaje'] = reparto_redondear(array_sum(array_column($items, 'porcentaje')));
-      $resumen['configurado'] = count($directos) > 0
-        && abs(array_sum(array_column($directos, 'porcentaje')) - 100.0) <= 0.0001
-        && count($items) > 0
-        && !array_filter($items, static fn(array $item): bool => empty($item['configurado']));
+      $resumen = reparto_resumen_organizacion($pdo, $idOrganizacion, $monto);
     }
 
     json_out(['exito' => true, 'reparto' => $resumen]);

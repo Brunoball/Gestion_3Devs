@@ -418,31 +418,30 @@ try {
 
     $details = [];
     $warnings = [];
-    $paymentsWithoutSnapshot = 0;
     $invalidPayments = 0;
+    $fallbackPayments = 0;
 
     foreach ($payments as $payment) {
         $paymentAmount = (float)$payment['monto'];
         try {
             $distribution = reparto_resumen_pago($pdo, $org, (int)$payment['id_pago']);
-            $origin = (string)($distribution['origen'] ?? 'regla_actual_sin_snapshot');
-            if ($origin !== 'snapshot_pago') $paymentsWithoutSnapshot++;
+            $origin = 'regla_vigente';
             $items = is_array($distribution['items'] ?? null) ? $distribution['items'] : [];
             $totalPct = (float)($distribution['total_porcentaje'] ?? 0.0);
-            $legacyEqualFallback = $origin !== 'snapshot_pago'
-                && !$distribution['configurado']
+            $equalFallback = !empty($distribution['usa_reparto_igualitario'])
                 && $items
                 && abs($totalPct - 100.0) <= 0.0001;
 
-            if ((!$distribution['configurado'] && !$legacyEqualFallback)
+            if ((!$distribution['configurado'] && !$equalFallback)
                 || abs($totalPct - 100.0) > 0.0001
                 || !$items) {
                 throw new RuntimeException('Distribución incompleta o distinta de 100%.');
             }
 
-            if ($legacyEqualFallback) {
+            if ($equalFallback) {
+                $fallbackPayments++;
                 $warnings[] = 'Pago #' . (int)$payment['id_pago']
-                    . ': el equipo histórico no tenía porcentajes guardados; se aplicó reparto igualitario entre sus integrantes.';
+                    . ': el equipo vigente no tiene porcentajes válidos; se aplicó reparto igualitario entre sus integrantes.';
             }
         } catch (Throwable $e) {
             $invalidPayments++;
@@ -467,8 +466,8 @@ try {
                 'id_organizacion_beneficiaria' => isset($item['id_organizacion_beneficiaria'])
                     ? (int)$item['id_organizacion_beneficiaria'] : null,
                 'beneficiario_nombre' => trim((string)($item['beneficiario_nombre'] ?? 'Beneficiario')),
-                'alias_pago_snapshot' => $item['alias_pago'] ?? null,
-                'rol_snapshot' => $item['rol'] ?? null,
+                'alias_pago_regla' => $item['alias_pago'] ?? null,
+                'rol_regla' => $item['rol'] ?? null,
                 'rutas' => array_values(array_unique(array_filter(array_map('strval', $item['rutas'] ?? [])))),
                 'id_pago' => (int)$payment['id_pago'],
                 'id_sistema' => (int)$payment['id_sistema'],
@@ -517,17 +516,15 @@ try {
                     'monto_neto' => 0.0,
                     'detalle' => [],
                     'sistemas' => [],
-                    'snapshot_nombre' => $detail['beneficiario_nombre'],
-                    'snapshot_alias' => $detail['alias_pago_snapshot'],
-                    'snapshot_rol' => $detail['rol_snapshot'],
-                    'usa_fallback_historico' => false,
+                    'nombre_regla' => $detail['beneficiario_nombre'],
+                    'alias_regla' => $detail['alias_pago_regla'],
+                    'rol_regla' => $detail['rol_regla'],
                 ];
             }
             $workerAcc[$workerId]['monto_bruto'] += (float)$detail['monto_bruto'];
             $workerAcc[$workerId]['monto_neto'] += (float)$detail['monto_neto'];
             $workerAcc[$workerId]['detalle'][] = $detail;
             $workerAcc[$workerId]['sistemas'][(int)$detail['id_sistema']] = true;
-            if ($detail['origen'] !== 'snapshot_pago') $workerAcc[$workerId]['usa_fallback_historico'] = true;
         } else {
             $key = 'o:' . (int)($detail['id_organizacion_beneficiaria'] ?? 0) . ':' . $detail['beneficiario_nombre'];
             if (!isset($nonWorkerAcc[$key])) {
@@ -553,10 +550,9 @@ try {
                 'monto_neto' => 0.0,
                 'detalle' => [],
                 'sistemas' => [],
-                'snapshot_nombre' => '',
-                'snapshot_alias' => null,
-                'snapshot_rol' => null,
-                'usa_fallback_historico' => false,
+                'nombre_regla' => '',
+                'alias_regla' => null,
+                'rol_regla' => null,
             ];
         }
     }
@@ -592,7 +588,7 @@ try {
         $name = trim((string)($meta['nombre'] ?? ''));
         $surname = trim((string)($meta['apellido'] ?? ''));
         if ($name === '' && $surname === '') {
-            $parts = preg_split('/\s+/', trim((string)$acc['snapshot_nombre'])) ?: [];
+            $parts = preg_split('/\s+/', trim((string)$acc['nombre_regla'])) ?: [];
             $name = (string)array_shift($parts);
             $surname = implode(' ', $parts);
         }
@@ -603,8 +599,8 @@ try {
             'nombre' => $name,
             'apellido' => $surname,
             'email' => (string)($meta['email'] ?? ''),
-            'rol' => (string)($meta['rol_en_organizacion'] ?? $acc['snapshot_rol'] ?? $meta['rol_global'] ?? ''),
-            'alias_pago' => (string)($meta['alias_pago'] ?? $acc['snapshot_alias'] ?? ''),
+            'rol' => (string)($meta['rol_en_organizacion'] ?? $acc['rol_regla'] ?? $meta['rol_global'] ?? ''),
+            'alias_pago' => (string)($meta['alias_pago'] ?? $acc['alias_regla'] ?? ''),
             'miembro_organizacion' => (int)($meta['miembro_organizacion'] ?? 0) === 1,
             'puede_comprobante' => (int)($meta['miembro_organizacion'] ?? 0) === 1,
             'liquidacion_indirecta' => (int)($meta['miembro_organizacion'] ?? 0) !== 1,
@@ -615,7 +611,6 @@ try {
             'monto_sistemas' => $net,
             'monto_reembolso' => $reimbursement,
             'monto' => round($net + $reimbursement, 2),
-            'usa_fallback_historico' => (bool)$acc['usa_fallback_historico'],
             'detalle' => array_values($acc['detalle']),
             'comprobante_pago' => $proof['archivo_url'] ?? null,
             'comprobante_pago_fecha' => $proof['created_at'] ?? null,
@@ -648,11 +643,8 @@ try {
         2
     );
 
-    if ($paymentsWithoutSnapshot > 0) {
-        $warnings[] = "{$paymentsWithoutSnapshot} pago(s) anterior(es) a la migración todavía no tienen snapshot; se usó la regla vigente. Ejecutá la regularización incluida para congelarlos.";
-    }
     if ($invalidPayments > 0) {
-        $warnings[] = "{$invalidPayments} pago(s) tienen una distribución inválida y quedaron sin asignar.";
+        $warnings[] = "{$invalidPayments} pago(s) tienen una distribución inválida y quedaron identificados como monto no asignado.";
     }
     if (abs($controlDifference) > 0.01) {
         $warnings[] = 'El control contable detectó una diferencia de $' . number_format($controlDifference, 2, ',', '.');
@@ -678,9 +670,11 @@ try {
             'monto_bruto_no_persona' => $unassignedGross,
             'monto_neto_no_persona' => $unassignedNet,
             'diferencia_control' => $controlDifference,
-            'pagos_sin_snapshot' => $paymentsWithoutSnapshot,
             'pagos_invalidos' => $invalidPayments,
-            'configuracion_ok' => $invalidPayments === 0 && abs($controlDifference) <= 0.01,
+            'pagos_reparto_igualitario' => $fallbackPayments,
+            'configuracion_ok' => $invalidPayments === 0
+                && $fallbackPayments === 0
+                && abs($controlDifference) <= 0.01,
         ],
         'trabajadores' => $workers,
         'beneficiarios_no_persona' => $nonWorkers,

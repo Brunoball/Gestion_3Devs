@@ -141,6 +141,7 @@ export default function ModalFacturaArcaResumen({
   const [confirm, setConfirm] = useState(false);
 
   const firstRef = useRef(null);
+  const busyRef = useRef(false);
 
   const docLabel = useMemo(() => {
     const it = DOC_TIPOS.find((x) => x.id === Number(docTipo));
@@ -200,10 +201,12 @@ export default function ModalFacturaArcaResumen({
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => e.key === "Escape" && onClose?.();
+    const onKey = (e) => {
+      if (e.key === "Escape" && !loading && !loadingPdf) onClose?.();
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, onClose, loading, loadingPdf]);
 
   const toText = useCallback((v) => {
     if (v == null) return "";
@@ -299,7 +302,16 @@ export default function ModalFacturaArcaResumen({
         periodo_hasta: data?.periodo_hasta ?? null,
         vto_pago: data?.vto_pago ?? null,
 
-        aplicar_a_todos_sistemas: true,
+        sistemas_facturar_ids: Array.from(
+          new Set(
+            (Array.isArray(data?.sistemas_facturar_ids)
+              ? data.sistemas_facturar_ids
+              : [data?.id_sistema]
+            )
+              .map(Number)
+              .filter((id) => Number.isInteger(id) && id > 0)
+          )
+        ),
       };
 
       const fd = new FormData();
@@ -316,11 +328,13 @@ export default function ModalFacturaArcaResumen({
   );
 
   const exportarSoloPDF = useCallback(async () => {
+    if (busyRef.current) return;
     setError("");
     const v = validar();
     if (!v.ok) return setError(v.msg);
     if (!confirm) return setError("Tenés que confirmar el resumen antes de exportar el PDF.");
 
+    busyRef.current = true;
     setLoadingPdf(true);
     try {
       const now = new Date();
@@ -377,12 +391,23 @@ export default function ModalFacturaArcaResumen({
         nombreSistema,
       });
 
+      await guardarFacturaEnDB({
+        blob,
+        filename: safeFilename,
+        fact: factMock,
+        estado: "solo_pdf",
+      });
+
       triggerBlobDownload(blob, safeFilename);
 
+      onFacturada?.(factMock);
+      onDone?.(factMock);
       onClose?.();
+      onCloseAll?.();
     } catch (e) {
       setError(e?.message || "No se pudo exportar el PDF.");
     } finally {
+      busyRef.current = false;
       setLoadingPdf(false);
     }
   }, [
@@ -396,15 +421,21 @@ export default function ModalFacturaArcaResumen({
     data,
     nombreCliente,
     nombreSistema,
+    guardarFacturaEnDB,
+    onFacturada,
+    onDone,
     onClose,
+    onCloseAll,
   ]);
 
   const emitir = useCallback(async () => {
+    if (busyRef.current) return;
     setError("");
     const v = validar();
     if (!v.ok) return setError(v.msg);
     if (!confirm) return setError("Tenés que confirmar el resumen antes de emitir.");
 
+    busyRef.current = true;
     setLoading(true);
     try {
       const url = `${apiBase}?action=${action}&op=factura_arca`;
@@ -468,6 +499,7 @@ export default function ModalFacturaArcaResumen({
     } catch (e) {
       setError(e?.message || "No se pudo emitir la factura.");
     } finally {
+      busyRef.current = false;
       setLoading(false);
     }
   }, [
@@ -607,7 +639,7 @@ export default function ModalFacturaArcaResumen({
               className="mit-btn mit-btn--ghost"
               onClick={exportarSoloPDF}
               disabled={loading || loadingPdf || !confirm}
-              title={!confirm ? "Marcá la confirmación para habilitar." : "Exporta el PDF localmente (sin guardar en DB ni emitir)."}
+              title={!confirm ? "Marcá la confirmación para habilitar." : "Genera el PDF, lo guarda en el sistema y no lo emite en ARCA."}
             >
               {loadingPdf ? "Generando PDF..." : "Solo PDF (sin emitir)"}
             </button>

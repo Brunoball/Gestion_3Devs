@@ -2,7 +2,6 @@ import React, { useEffect, useMemo } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faCalculator,
-  faCircleInfo,
   faRoute,
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
@@ -102,12 +101,6 @@ export default function ModalDetalleLiquidacionTrabajador({
             </div>
           ) : null}
 
-          {trabajador.usa_fallback_historico ? (
-            <div className="rdl-warning">
-              <FontAwesomeIcon icon={faCircleInfo} />
-              Al menos un pago antiguo no tenía snapshot histórico y se calculó con la regla vigente.
-            </div>
-          ) : null}
 
           <div className="rdl-table-wrap">
             <table className="rdl-table">
@@ -119,7 +112,6 @@ export default function ModalDetalleLiquidacionTrabajador({
                   <th>Porcentaje</th>
                   <th>Bruto</th>
                   <th>Neto</th>
-                  <th>Origen</th>
                 </tr>
               </thead>
               <tbody>
@@ -135,14 +127,11 @@ export default function ModalDetalleLiquidacionTrabajador({
                       <td>{percent.format(Number(row.porcentaje_pago || 0))}%</td>
                       <td>{money.format(Number(row.monto_bruto || 0))}</td>
                       <td>{money.format(Number(row.monto_neto || 0))}</td>
-                      <td>
-                        {row.origen === "snapshot_pago" ? "Histórico" : "Regla vigente"}
-                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="7" className="rdl-empty">Sin pagos distribuidos en este período.</td>
+                    <td colSpan="6" className="rdl-empty">Sin pagos distribuidos en este período.</td>
                   </tr>
                 )}
               </tbody>
