@@ -9,6 +9,7 @@ import {
   faCalendarAlt,
   faChartLine,
   faCircleInfo,
+  faCircleCheck,
   faCoins,
   faEye,
   faFileExcel,
@@ -46,6 +47,7 @@ import * as ModGraficosReportes from "./modales/ModalGraficosReportes";
 import ModalSubirComprobanteTrabajador from "./modales/ModalSubirComprobanteTrabajador";
 import ModalVerComprobanteTrabajador from "./modales/ModalVerComprobanteTrabajador";
 import ModalDetalleLiquidacionTrabajador from "./modales/ModalDetalleLiquidacionTrabajador";
+import ModalConfirmarPagoTrabajador from "./modales/ModalConfirmarPagoTrabajador";
 
 function pickComponent(mod, preferredName) {
   return (
@@ -187,6 +189,7 @@ export default function Reportes() {
   const [mesSeleccionado, setMesSeleccionado] = useState("TODOS");
   const [mediosDisponibles, setMediosDisponibles] = useState([]);
   const [trabajadoresActivos, setTrabajadoresActivos] = useState([]);
+  const [organizacionesPagadoras, setOrganizacionesPagadoras] = useState([]);
   const [searchText, setSearchText] = useState("");
   const [loadingAnios, setLoadingAnios] = useState(true);
   const [loadingMeses, setLoadingMeses] = useState(true);
@@ -223,8 +226,12 @@ export default function Reportes() {
   const [trabajadorCompViewData, setTrabajadorCompViewData] = useState(null);
   const [modalDetalleOpen, setModalDetalleOpen] = useState(false);
   const [detalleTrabajador, setDetalleTrabajador] = useState(null);
+  const [modalConfirmarPagoOpen, setModalConfirmarPagoOpen] = useState(false);
+  const [pagoTrabajadorPendiente, setPagoTrabajadorPendiente] = useState(null);
+  const [markingPaidId, setMarkingPaidId] = useState(null);
 
   const didInitMes = useRef(false);
+  const initializedOrganizationsRef = useRef(new Set());
 
   const showToast = useCallback((tipo, mensaje, duracion = 2500) => {
     setToast((current) => ({
@@ -259,6 +266,8 @@ export default function Reportes() {
     setLiquidacionResumen(null);
     setAdvertencias([]);
     setBeneficiariosNoPersona([]);
+    setTrabajadoresActivos([]);
+    setOrganizacionesPagadoras([]);
   }, []);
 
   const fetchJSON = useCallback(
@@ -404,9 +413,10 @@ export default function Reportes() {
     let alive = true;
     (async () => {
       try {
-        const data = await fetchJSON(`${BASE_URL}/api.php?action=reportes&op=trabajadores_activos`);
+        const data = await fetchJSON(`${BASE_URL}/api.php?action=reportes&op=egreso_pagadores`);
         if (!alive) return;
         const rows = Array.isArray(data?.trabajadores) ? data.trabajadores : [];
+        const organizations = Array.isArray(data?.organizaciones) ? data.organizaciones : [];
         setTrabajadoresActivos(
           rows.map((row) => ({
             id: row.id ?? row.id_trabajador,
@@ -414,10 +424,23 @@ export default function Reportes() {
             apellido: row.apellido ?? "",
             rol: row.rol ?? "",
             alias_pago: row.alias_pago ?? "",
+            organizacion_codigo: row.organizacion_codigo ?? "",
+            organizacion_nombre: row.organizacion_nombre ?? "",
+          }))
+        );
+        setOrganizacionesPagadoras(
+          organizations.map((row) => ({
+            id: row.id ?? row.id_organizacion,
+            id_organizacion: row.id_organizacion ?? row.id,
+            codigo: row.codigo ?? "",
+            nombre: row.nombre ?? row.codigo ?? "",
           }))
         );
       } catch (error) {
-        if (alive) setTrabajadoresActivos([]);
+        if (alive) {
+          setTrabajadoresActivos([]);
+          setOrganizacionesPagadoras([]);
+        }
       }
     })();
     return () => {
@@ -440,6 +463,14 @@ export default function Reportes() {
       try {
         setErrorMsg("");
         setLoadingData(true);
+
+        // Congela una sola vez los movimientos históricos de la entidad y de
+        // las entidades que la alimentan. Si algo no supera los controles, la
+        // pantalla no continúa como si la liquidación fuera confiable.
+        if (canWrite && !initializedOrganizationsRef.current.has(activeOrganizationId)) {
+          await postJSON(`${BASE_URL}/api.php?action=reportes&op=blindaje_inicializar`, {});
+          initializedOrganizationsRef.current.add(activeOrganizationId);
+        }
 
         const movementData = await fetchJSON(withFilters("movimientos"));
         if (!alive) return;
@@ -480,8 +511,10 @@ export default function Reportes() {
             medio: row.medio ?? "",
             id_medio_pago: row.id_medio_pago ?? null,
             id_trabajador: row.id_trabajador ?? null,
-            trabajador: row.trabajador ?? "",
-            tipo_egreso: row.tipo_egreso ?? (row.id_trabajador ? "reembolso" : "general"),
+            pagadores: Array.isArray(row.pagadores) ? row.pagadores : [],
+            pagador: row.pagador ?? row.trabajador ?? "",
+            trabajador: row.pagador ?? row.trabajador ?? "",
+            tipo_egreso: row.tipo_egreso ?? (row.id_trabajador ? "trabajador" : "general"),
             monto: Number(row.monto || 0),
             comprobante: row.comprobante ?? "",
           }))
@@ -510,6 +543,10 @@ export default function Reportes() {
               miembro_organizacion: Boolean(row.miembro_organizacion),
               puede_comprobante: Boolean(row.puede_comprobante),
               liquidacion_indirecta: Boolean(row.liquidacion_indirecta),
+              pagado: Boolean(row.pagado),
+              pagado_at: row.pagado_at ?? "",
+              liquidacion_snapshot_id: row.liquidacion_snapshot_id ?? null,
+              puede_marcar_pagado: Boolean(row.puede_marcar_pagado),
               detalle: Array.isArray(row.detalle) ? row.detalle : [],
               comprobante_pago: row.comprobante_pago ?? "",
               comprobante_pago_fecha: row.comprobante_pago_fecha ?? "",
@@ -554,20 +591,31 @@ export default function Reportes() {
   }, [
     activeOrganizationId,
     anioSeleccionado,
+    canWrite,
     fetchJSON,
     mesSeleccionado,
+    postJSON,
     reloadKey,
     showToast,
     view,
   ]);
 
   const totalPagos = Number(
-    movimientosResumen?.total_ingresos ?? pagos.reduce((sum, row) => sum + Number(row.monto || 0), 0)
+    view === "trabajadores"
+      ? liquidacionResumen?.total_ingresos ?? pagos.reduce((sum, row) => sum + Number(row.monto || 0), 0)
+      : movimientosResumen?.total_ingresos ?? pagos.reduce((sum, row) => sum + Number(row.monto || 0), 0)
   );
   const totalEgresos = Number(
-    movimientosResumen?.total_egresos ?? egresos.reduce((sum, row) => sum + Number(row.monto || 0), 0)
+    view === "trabajadores"
+      ? liquidacionResumen?.total_egresos ?? egresos.reduce((sum, row) => sum + Number(row.monto || 0), 0)
+      : movimientosResumen?.total_egresos ?? egresos.reduce((sum, row) => sum + Number(row.monto || 0), 0)
   );
   const balance = Number(movimientosResumen?.balance ?? totalPagos - totalEgresos);
+  const periodoCerradoExacto = Boolean(
+    anioSeleccionado !== "TODOS" &&
+      mesSeleccionado !== "TODOS" &&
+      (movimientosResumen?.periodo_cerrado || liquidacionResumen?.periodo_cerrado)
+  );
   const totalTrabajadores = Number(
     liquidacionResumen?.total_a_pagar ??
       trabajadores.reduce((sum, row) => sum + Number(row.monto || 0), 0)
@@ -625,7 +673,7 @@ export default function Reportes() {
           </span>
         ),
       },
-      { key: "trabajador", label: "Reembolso a", fr: "1.2fr", render: (row) => row.trabajador || "—" },
+      { key: "trabajador", label: "Pagado por", fr: "1.2fr", render: (row) => row.trabajador || "ENTIDAD ACTIVA" },
       { key: "medio", label: "Medio", fr: "1fr", center: true },
       { key: "monto", label: "Monto", fr: "1fr", center: true, render: (row) => money(row.monto) },
     ],
@@ -641,7 +689,8 @@ export default function Reportes() {
         render: (row) => (
           <div className="reportes-worker-name">
             <strong>{`${row.apellido || ""} ${row.nombre || ""}`.trim() || "—"}</strong>
-            {row.liquidacion_indirecta ? <span>VÍA OTRA ENTIDAD</span> : null}
+            {row.pagado ? <span className="is-paid">PAGADO</span> : null}
+            {!row.pagado && row.liquidacion_indirecta ? <span>VÍA OTRA ENTIDAD</span> : null}
           </div>
         ),
       },
@@ -695,6 +744,10 @@ export default function Reportes() {
 
   const crearEgreso = useCallback(
     async (formData) => {
+      if (periodoCerradoExacto) {
+        showToast("advertencia", "El período está cerrado y no admite nuevos egresos.", 3200);
+        return;
+      }
       try {
         setSavingEgreso(true);
         await postFormData(`${BASE_URL}/api.php?action=reportes&op=crear_egreso`, formData);
@@ -707,11 +760,15 @@ export default function Reportes() {
         setSavingEgreso(false);
       }
     },
-    [postFormData, showToast]
+    [periodoCerradoExacto, postFormData, showToast]
   );
 
   const confirmarEditar = useCallback(
     async (payload) => {
+      if (periodoCerradoExacto) {
+        showToast("advertencia", "El período está cerrado y no admite cambios contables.", 3200);
+        return;
+      }
       try {
         setSavingEditar(true);
         const isFormData = typeof FormData !== "undefined" && payload instanceof FormData;
@@ -730,11 +787,15 @@ export default function Reportes() {
         setSavingEditar(false);
       }
     },
-    [postFormData, postJSON, showToast]
+    [periodoCerradoExacto, postFormData, postJSON, showToast]
   );
 
   const confirmarEliminarEgreso = useCallback(
     async (row) => {
+      if (periodoCerradoExacto) {
+        showToast("advertencia", "El período está cerrado y no admite eliminaciones.", 3200);
+        return;
+      }
       try {
         setDeletingEgreso(true);
         await postJSON(`${BASE_URL}/api.php?action=reportes&op=eliminar_egreso`, {
@@ -750,7 +811,7 @@ export default function Reportes() {
         setDeletingEgreso(false);
       }
     },
-    [postJSON, showToast]
+    [periodoCerradoExacto, postJSON, showToast]
   );
 
   const guardarComprobantePago = useCallback(
@@ -860,6 +921,48 @@ export default function Reportes() {
     [fetchJSON, getPeriodoTrabajador, showToast]
   );
 
+  const marcarTrabajadorPagado = useCallback(
+    (row) => {
+      const periodo = getPeriodoTrabajador();
+      if (!periodo) {
+        showToast("advertencia", "Seleccioná un año y un mes puntual.", 2800);
+        return;
+      }
+      if (!row?.puede_marcar_pagado || row?.pagado) return;
+
+      setPagoTrabajadorPendiente({ row, periodo });
+      setModalConfirmarPagoOpen(true);
+    },
+    [getPeriodoTrabajador, showToast]
+  );
+
+  const confirmarPagoTrabajador = useCallback(async () => {
+    const row = pagoTrabajadorPendiente?.row;
+    const periodo = pagoTrabajadorPendiente?.periodo;
+    if (!row || !periodo || markingPaidId !== null) return;
+
+    const trabajadorId = Number(row.id_trabajador || row.id);
+    const nombre = `${row.apellido || ""} ${row.nombre || ""}`.trim() || "el trabajador";
+
+    try {
+      setMarkingPaidId(trabajadorId);
+      await postJSON(`${BASE_URL}/api.php?action=reportes&op=trabajador_marcar_pagado`, {
+        id_trabajador: trabajadorId,
+        id_mes: periodo.mes,
+        mes: periodo.mes,
+        anio: periodo.anio,
+      });
+      setModalConfirmarPagoOpen(false);
+      setPagoTrabajadorPendiente(null);
+      setReloadKey((value) => value + 1);
+      showToast("exito", `Liquidación de ${nombre} marcada como pagada.`, 3000);
+    } catch (error) {
+      showToast("error", `Error marcando la liquidación: ${error.message}`, 4200);
+    } finally {
+      setMarkingPaidId(null);
+    }
+  }, [markingPaidId, pagoTrabajadorPendiente, postJSON, showToast]);
+
   const exportarExcel = useCallback(() => {
     try {
       const workbook = XLSX.utils.book_new();
@@ -878,12 +981,14 @@ export default function Reportes() {
           NETO_POR_SISTEMAS: row.monto_sistemas,
           REEMBOLSO: row.monto_reembolso,
           TOTAL_A_PAGAR: row.monto,
+          ESTADO: row.pagado ? "PAGADO" : "PENDIENTE",
+          FECHA_PAGO_LIQUIDACION: row.pagado_at || "",
           LIQUIDACION_INDIRECTA: row.liquidacion_indirecta ? "SI" : "NO",
         }));
         const sheet = XLSX.utils.json_to_sheet(workerRows);
         sheet["!cols"] = [
           { wch: 28 }, { wch: 22 }, { wch: 14 }, { wch: 18 }, { wch: 18 },
-          { wch: 20 }, { wch: 14 }, { wch: 18 }, { wch: 22 },
+          { wch: 20 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 22 }, { wch: 22 },
         ];
         XLSX.utils.book_append_sheet(workbook, sheet, "Liquidación");
 
@@ -917,7 +1022,7 @@ export default function Reportes() {
               CONCEPTO: row.concepto,
               DESCRIPCION: row.descripcion,
               TIPO: row.tipo_egreso,
-              REEMBOLSO_A: row.trabajador,
+              PAGADO_POR: row.trabajador || "ENTIDAD ACTIVA",
               MEDIO: row.medio,
               MONTO: row.monto,
               COMPROBANTE: row.comprobante,
@@ -1093,7 +1198,13 @@ export default function Reportes() {
                 <FontAwesomeIcon icon={faUsers} /> Liquidación
               </button>
               {view === "egresos" && canWrite ? (
-                <button type="button" className="segmented reportes-new-expense" onClick={() => setModalEgresoOpen(true)}>
+                <button
+                  type="button"
+                  className={`segmented reportes-new-expense ${periodoCerradoExacto ? "disabled" : ""}`}
+                  title={periodoCerradoExacto ? "El período está cerrado" : "Nuevo egreso"}
+                  disabled={periodoCerradoExacto}
+                  onClick={() => setModalEgresoOpen(true)}
+                >
                   <FontAwesomeIcon icon={faPlus} /> Nuevo egreso
                 </button>
               ) : null}
@@ -1131,14 +1242,28 @@ export default function Reportes() {
             </article>
           </div>
 
+          {periodoCerradoExacto ? (
+            <div className="reportes-warning-panel">
+              <div className="reportes-warning-title">
+                <FontAwesomeIcon icon={faCircleCheck} /> Período cerrado
+              </div>
+              <p>La liquidación ya comenzó. Los ingresos, egresos, pagadores y montos están congelados.</p>
+            </div>
+          ) : null}
+
           {view === "trabajadores" ? (
             <>
-              {advertencias.length || beneficiariosNoPersona.length ? (
+              {advertencias.length || beneficiariosNoPersona.length || Number(liquidacionResumen?.liquidaciones_pagadas || 0) > 0 ? (
                 <div className="reportes-warning-panel">
                   <div className="reportes-warning-title">
                     <FontAwesomeIcon icon={faTriangleExclamation} /> Controles de liquidación
                   </div>
                   {advertencias.map((warning, index) => <p key={`warning-${index}`}>{warning}</p>)}
+                  {Number(liquidacionResumen?.liquidaciones_pagadas || 0) > 0 ? (
+                    <p>
+                      {Number(liquidacionResumen?.liquidaciones_pagadas || 0)} liquidación(es) pagada(s) usan el monto histórico congelado.
+                    </p>
+                  ) : null}
                   {beneficiariosNoPersona.map((item, index) => (
                     <p key={`beneficiary-${index}`}>
                       {item.beneficiario || "Entidad sin trabajador final"}: {money(item.monto_neto)} pendiente de pago mediante su entidad.
@@ -1206,8 +1331,9 @@ export default function Reportes() {
                       <>
                         <button
                           type="button"
-                          className="icon-btn"
-                          title="Editar egreso"
+                          className={`icon-btn ${periodoCerradoExacto ? "disabled" : ""}`}
+                          title={periodoCerradoExacto ? "Período cerrado" : "Editar egreso"}
+                          disabled={periodoCerradoExacto}
                           onClick={() => {
                             setEditarItem({ ...row, id: row.id ?? row.id_egreso });
                             setModalEditarOpen(true);
@@ -1217,8 +1343,9 @@ export default function Reportes() {
                         </button>
                         <button
                           type="button"
-                          className="icon-btn danger"
-                          title="Eliminar egreso"
+                          className={`icon-btn danger ${periodoCerradoExacto ? "disabled" : ""}`}
+                          title={periodoCerradoExacto ? "Período cerrado" : "Eliminar egreso"}
+                          disabled={periodoCerradoExacto}
                           onClick={() => {
                             setEgresoAEliminar(row);
                             setModalEliminarOpen(true);
@@ -1255,6 +1382,30 @@ export default function Reportes() {
                       >
                         <FontAwesomeIcon icon={faCircleInfo} />
                       </button>
+                      {canWrite ? (
+                        <button
+                          type="button"
+                          className={`icon-btn ${row.pagado ? "is-paid" : row.puede_marcar_pagado && exactWorkerPeriod ? "" : "disabled"}`}
+                          title={
+                            row.pagado
+                              ? `Pagado${row.pagado_at ? ` el ${row.pagado_at}` : ""}`
+                              : !exactWorkerPeriod
+                              ? "Seleccioná año y mes puntual"
+                              : row.puede_marcar_pagado
+                              ? "Marcar liquidación como pagada"
+                              : "La liquidación se paga desde otra entidad"
+                          }
+                          disabled={
+                            row.pagado ||
+                            !exactWorkerPeriod ||
+                            !row.puede_marcar_pagado ||
+                            Number(markingPaidId) === Number(row.id_trabajador || row.id)
+                          }
+                          onClick={() => marcarTrabajadorPagado(row)}
+                        >
+                          <FontAwesomeIcon icon={faCircleCheck} />
+                        </button>
+                      ) : null}
                       {canWrite ? (
                         <button
                           type="button"
@@ -1297,6 +1448,7 @@ export default function Reportes() {
         loading={savingEgreso}
         medios={mediosDisponibles}
         trabajadores={trabajadoresActivos}
+        organizacionesPagadoras={organizacionesPagadoras}
       />
       <ModalEditarMovimiento
         open={modalEditarOpen}
@@ -1312,6 +1464,7 @@ export default function Reportes() {
         medios={mediosDisponibles}
         buildFileUrl={buildFileUrl}
         trabajadores={trabajadoresActivos}
+        organizacionesPagadoras={organizacionesPagadoras}
         onVerComprobante={(path) => {
           const value = String(path || "").trim();
           if (!value) return;
@@ -1380,6 +1533,18 @@ export default function Reportes() {
           setTrabajadorCompViewItem(null);
           setTrabajadorCompViewData(null);
         }}
+      />
+      <ModalConfirmarPagoTrabajador
+        open={modalConfirmarPagoOpen}
+        trabajador={pagoTrabajadorPendiente?.row || null}
+        periodo={pagoTrabajadorPendiente?.periodo || null}
+        loading={markingPaidId !== null}
+        onClose={() => {
+          if (markingPaidId !== null) return;
+          setModalConfirmarPagoOpen(false);
+          setPagoTrabajadorPendiente(null);
+        }}
+        onConfirm={confirmarPagoTrabajador}
       />
       <ModalDetalleLiquidacionTrabajador
         open={modalDetalleOpen}
