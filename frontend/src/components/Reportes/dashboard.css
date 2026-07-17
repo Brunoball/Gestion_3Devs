@@ -619,3 +619,232 @@ html, body {
 .contable-tablewrap.minimal { overflow: hidden; }
 .gridtable-header.minimal { position: sticky; top: 0; z-index: 10; overflow: auto; scrollbar-gutter: stable both-edges; }
 .gridtable-scroll.minimal { overflow: auto; min-height: 0; flex: 1 1 auto; }
+
+/* =========================================================
+   Reportes multi-entidad y controles de liquidación
+   ========================================================= */
+.reportes-organization-tabs{
+  position:absolute;
+  left:50%;
+  top:50%;
+  transform:translate(-50%, -50%);
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:5px;
+  border:1px solid #dbe4f0;
+  border-radius:999px;
+  background:#f8fafc;
+  box-shadow:0 4px 12px rgba(15,23,42,.06);
+}
+.reportes-organization-tab{
+  border:0;
+  border-radius:999px;
+  padding:8px 16px;
+  background:transparent;
+  color:#475569;
+  font-weight:900;
+  letter-spacing:.02em;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  transition:all .18s ease;
+}
+.reportes-organization-tab:hover{
+  background:#eaf1ff;
+  color:#1d4ed8;
+}
+.reportes-organization-tab.is-active{
+  color:#fff;
+  background:#2563eb;
+  box-shadow:0 4px 10px rgba(37,99,235,.25);
+}
+.reportes-active-entity{
+  margin-top:14px;
+  padding:12px;
+  border:1px solid #dbe4f0;
+  border-radius:12px;
+  background:#f8fafc;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.reportes-active-entity span,
+.reportes-active-entity small{
+  color:#64748b;
+  font-size:.74rem;
+  font-weight:700;
+}
+.reportes-active-entity strong{
+  color:#0f172a;
+  font-size:.92rem;
+}
+.reportes-new-expense{
+  margin-left:6px;
+  color:#0b5ed7;
+  border:1px solid rgba(11,94,215,.3);
+}
+.reportes-summary-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:12px;
+  margin:12px 12px 6px;
+}
+.reportes-summary-card{
+  border:1px dashed rgba(15,23,42,.16);
+  border-radius:14px;
+  padding:11px 16px;
+  background:#fff;
+  min-width:0;
+}
+.reportes-summary-card span{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  color:#334155;
+  font-size:.82rem;
+  font-weight:750;
+}
+.reportes-summary-card strong{
+  display:block;
+  margin-top:4px;
+  color:#0f172a;
+  font-size:1.38rem;
+  line-height:1.2;
+}
+.reportes-summary-card small{
+  display:block;
+  margin-top:3px;
+  color:#64748b;
+  font-size:.7rem;
+}
+.reportes-summary-card.success{border-color:#16a34a;}
+.reportes-summary-card.success strong{color:#15803d;}
+.reportes-summary-card.danger{border-color:#dc2626;}
+.reportes-summary-card.danger strong{color:#b91c1c;}
+.reportes-summary-card.info{border-color:#0284c7;}
+.reportes-summary-card.info strong{color:#0369a1;}
+.reportes-control-strip{
+  display:grid;
+  grid-template-columns:repeat(6,minmax(0,1fr));
+  gap:8px;
+  margin:6px 12px;
+  padding:9px;
+  border-radius:13px;
+  background:#f8fafc;
+  border:1px solid #e2e8f0;
+}
+.reportes-control-strip > div{
+  min-width:0;
+  padding:7px 9px;
+  border-right:1px solid #e2e8f0;
+}
+.reportes-control-strip > div:last-child{border-right:0;}
+.reportes-control-strip span{
+  display:block;
+  color:#64748b;
+  font-size:.67rem;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.035em;
+}
+.reportes-control-strip strong{
+  display:block;
+  margin-top:3px;
+  color:#0f172a;
+  font-size:.9rem;
+}
+.reportes-control-strip .is-ok strong{color:#15803d;}
+.reportes-control-strip .is-danger strong{color:#b91c1c;}
+.reportes-warning-panel{
+  margin:5px 12px;
+  padding:9px 12px;
+  border:1px solid rgba(217,119,6,.34);
+  border-radius:12px;
+  background:#fffbeb;
+  color:#92400e;
+  max-height:92px;
+  overflow:auto;
+}
+.reportes-warning-title{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  font-weight:900;
+  font-size:.78rem;
+  margin-bottom:4px;
+}
+.reportes-warning-panel p{
+  margin:2px 0;
+  font-size:.72rem;
+  line-height:1.35;
+}
+.reportes-table-area{
+  padding:8px 12px 14px;
+  flex:1 1 auto;
+  min-height:0;
+  overflow:hidden;
+}
+.reportes-worker-name{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  min-width:0;
+}
+.reportes-worker-name strong{
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.reportes-worker-name span{
+  width:max-content;
+  max-width:100%;
+  padding:2px 5px;
+  border-radius:999px;
+  background:#ede9fe;
+  color:#6d28d9;
+  font-size:.56rem;
+  font-weight:900;
+  letter-spacing:.035em;
+}
+.reportes-error-box{
+  margin-top:10px;
+  padding:10px 12px;
+  border-radius:12px;
+  background:rgba(220,38,38,.08);
+  border:1px solid rgba(220,38,38,.25);
+  color:#991b1b;
+  font-size:.75rem;
+  line-height:1.35;
+  white-space:pre-wrap;
+}
+
+/* El scroll horizontal pertenece solo al cuerpo de la tabla. */
+.gridtable-header.minimal{
+  overflow:hidden !important;
+  scrollbar-gutter:auto !important;
+}
+
+@media (max-width: 1180px){
+  .reportes-organization-tabs{
+    position:static;
+    transform:none;
+    margin-left:auto;
+  }
+  .contable-topbar{gap:12px;flex-wrap:wrap;}
+  .reportes-control-strip{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .reportes-control-strip > div{border-right:0;}
+}
+@media (max-width: 920px){
+  .reportes-organization-tabs{order:3;width:100%;justify-content:center;}
+  .reportes-summary-grid{grid-template-columns:1fr;}
+  .reportes-control-strip{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .reportes-warning-panel{max-height:none;}
+  .switch-left{flex-wrap:wrap;}
+}
+@media (max-width: 560px){
+  .reportes-organization-tab{padding:7px 11px;font-size:.72rem;}
+  .reportes-control-strip{grid-template-columns:1fr;}
+  .reportes-summary-card strong{font-size:1.15rem;}
+}

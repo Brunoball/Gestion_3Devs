@@ -15,6 +15,7 @@ import {
 } from "react-icons/fa";
 import BASE_URL from "../../config/config";
 import Toast from "../Global/Toast";
+import { uppercaseTextFieldOnChange } from "../Global/uppercaseFields";
 import { fetchJSONAuth } from "../Global/api";
 import {
   clearStoredSession,
@@ -510,7 +511,7 @@ export default function Clientes() {
   );
 
   return (
-    <div className="ini_contenedor-principal">
+    <div className="ini_contenedor-principal" onChangeCapture={uppercaseTextFieldOnChange}>
       {toast.show && <Toast key={toast.key} tipo={toast.tipo} mensaje={toast.mensaje} onClose={() => setToast((t) => ({ ...t, show: false }))} />}
       <main className="CL-Wrap">
         <section className="CL-Card">

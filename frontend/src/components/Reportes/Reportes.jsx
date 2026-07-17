@@ -1,36 +1,42 @@
-// ✅ REEMPLAZAR COMPLETO
-// src/components/Reportes/Reportes.jsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./dashboard.css";
 import BASE_URL from "../../config/config";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faInbox } from "@fortawesome/free-solid-svg-icons";
-
 import {
   faArrowLeft,
+  faBuilding,
   faCalendarAlt,
-  faFileExcel,
-  faSearch,
-  faCoins,
-  faMoneyBillTrendUp,
-  faMoneyBillTransfer,
-  faUsers,
-  faPlus,
-  faPenToSquare,
-  faTrash,
-  faEye,
-  faPaperclip,
   faChartLine,
+  faCircleInfo,
+  faCoins,
+  faEye,
+  faFileExcel,
+  faInbox,
+  faMoneyBillTransfer,
+  faMoneyBillTrendUp,
+  faPaperclip,
+  faPenToSquare,
+  faPlus,
+  faSearch,
+  faTrash,
+  faTriangleExclamation,
+  faUsers,
 } from "@fortawesome/free-solid-svg-icons";
 import * as XLSX from "xlsx";
 
-// ✅ Toast
 import Toast from "../Global/Toast";
+import { uppercaseTextFieldOnChange } from "../Global/uppercaseFields";
+import { fetchJSONAuth } from "../Global/api";
+import {
+  clearStoredSession,
+  getOrganizations,
+  getStoredActiveOrganization,
+  getStoredToken,
+  getStoredUser,
+  setStoredActiveOrganization,
+} from "../Global/session";
 
-/* =========================================================
-   ✅ IMPORTS ROBUSTOS (evita error "got: object")
-========================================================= */
 import * as ModNuevoEgreso from "./modales/ModalNuevoEgreso";
 import * as ModEditarMovimiento from "./modales/ModalEditarMovimiento";
 import * as ModEliminarEgreso from "./modales/ModalEliminarEgreso";
@@ -39,14 +45,15 @@ import * as ModComprobantePago from "./modales/ModalComprobantePago";
 import * as ModGraficosReportes from "./modales/ModalGraficosReportes";
 import ModalSubirComprobanteTrabajador from "./modales/ModalSubirComprobanteTrabajador";
 import ModalVerComprobanteTrabajador from "./modales/ModalVerComprobanteTrabajador";
+import ModalDetalleLiquidacionTrabajador from "./modales/ModalDetalleLiquidacionTrabajador";
 
 function pickComponent(mod, preferredName) {
-  const c =
-    (mod && mod.default) ||
-    (preferredName && mod && mod[preferredName]) ||
-    (mod && Object.values(mod).find((v) => typeof v === "function")) ||
-    null;
-  return c;
+  return (
+    mod?.default ||
+    (preferredName ? mod?.[preferredName] : null) ||
+    Object.values(mod || {}).find((value) => typeof value === "function") ||
+    null
+  );
 }
 
 const ModalNuevoEgreso = pickComponent(ModNuevoEgreso, "ModalNuevoEgreso");
@@ -56,73 +63,46 @@ const ModalVerComprobante = pickComponent(ModVerComprobante, "ModalVerComprobant
 const ModalComprobantePago = pickComponent(ModComprobantePago, "ModalComprobantePago");
 const ModalGraficosReportes = pickComponent(ModGraficosReportes, "ModalGraficosReportes");
 
-function assertIsComponent(Cmp, name) {
-  if (process.env.NODE_ENV !== "production") {
-    if (typeof Cmp !== "function") {
-      // eslint-disable-next-line no-console
-      console.error(`[Reportes] ${name} no es un componente válido. Recibido:`, Cmp);
-      throw new Error(
-        `${name} no es un componente React válido. Revisá export/import del modal (${name}).`
-      );
-    }
-  }
-}
-assertIsComponent(ModalNuevoEgreso, "ModalNuevoEgreso");
-assertIsComponent(ModalEditarMovimiento, "ModalEditarMovimiento");
-assertIsComponent(ModalEliminarEgreso, "ModalEliminarEgreso");
-assertIsComponent(ModalVerComprobante, "ModalVerComprobante");
-assertIsComponent(ModalComprobantePago, "ModalComprobantePago");
-assertIsComponent(ModalGraficosReportes, "ModalGraficosReportes");
-
 const nfPesos = new Intl.NumberFormat("es-AR", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
 
+const money = (value) => `$${nfPesos.format(Number(value || 0))}`;
 const SKELETON_ROWS = 8;
 
-function renderSkeletonRows(cols = 5) {
-  return Array.from({ length: SKELETON_ROWS }).map((_, idx) => (
-    <div className="gridtable-row skeleton-row" role="row" key={`sk-${idx}`} aria-hidden="true">
-      {Array.from({ length: cols }).map((__, j) => (
-        <div className="gridtable-cell" key={`sk-${idx}-${j}`}>
-          <span className={`skeleton-bar ${j === 0 ? "w-80" : "w-60"}`} />
-        </div>
-      ))}
-    </div>
-  ));
-}
-
-function GridTable({ title, columns = [], rows = [], loading = false, actions }) {
+function GridTable({ title, columns = [], rows = [], loading = false, actions = null }) {
   const safeRows = Array.isArray(rows) ? rows : [];
-
-  const allCols = useMemo(() => {
-    if (!actions) return columns;
-    return [
-      ...columns,
-      {
-        key: "__actions",
-        label: "Acciones",
-        fr: "1fr",
-        center: true,
-        render: (r) => actions(r),
-      },
-    ];
-  }, [columns, actions]);
+  const allColumns = useMemo(
+    () =>
+      actions
+        ? [
+            ...columns,
+            {
+              key: "__actions",
+              label: "Acciones",
+              fr: "1fr",
+              center: true,
+              render: actions,
+            },
+          ]
+        : columns,
+    [actions, columns]
+  );
+  const template = allColumns.map((column) => column.fr || "1fr").join(" ");
 
   return (
     <section className="reportes-block">
       <div className="contable-tablewrap reportes-tablewrap minimal">
-        <div
-          className="gridtable-header minimal"
-          style={{ gridTemplateColumns: allCols.map((c) => c.fr).join(" ") }}
-        >
-          {allCols.map((c) => (
+        <div className="gridtable-header minimal" style={{ gridTemplateColumns: template }}>
+          {allColumns.map((column) => (
             <div
-              key={c.key}
-              className={`gridtable-cell ${c.center ? "centers" : ""} ${c.right ? "rights" : ""}`}
+              key={column.key}
+              className={`gridtable-cell ${column.center ? "centers" : ""} ${
+                column.right ? "rights" : ""
+              }`}
             >
-              {c.label}
+              {column.label}
             </div>
           ))}
         </div>
@@ -130,21 +110,36 @@ function GridTable({ title, columns = [], rows = [], loading = false, actions })
         <div className="gridtable-scroll minimal">
           <div className="gridtable-body minimal">
             {loading ? (
-              renderSkeletonRows(allCols.length || 5)
-            ) : safeRows.length ? (
-              safeRows.map((r, idx) => (
+              Array.from({ length: SKELETON_ROWS }).map((_, rowIndex) => (
                 <div
-                  key={r?.id ?? `${title}-${idx}`}
-                  className="gridtable-row row-appear minimal"
-                  style={{ gridTemplateColumns: allCols.map((c) => c.fr).join(" ") }}
+                  key={`skeleton-${rowIndex}`}
+                  className="gridtable-row skeleton-row"
+                  style={{ gridTemplateColumns: template }}
+                  aria-hidden="true"
                 >
-                  {allCols.map((c) => (
+                  {allColumns.map((column) => (
+                    <div className="gridtable-cell" key={`${rowIndex}-${column.key}`}>
+                      <span className="skeleton-bar" />
+                    </div>
+                  ))}
+                </div>
+              ))
+            ) : safeRows.length ? (
+              safeRows.map((row, rowIndex) => (
+                <div
+                  key={row?.id ?? `${title}-${rowIndex}`}
+                  className="gridtable-row row-appear minimal"
+                  style={{ gridTemplateColumns: template }}
+                >
+                  {allColumns.map((column) => (
                     <div
-                      key={c.key}
-                      className={`gridtable-cell ${c.center ? "centers" : ""} ${c.right ? "rights" : ""}`}
-                      data-label={c.label}
+                      key={column.key}
+                      className={`gridtable-cell ${column.center ? "centers" : ""} ${
+                        column.right ? "rights" : ""
+                      }`}
+                      data-label={column.label}
                     >
-                      {c.render ? c.render(r) : r?.[c.key] ?? ""}
+                      {column.render ? column.render(row) : row?.[column.key] ?? ""}
                     </div>
                   ))}
                 </div>
@@ -168,6 +163,15 @@ function GridTable({ title, columns = [], rows = [], loading = false, actions })
 
 export default function Reportes() {
   const navigate = useNavigate();
+  const storedUser = useMemo(() => getStoredUser(), []);
+  const organizations = useMemo(() => getOrganizations(storedUser), [storedUser]);
+  const [activeOrganization, setActiveOrganization] = useState(() =>
+    getStoredActiveOrganization(storedUser)
+  );
+
+  const activeOrganizationId = Number(activeOrganization?.id_organizacion || 0);
+  const activeRole = String(activeOrganization?.rol || "vista").toLowerCase();
+  const canWrite = activeRole === "admin" || activeRole === "contador";
 
   const [toast, setToast] = useState({
     show: false,
@@ -176,286 +180,573 @@ export default function Reportes() {
     duracion: 2500,
     key: 0,
   });
+  const [view, setView] = useState("pagos");
+  const [aniosDisponibles, setAniosDisponibles] = useState([]);
+  const [anioSeleccionado, setAnioSeleccionado] = useState("TODOS");
+  const [mesesDisponibles, setMesesDisponibles] = useState([]);
+  const [mesSeleccionado, setMesSeleccionado] = useState("TODOS");
+  const [mediosDisponibles, setMediosDisponibles] = useState([]);
+  const [trabajadoresActivos, setTrabajadoresActivos] = useState([]);
+  const [searchText, setSearchText] = useState("");
+  const [loadingAnios, setLoadingAnios] = useState(true);
+  const [loadingMeses, setLoadingMeses] = useState(true);
+  const [loadingData, setLoadingData] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [pagos, setPagos] = useState([]);
+  const [egresos, setEgresos] = useState([]);
+  const [trabajadores, setTrabajadores] = useState([]);
+  const [movimientosResumen, setMovimientosResumen] = useState(null);
+  const [liquidacionResumen, setLiquidacionResumen] = useState(null);
+  const [advertencias, setAdvertencias] = useState([]);
+  const [beneficiariosNoPersona, setBeneficiariosNoPersona] = useState([]);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const [modalEgresoOpen, setModalEgresoOpen] = useState(false);
+  const [savingEgreso, setSavingEgreso] = useState(false);
+  const [modalEditarOpen, setModalEditarOpen] = useState(false);
+  const [savingEditar, setSavingEditar] = useState(false);
+  const [editarItem, setEditarItem] = useState(null);
+  const [modalEliminarOpen, setModalEliminarOpen] = useState(false);
+  const [deletingEgreso, setDeletingEgreso] = useState(false);
+  const [egresoAEliminar, setEgresoAEliminar] = useState(null);
+  const [modalVerCompOpen, setModalVerCompOpen] = useState(false);
+  const [compItem, setCompItem] = useState(null);
+  const [modalPagoCompOpen, setModalPagoCompOpen] = useState(false);
+  const [savingPagoComp, setSavingPagoComp] = useState(false);
+  const [pagoItem, setPagoItem] = useState(null);
+  const [modalGraficosOpen, setModalGraficosOpen] = useState(false);
+  const [modalTrabCompOpen, setModalTrabCompOpen] = useState(false);
+  const [savingTrabComp, setSavingTrabComp] = useState(false);
+  const [trabajadorCompItem, setTrabajadorCompItem] = useState(null);
+  const [modalVerTrabCompOpen, setModalVerTrabCompOpen] = useState(false);
+  const [trabajadorCompViewItem, setTrabajadorCompViewItem] = useState(null);
+  const [trabajadorCompViewData, setTrabajadorCompViewData] = useState(null);
+  const [modalDetalleOpen, setModalDetalleOpen] = useState(false);
+  const [detalleTrabajador, setDetalleTrabajador] = useState(null);
+
+  const didInitMes = useRef(false);
 
   const showToast = useCallback((tipo, mensaje, duracion = 2500) => {
-    setToast((t) => ({
+    setToast((current) => ({
       show: true,
       tipo,
       mensaje,
       duracion,
-      key: (t.key || 0) + 1,
+      key: (current.key || 0) + 1,
     }));
   }, []);
 
   const closeToast = useCallback(() => {
-    setToast((t) => ({ ...t, show: false }));
+    setToast((current) => ({ ...current, show: false }));
   }, []);
 
-  const [view, setView] = useState("pagos");
+  useEffect(() => {
+    if (!getStoredToken() || !storedUser || !organizations.length) {
+      clearStoredSession();
+      navigate("/", { replace: true });
+    }
+  }, [navigate, organizations, storedUser]);
 
-  const [aniosDisponibles, setAniosDisponibles] = useState([]);
-  const [loadingAnios, setLoadingAnios] = useState(true);
-  const [anioSeleccionado, setAnioSeleccionado] = useState("TODOS");
+  const changeOrganization = useCallback((organization) => {
+    const selected = setStoredActiveOrganization(organization?.id_organizacion);
+    if (!selected) return;
+    setActiveOrganization(selected);
+    setSearchText("");
+    setPagos([]);
+    setEgresos([]);
+    setTrabajadores([]);
+    setMovimientosResumen(null);
+    setLiquidacionResumen(null);
+    setAdvertencias([]);
+    setBeneficiariosNoPersona([]);
+  }, []);
 
-  const [mesesDisponibles, setMesesDisponibles] = useState([]);
-  const [loadingMeses, setLoadingMeses] = useState(true);
-  const [mesSeleccionado, setMesSeleccionado] = useState("TODOS");
+  const fetchJSON = useCallback(
+    async (url, options = {}) => {
+      if (!activeOrganizationId) throw new Error("No hay una entidad activa.");
+      const separator = url.includes("?") ? "&" : "?";
+      try {
+        return await fetchJSONAuth(
+          `${url}${separator}ts=${Date.now()}`,
+          options,
+          activeOrganizationId
+        );
+      } catch (error) {
+        if (error?.code === "SESSION_EXPIRED") {
+          clearStoredSession();
+          navigate("/", { replace: true });
+        }
+        throw error;
+      }
+    },
+    [activeOrganizationId, navigate]
+  );
 
-  const [mediosDisponibles, setMediosDisponibles] = useState([]);
-  const [trabajadoresActivos, setTrabajadoresActivos] = useState([]);
+  const postJSON = useCallback(
+    (url, body) =>
+      fetchJSON(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify(body ?? {}),
+      }),
+    [fetchJSON]
+  );
 
-  const didInitAnios = useRef(false);
-  const didInitMeses = useRef(false);
-
-  const [searchText, setSearchText] = useState("");
-  const [loadingData, setLoadingData] = useState(false);
-
-  const [pagos, setPagos] = useState([]);
-  const [egresos, setEgresos] = useState([]);
-  const [trabajadores, setTrabajadores] = useState([]);
-
-  const [errorMsg, setErrorMsg] = useState("");
-
-  const [modalEgresoOpen, setModalEgresoOpen] = useState(false);
-  const [savingEgreso, setSavingEgreso] = useState(false);
-
-  const [modalEditarOpen, setModalEditarOpen] = useState(false);
-  const [savingEditar, setSavingEditar] = useState(false);
-  const [editarTipo, setEditarTipo] = useState("pago");
-  const [editarItem, setEditarItem] = useState(null);
-
-  const [modalEliminarOpen, setModalEliminarOpen] = useState(false);
-  const [deletingEgreso, setDeletingEgreso] = useState(false);
-  const [egresoAEliminar, setEgresoAEliminar] = useState(null);
-
-  const [modalVerCompOpen, setModalVerCompOpen] = useState(false);
-  const [compItem, setCompItem] = useState(null);
-
-  const [modalPagoCompOpen, setModalPagoCompOpen] = useState(false);
-  const [savingPagoComp, setSavingPagoComp] = useState(false);
-  const [pagoItem, setPagoItem] = useState(null);
-
-  const [modalGraficosOpen, setModalGraficosOpen] = useState(false);
-
-  const [modalTrabCompOpen, setModalTrabCompOpen] = useState(false);
-  const [savingTrabComp, setSavingTrabComp] = useState(false);
-  const [trabajadorCompItem, setTrabajadorCompItem] = useState(null);
-
-  const [modalVerTrabCompOpen, setModalVerTrabCompOpen] = useState(false);
-  const [trabajadorCompViewItem, setTrabajadorCompViewItem] = useState(null);
-  const [trabajadorCompViewData, setTrabajadorCompViewData] = useState(null);
-
-  const [reloadKey, setReloadKey] = useState(0);
-
-  const volver = useCallback(() => navigate(-1), [navigate]);
+  const postFormData = useCallback(
+    (url, formData) => fetchJSON(url, { method: "POST", body: formData }),
+    [fetchJSON]
+  );
 
   const buildFileUrl = useCallback((path) => {
-    const p = String(path || "").trim();
-    if (!p) return "";
-    if (p.startsWith("http://") || p.startsWith("https://")) return p;
-    const base = String(BASE_URL || "").replace(/\/+$/, "");
-    const clean = p.replace(/^\/+/, "");
-    return `${base}/${clean}`;
+    const value = String(path || "").trim();
+    if (!value) return "";
+    if (/^https?:\/\//i.test(value)) return value;
+    return `${String(BASE_URL || "").replace(/\/+$/, "")}/${value.replace(/^\/+/, "")}`;
   }, []);
 
   const getPeriodoTrabajador = useCallback(() => {
-    const anio = anioSeleccionado !== "TODOS" ? parseInt(anioSeleccionado, 10) : 0;
-    const mes = mesSeleccionado !== "TODOS" ? parseInt(mesSeleccionado, 10) : 0;
-
-    if (!anio || Number.isNaN(anio) || !mes || Number.isNaN(mes)) {
+    const anio = anioSeleccionado === "TODOS" ? 0 : Number(anioSeleccionado);
+    const mes = mesSeleccionado === "TODOS" ? 0 : Number(mesSeleccionado);
+    if (!Number.isInteger(anio) || anio < 2000 || !Number.isInteger(mes) || mes < 1 || mes > 12) {
       return null;
     }
-
-    const mesNombre =
-      mesesDisponibles.find((m) => String(m.id) === String(mesSeleccionado))?.mes ||
-      `Mes ${mes}`;
-
-    return {
-      anio,
-      mes,
-      label: `${mesNombre} ${anio}`,
-    };
+    const nombreMes =
+      mesesDisponibles.find((item) => String(item.id) === String(mes))?.mes || `Mes ${mes}`;
+    return { anio, mes, id_mes: mes, label: `${nombreMes} ${anio}` };
   }, [anioSeleccionado, mesSeleccionado, mesesDisponibles]);
 
-  const fetchJSON = useCallback(async (url) => {
-    const sep = url.includes("?") ? "&" : "?";
-    const finalUrl = `${url}${sep}ts=${Date.now()}`;
+  useEffect(() => {
+    if (!activeOrganizationId) return;
+    let alive = true;
 
-    const res = await fetch(finalUrl, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    });
+    (async () => {
+      try {
+        setLoadingAnios(true);
+        const data = await fetchJSON(`${BASE_URL}/api.php?action=reportes&op=anios`);
+        if (!alive) return;
+        const rawYears = Array.isArray(data?.anios) ? data.anios : [];
+        const years = ["TODOS", ...rawYears.map(String)];
+        setAniosDisponibles(years);
+        const currentYear = String(new Date().getFullYear());
+        setAnioSeleccionado((current) => {
+          if (current !== "TODOS" && years.includes(String(current))) return String(current);
+          if (years.includes(currentYear)) return currentYear;
+          return rawYears.length ? String(rawYears[0]) : "TODOS";
+        });
+      } catch (error) {
+        if (!alive) return;
+        setAniosDisponibles(["TODOS"]);
+        setAnioSeleccionado("TODOS");
+        showToast("error", `No se pudieron cargar los años: ${error.message}`, 4000);
+      } finally {
+        if (alive) setLoadingAnios(false);
+      }
+    })();
 
-    const text = await res.text();
-    if (!res.ok) throw new Error(`HTTP ${res.status} :: ${text.slice(0, 300)}`);
+    return () => {
+      alive = false;
+    };
+  }, [activeOrganizationId, fetchJSON, showToast]);
 
-    const trimmed = (text || "").trim();
-    if (trimmed.startsWith("<")) {
-      throw new Error(
-        `Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`
-      );
-    }
+  useEffect(() => {
+    if (!activeOrganizationId) return;
+    let alive = true;
 
-    try {
-      return JSON.parse(trimmed || "{}");
-    } catch {
-      throw new Error(`JSON inválido. Primeros chars: ${trimmed.slice(0, 300)}`);
-    }
-  }, []);
+    (async () => {
+      try {
+        setLoadingMeses(true);
+        const data = await fetchJSON(`${BASE_URL}/api.php?action=listas`);
+        if (!alive) return;
+        const rawMonths = Array.isArray(data?.listas?.meses) ? data.listas.meses : [];
+        const rawMethods = Array.isArray(data?.listas?.medios_pago)
+          ? data.listas.medios_pago
+          : Array.isArray(data?.listas?.medios)
+          ? data.listas.medios
+          : [];
+        const months = rawMonths
+          .map((item) => ({
+            ...item,
+            id: item.id ?? item.id_mes,
+            mes: item.mes ?? item.nombre ?? item.label,
+          }))
+          .filter((item) => item.id != null);
+        const methods = rawMethods
+          .map((item) => ({
+            ...item,
+            id: item.id ?? item.id_medio_pago,
+            nombre: item.nombre ?? item.medio ?? item.label,
+          }))
+          .filter((item) => item.id != null);
+        setMesesDisponibles(months);
+        setMediosDisponibles(methods);
+        if (!didInitMes.current) {
+          const currentMonth = String(new Date().getMonth() + 1);
+          setMesSeleccionado(months.some((item) => String(item.id) === currentMonth) ? currentMonth : "TODOS");
+          didInitMes.current = true;
+        }
+      } catch (error) {
+        if (!alive) return;
+        setMesesDisponibles([]);
+        setMediosDisponibles([]);
+        showToast("error", `No se pudieron cargar meses y medios: ${error.message}`, 4000);
+      } finally {
+        if (alive) setLoadingMeses(false);
+      }
+    })();
 
-  const postJSON = useCallback(async (url, bodyObj) => {
-    const sep = url.includes("?") ? "&" : "?";
-    const finalUrl = `${url}${sep}ts=${Date.now()}`;
+    return () => {
+      alive = false;
+    };
+  }, [activeOrganizationId, fetchJSON, showToast]);
 
-    const res = await fetch(finalUrl, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json; charset=utf-8",
-      },
-      body: JSON.stringify(bodyObj ?? {}),
-    });
+  useEffect(() => {
+    if (!activeOrganizationId) return;
+    let alive = true;
+    (async () => {
+      try {
+        const data = await fetchJSON(`${BASE_URL}/api.php?action=reportes&op=trabajadores_activos`);
+        if (!alive) return;
+        const rows = Array.isArray(data?.trabajadores) ? data.trabajadores : [];
+        setTrabajadoresActivos(
+          rows.map((row) => ({
+            id: row.id ?? row.id_trabajador,
+            nombre: row.nombre ?? "",
+            apellido: row.apellido ?? "",
+            rol: row.rol ?? "",
+            alias_pago: row.alias_pago ?? "",
+          }))
+        );
+      } catch (error) {
+        if (alive) setTrabajadoresActivos([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [activeOrganizationId, fetchJSON]);
 
-    const text = await res.text();
-    if (!res.ok) throw new Error(`HTTP ${res.status} :: ${text.slice(0, 300)}`);
+  useEffect(() => {
+    if (!activeOrganizationId) return;
+    let alive = true;
 
-    const trimmed = (text || "").trim();
-    if (trimmed.startsWith("<")) {
-      throw new Error(
-        `Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`
-      );
-    }
+    const withFilters = (operation) => {
+      const params = new URLSearchParams({ action: "reportes", op: operation });
+      if (anioSeleccionado !== "TODOS") params.set("anio", String(anioSeleccionado));
+      if (mesSeleccionado !== "TODOS") params.set("mes", String(mesSeleccionado));
+      return `${String(BASE_URL || "").replace(/\/+$/, "")}/api.php?${params.toString()}`;
+    };
 
-    try {
-      return JSON.parse(trimmed || "{}");
-    } catch {
-      throw new Error(`JSON inválido. Primeros chars: ${trimmed.slice(0, 300)}`);
-    }
-  }, []);
+    (async () => {
+      try {
+        setErrorMsg("");
+        setLoadingData(true);
 
-  const postFormData = useCallback(async (url, formData) => {
-    const sep = url.includes("?") ? "&" : "?";
-    const finalUrl = `${url}${sep}ts=${Date.now()}`;
+        const movementData = await fetchJSON(withFilters("movimientos"));
+        if (!alive) return;
+        const rawPayments = Array.isArray(movementData?.pagos)
+          ? movementData.pagos
+          : Array.isArray(movementData?.ingresos)
+          ? movementData.ingresos
+          : [];
+        const rawExpenses = Array.isArray(movementData?.egresos) ? movementData.egresos : [];
 
-    const res = await fetch(finalUrl, {
-      method: "POST",
-      headers: { Accept: "application/json" },
-      body: formData,
-    });
+        setPagos(
+          rawPayments.map((row) => ({
+            id: row.id ?? row.id_pago,
+            id_pago: row.id_pago ?? row.id,
+            id_sistema: row.id_sistema ?? null,
+            fecha: row.fecha ?? row.fecha_pago ?? "",
+            anio_periodo: Number(row.anio_periodo || 0),
+            id_mes: Number(row.id_mes || 0),
+            concepto: row.concepto ?? "",
+            categoria: row.categoria ?? "",
+            medio: row.medio ?? "",
+            id_medio_pago: row.id_medio_pago ?? null,
+            monto: Number(row.monto || 0),
+            cliente_nombre: row.cliente_nombre ?? "",
+            sistema_nombre: row.sistema_nombre ?? "",
+            comprobante: row.comprobante ?? "",
+            factura_pdf: row.factura_pdf ?? "",
+          }))
+        );
+        setEgresos(
+          rawExpenses.map((row) => ({
+            id: row.id ?? row.id_egreso,
+            id_egreso: row.id_egreso ?? row.id,
+            fecha: row.fecha ?? "",
+            concepto: row.concepto ?? "",
+            descripcion: row.descripcion ?? "",
+            categoria: row.categoria ?? "",
+            medio: row.medio ?? "",
+            id_medio_pago: row.id_medio_pago ?? null,
+            id_trabajador: row.id_trabajador ?? null,
+            trabajador: row.trabajador ?? "",
+            tipo_egreso: row.tipo_egreso ?? (row.id_trabajador ? "reembolso" : "general"),
+            monto: Number(row.monto || 0),
+            comprobante: row.comprobante ?? "",
+          }))
+        );
+        setMovimientosResumen(movementData?.resumen || null);
 
-    const text = await res.text();
-    if (!res.ok) throw new Error(`HTTP ${res.status} :: ${text.slice(0, 300)}`);
+        if (view === "trabajadores") {
+          const workerData = await fetchJSON(withFilters("trabajadores"));
+          if (!alive) return;
+          const rawWorkers = Array.isArray(workerData?.trabajadores) ? workerData.trabajadores : [];
+          setTrabajadores(
+            rawWorkers.map((row) => ({
+              id: row.id ?? row.id_trabajador,
+              id_trabajador: row.id_trabajador ?? row.id,
+              nombre: row.nombre ?? "",
+              apellido: row.apellido ?? "",
+              rol: row.rol ?? "",
+              alias_pago: row.alias_pago ?? "",
+              porcentaje_efectivo: Number(row.porcentaje_efectivo || 0),
+              sistemas_cobrados: Number(row.sistemas_cobrados || 0),
+              monto_bruto: Number(row.monto_bruto || 0),
+              descuento_egresos: Number(row.descuento_egresos || 0),
+              monto_sistemas: Number(row.monto_sistemas || 0),
+              monto_reembolso: Number(row.monto_reembolso || 0),
+              monto: Number(row.monto || 0),
+              miembro_organizacion: Boolean(row.miembro_organizacion),
+              puede_comprobante: Boolean(row.puede_comprobante),
+              liquidacion_indirecta: Boolean(row.liquidacion_indirecta),
+              usa_fallback_historico: Boolean(row.usa_fallback_historico),
+              detalle: Array.isArray(row.detalle) ? row.detalle : [],
+              comprobante_pago: row.comprobante_pago ?? "",
+              comprobante_pago_fecha: row.comprobante_pago_fecha ?? "",
+              comprobante_pago_nombre: row.comprobante_pago_nombre ?? "",
+              comprobante_pago_tipo: row.comprobante_pago_tipo ?? "",
+              comprobante_pago_id_mes: row.comprobante_pago_id_mes ?? null,
+              comprobante_pago_anio: row.comprobante_pago_anio ?? null,
+            }))
+          );
+          setLiquidacionResumen(workerData?.resumen || null);
+          setAdvertencias(Array.isArray(workerData?.advertencias) ? workerData.advertencias : []);
+          setBeneficiariosNoPersona(
+            Array.isArray(workerData?.beneficiarios_no_persona)
+              ? workerData.beneficiarios_no_persona
+              : []
+          );
+        } else {
+          setTrabajadores([]);
+          setLiquidacionResumen(null);
+          setAdvertencias([]);
+          setBeneficiariosNoPersona([]);
+        }
+      } catch (error) {
+        if (!alive) return;
+        setErrorMsg(String(error?.message || error));
+        setPagos([]);
+        setEgresos([]);
+        setTrabajadores([]);
+        setMovimientosResumen(null);
+        setLiquidacionResumen(null);
+        setAdvertencias([]);
+        setBeneficiariosNoPersona([]);
+        showToast("error", `Error cargando Reportes: ${error.message}`, 4200);
+      } finally {
+        if (alive) setLoadingData(false);
+      }
+    })();
 
-    const trimmed = (text || "").trim();
-    if (trimmed.startsWith("<")) {
-      throw new Error(
-        `Backend devolvió HTML (error PHP). Primeros chars: ${trimmed.slice(0, 300)}`
-      );
-    }
+    return () => {
+      alive = false;
+    };
+  }, [
+    activeOrganizationId,
+    anioSeleccionado,
+    fetchJSON,
+    mesSeleccionado,
+    reloadKey,
+    showToast,
+    view,
+  ]);
 
-    try {
-      return JSON.parse(trimmed || "{}");
-    } catch {
-      throw new Error(`JSON inválido. Primeros chars: ${trimmed.slice(0, 300)}`);
-    }
-  }, []);
-
-  const onEditar = useCallback(
-    (row) => {
-      const t = view === "egresos" ? "egreso" : view === "trabajadores" ? "trabajador" : "pago";
-
-      const fixedId =
-        row?.id ?? row?.id_mov ?? row?.id_pago ?? row?.id_egreso ?? row?.id_trabajador ?? null;
-
-      const fixedRow = { ...(row || {}), id: fixedId };
-
-      setEditarTipo(t);
-      setEditarItem(fixedRow);
-      setModalEditarOpen(true);
-    },
-    [view]
+  const totalPagos = Number(
+    movimientosResumen?.total_ingresos ?? pagos.reduce((sum, row) => sum + Number(row.monto || 0), 0)
   );
+  const totalEgresos = Number(
+    movimientosResumen?.total_egresos ?? egresos.reduce((sum, row) => sum + Number(row.monto || 0), 0)
+  );
+  const balance = Number(movimientosResumen?.balance ?? totalPagos - totalEgresos);
+  const totalTrabajadores = Number(
+    liquidacionResumen?.total_a_pagar ??
+      trabajadores.reduce((sum, row) => sum + Number(row.monto || 0), 0)
+  );
+
+  const query = searchText.trim().toLowerCase();
+  const pagosFiltrados = useMemo(() => {
+    if (!query) return pagos;
+    return pagos.filter((row) =>
+      `${row.fecha} ${row.cliente_nombre} ${row.sistema_nombre} ${row.medio} ${row.monto}`
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [pagos, query]);
+  const egresosFiltrados = useMemo(() => {
+    if (!query) return egresos;
+    return egresos.filter((row) =>
+      `${row.fecha} ${row.concepto} ${row.descripcion} ${row.trabajador} ${row.medio} ${row.monto}`
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [egresos, query]);
+  const trabajadoresFiltrados = useMemo(() => {
+    if (!query) return trabajadores;
+    return trabajadores.filter((row) =>
+      `${row.apellido} ${row.nombre} ${row.rol} ${row.alias_pago} ${row.porcentaje_efectivo} ${row.monto}`
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [query, trabajadores]);
+
+  const colsPagos = useMemo(
+    () => [
+      { key: "fecha", label: "Fecha pago", fr: "1fr" },
+      { key: "cliente_nombre", label: "Cliente", fr: "1.35fr" },
+      { key: "sistema_nombre", label: "Sistema", fr: "1.65fr" },
+      { key: "categoria", label: "Período", fr: "1fr", center: true },
+      { key: "medio", label: "Medio", fr: "1fr", center: true },
+      { key: "monto", label: "Monto", fr: "1fr", center: true, render: (row) => money(row.monto) },
+    ],
+    []
+  );
+
+  const colsEgresos = useMemo(
+    () => [
+      { key: "fecha", label: "Fecha", fr: "1fr" },
+      { key: "concepto", label: "Concepto", fr: "1.25fr", render: (row) => row.concepto || "—" },
+      {
+        key: "descripcion",
+        label: "Descripción",
+        fr: "1.55fr",
+        render: (row) => (
+          <span className="truncate" title={row.descripcion || ""}>
+            {row.descripcion || "—"}
+          </span>
+        ),
+      },
+      { key: "trabajador", label: "Reembolso a", fr: "1.2fr", render: (row) => row.trabajador || "—" },
+      { key: "medio", label: "Medio", fr: "1fr", center: true },
+      { key: "monto", label: "Monto", fr: "1fr", center: true, render: (row) => money(row.monto) },
+    ],
+    []
+  );
+
+  const colsTrabajadores = useMemo(
+    () => [
+      {
+        key: "trabajador",
+        label: "Trabajador",
+        fr: "1.4fr",
+        render: (row) => (
+          <div className="reportes-worker-name">
+            <strong>{`${row.apellido || ""} ${row.nombre || ""}`.trim() || "—"}</strong>
+            {row.liquidacion_indirecta ? <span>VÍA OTRA ENTIDAD</span> : null}
+          </div>
+        ),
+      },
+      { key: "alias_pago", label: "Alias", fr: "1.05fr", render: (row) => row.alias_pago || "—" },
+      {
+        key: "porcentaje_efectivo",
+        label: "%",
+        fr: "0.6fr",
+        center: true,
+        render: (row) => `${nfPesos.format(row.porcentaje_efectivo)}%`,
+      },
+      { key: "sistemas_cobrados", label: "Sistemas", fr: "0.65fr", center: true },
+      {
+        key: "descuento_egresos",
+        label: "Impacto egresos",
+        fr: "1fr",
+        center: true,
+        render: (row) => (Number(row.descuento_egresos) > 0 ? `− ${money(row.descuento_egresos)}` : money(0)),
+      },
+      { key: "monto_reembolso", label: "Reembolso", fr: "1fr", center: true, render: (row) => money(row.monto_reembolso) },
+      { key: "monto", label: "Total a pagar", fr: "1fr", center: true, render: (row) => <strong>{money(row.monto)}</strong> },
+    ],
+    []
+  );
+
+  const labelMes =
+    mesSeleccionado === "TODOS"
+      ? "Todos los meses"
+      : mesesDisponibles.find((item) => String(item.id) === String(mesSeleccionado))?.mes || "—";
+  const labelAnio = anioSeleccionado === "TODOS" ? "Todos los años" : `Año ${anioSeleccionado}`;
+  const periodoLabel = `${labelMes} • ${labelAnio}`;
 
   const openViewerFromRow = useCallback(
     (row, fallbackTitle = "Comprobante") => {
-      const r = row || {};
-      const comp = String(r?.comprobante || "").trim();
-      if (!comp) {
+      const path = String(row?.comprobante || "").trim();
+      if (!path) {
         showToast("advertencia", "Este registro no tiene comprobante.", 2200);
         return;
       }
       setCompItem({
-        id: r?.id ?? null,
-        concepto: r?.concepto || fallbackTitle,
-        fecha: r?.fecha || "",
-        comprobante: comp,
-        url: buildFileUrl(comp),
+        id: row?.id,
+        concepto: row?.concepto || fallbackTitle,
+        fecha: row?.fecha || "",
+        comprobante: path,
+        url: buildFileUrl(path),
       });
       setModalVerCompOpen(true);
     },
     [buildFileUrl, showToast]
   );
 
-  const onEliminarEgreso = useCallback((row) => {
-    setEgresoAEliminar(row);
-    setModalEliminarOpen(true);
-  }, []);
+  const crearEgreso = useCallback(
+    async (formData) => {
+      try {
+        setSavingEgreso(true);
+        await postFormData(`${BASE_URL}/api.php?action=reportes&op=crear_egreso`, formData);
+        setModalEgresoOpen(false);
+        setReloadKey((value) => value + 1);
+        showToast("exito", "Egreso creado correctamente.", 2800);
+      } catch (error) {
+        showToast("error", `Error al crear el egreso: ${error.message}`, 4000);
+      } finally {
+        setSavingEgreso(false);
+      }
+    },
+    [postFormData, showToast]
+  );
 
   const confirmarEditar = useCallback(
     async (payload) => {
       try {
-        setErrorMsg("");
         setSavingEditar(true);
-        showToast("cargando", "Guardando cambios…", 1200);
-
-        const url = `${BASE_URL}/api.php?action=reportes&op=editar_movimiento`;
-        const isFD = typeof FormData !== "undefined" && payload instanceof FormData;
-
-        const data = isFD ? await postFormData(url, payload) : await postJSON(url, payload);
-        if (!data?.exito) throw new Error(data?.mensaje || "No se pudo editar.");
-
+        const isFormData = typeof FormData !== "undefined" && payload instanceof FormData;
+        if (isFormData) {
+          await postFormData(`${BASE_URL}/api.php?action=reportes&op=editar_movimiento`, payload);
+        } else {
+          await postJSON(`${BASE_URL}/api.php?action=reportes&op=editar_movimiento`, payload);
+        }
         setModalEditarOpen(false);
         setEditarItem(null);
-        setReloadKey((k) => k + 1);
-
-        showToast("exito", "Editado correctamente.", 3000);
-      } catch (e) {
-        console.error("Error editando:", e);
-        const msg = String(e?.message || e);
-        setErrorMsg(msg);
-        showToast("error", `Error al editar: ${msg}`, 3800);
+        setReloadKey((value) => value + 1);
+        showToast("exito", "Egreso actualizado correctamente.", 2600);
+      } catch (error) {
+        showToast("error", `Error al editar: ${error.message}`, 4000);
       } finally {
         setSavingEditar(false);
       }
     },
-    [postJSON, postFormData, showToast]
+    [postFormData, postJSON, showToast]
   );
 
   const confirmarEliminarEgreso = useCallback(
-    async (eg) => {
+    async (row) => {
       try {
-        setErrorMsg("");
         setDeletingEgreso(true);
-        showToast("cargando", "Eliminando egreso…", 1200);
-
-        const id = eg?.id ?? eg?.id_egreso ?? eg?.id_mov ?? null;
-        if (!id) throw new Error("No se encontró ID del egreso para eliminar.");
-
-        const url = `${BASE_URL}/api.php?action=reportes&op=eliminar_egreso`;
-        const data = await postJSON(url, { id });
-
-        if (!data?.exito) throw new Error(data?.mensaje || "No se pudo eliminar el egreso.");
-
+        await postJSON(`${BASE_URL}/api.php?action=reportes&op=eliminar_egreso`, {
+          id: row?.id ?? row?.id_egreso,
+        });
         setModalEliminarOpen(false);
         setEgresoAEliminar(null);
-        setReloadKey((k) => k + 1);
-
-        showToast("exito", "Egreso eliminado correctamente.", 2400);
-      } catch (e) {
-        console.error("Error eliminando egreso:", e);
-        const msg = String(e?.message || e);
-        setErrorMsg(msg);
-        showToast("error", `❌ Error al eliminar: ${msg}`, 3800);
+        setReloadKey((value) => value + 1);
+        showToast("exito", "Egreso eliminado correctamente.", 2600);
+      } catch (error) {
+        showToast("error", `Error al eliminar: ${error.message}`, 4000);
       } finally {
         setDeletingEgreso(false);
       }
@@ -466,25 +757,14 @@ export default function Reportes() {
   const guardarComprobantePago = useCallback(
     async (formData) => {
       try {
-        setErrorMsg("");
         setSavingPagoComp(true);
-        showToast("cargando", "Guardando comprobante…", 1200);
-
-        const url = `${BASE_URL}/api.php?action=reportes&op=pago_comprobante`;
-        const data = await postFormData(url, formData);
-
-        if (!data?.exito) throw new Error(data?.mensaje || "No se pudo guardar el comprobante.");
-
+        await postFormData(`${BASE_URL}/api.php?action=reportes&op=pago_comprobante`, formData);
         setModalPagoCompOpen(false);
         setPagoItem(null);
-        setReloadKey((k) => k + 1);
-
-        showToast("exito", "Comprobante guardado.", 2600);
-      } catch (e) {
-        console.error("Error comprobante pago:", e);
-        const msg = String(e?.message || e);
-        setErrorMsg(msg);
-        showToast("error", `❌ Error: ${msg}`, 3800);
+        setReloadKey((value) => value + 1);
+        showToast("exito", "Comprobante del pago actualizado.", 2600);
+      } catch (error) {
+        showToast("error", `Error guardando el comprobante: ${error.message}`, 4000);
       } finally {
         setSavingPagoComp(false);
       }
@@ -492,57 +772,48 @@ export default function Reportes() {
     [postFormData, showToast]
   );
 
-  const abrirSubirComprobanteTrabajador = useCallback((row) => {
-    const periodo = getPeriodoTrabajador();
-    if (!periodo) {
-      showToast(
-        "advertencia",
-        "Seleccioná un año y un mes puntual para cargar el comprobante del pago.",
-        3200
-      );
-      return;
-    }
-
-    setTrabajadorCompItem({ ...(row || {}), periodo_comprobante: periodo });
-    setModalTrabCompOpen(true);
-  }, [getPeriodoTrabajador, showToast]);
+  const abrirSubirComprobanteTrabajador = useCallback(
+    (row) => {
+      const periodo = getPeriodoTrabajador();
+      if (!periodo) {
+        showToast("advertencia", "Seleccioná un año y un mes puntual.", 2800);
+        return;
+      }
+      if (!row?.puede_comprobante) {
+        showToast(
+          "advertencia",
+          "Esta liquidación es indirecta y se paga mediante otra entidad.",
+          3200
+        );
+        return;
+      }
+      setTrabajadorCompItem({ ...row, periodo_comprobante: periodo });
+      setModalTrabCompOpen(true);
+    },
+    [getPeriodoTrabajador, showToast]
+  );
 
   const guardarComprobanteTrabajador = useCallback(
     async (formData) => {
       try {
-        setErrorMsg("");
-        setSavingTrabComp(true);
-
         const periodo = getPeriodoTrabajador();
-        if (!periodo) {
-          throw new Error("Seleccioná un año y un mes puntual antes de cargar el comprobante.");
-        }
-
+        if (!periodo) throw new Error("Seleccioná un año y un mes puntual.");
+        setSavingTrabComp(true);
         if (formData instanceof FormData) {
           if (!formData.has("anio")) formData.append("anio", String(periodo.anio));
           if (!formData.has("mes")) formData.append("mes", String(periodo.mes));
           if (!formData.has("id_mes")) formData.append("id_mes", String(periodo.mes));
         }
-
-        showToast("cargando", `Guardando comprobante de ${periodo.label}…`, 1200);
-
-        const url = `${BASE_URL}/api.php?action=reportes&op=trabajador_subir_comprobante`;
-        const data = await postFormData(url, formData);
-
-        if (!data?.exito) {
-          throw new Error(data?.mensaje || "No se pudo guardar el comprobante del trabajador.");
-        }
-
+        await postFormData(
+          `${BASE_URL}/api.php?action=reportes&op=trabajador_subir_comprobante`,
+          formData
+        );
         setModalTrabCompOpen(false);
         setTrabajadorCompItem(null);
-        setReloadKey((k) => k + 1);
-
+        setReloadKey((value) => value + 1);
         showToast("exito", `Comprobante de ${periodo.label} guardado.`, 2800);
-      } catch (e) {
-        console.error("Error comprobante trabajador:", e);
-        const msg = String(e?.message || e);
-        setErrorMsg(msg);
-        showToast("error", `❌ Error: ${msg}`, 4200);
+      } catch (error) {
+        showToast("error", `Error guardando el comprobante: ${error.message}`, 4200);
       } finally {
         setSavingTrabComp(false);
       }
@@ -553,680 +824,151 @@ export default function Reportes() {
   const verComprobanteTrabajador = useCallback(
     async (row) => {
       try {
-        const id = row?.id ?? row?.id_trabajador ?? null;
-        if (!id) throw new Error("No se encontró ID del trabajador.");
-
         const periodo = getPeriodoTrabajador();
         if (!periodo) {
-          showToast(
-            "advertencia",
-            "Seleccioná un año y un mes puntual para ver el comprobante del pago.",
-            3200
-          );
+          showToast("advertencia", "Seleccioná un año y un mes puntual.", 2800);
           return;
         }
-
-        const rowConPeriodo = { ...(row || {}), periodo_comprobante: periodo };
-        setTrabajadorCompViewItem(rowConPeriodo);
-        setTrabajadorCompViewData(null);
-
-        const precargado = row?.comprobante_pago
-          ? {
-              archivo_url: row.comprobante_pago,
-              archivo_nombre: row.comprobante_pago_nombre || "Comprobante",
-              archivo_tipo: row.comprobante_pago_tipo || "",
-              created_at: row.comprobante_pago_fecha || "",
-              id_mes: row.comprobante_pago_id_mes ?? periodo.mes,
-              anio: row.comprobante_pago_anio ?? periodo.anio,
-            }
-          : null;
-
-        if (precargado) {
-          setTrabajadorCompViewData(precargado);
+        const item = { ...row, periodo_comprobante: periodo };
+        setTrabajadorCompViewItem(item);
+        if (row?.comprobante_pago) {
+          setTrabajadorCompViewData({
+            archivo_url: row.comprobante_pago,
+            archivo_nombre: row.comprobante_pago_nombre,
+            archivo_tipo: row.comprobante_pago_tipo,
+            created_at: row.comprobante_pago_fecha,
+            id_mes: row.comprobante_pago_id_mes,
+            anio: row.comprobante_pago_anio,
+          });
           setModalVerTrabCompOpen(true);
           return;
         }
-
-        showToast("cargando", `Buscando comprobante de ${periodo.label}…`, 900);
-
         const data = await fetchJSON(
-          `${BASE_URL}/api.php?action=reportes&op=trabajador_comprobante_latest&id=${encodeURIComponent(id)}&anio=${encodeURIComponent(periodo.anio)}&mes=${encodeURIComponent(periodo.mes)}`
+          `${BASE_URL}/api.php?action=reportes&op=trabajador_comprobante_latest&id=${encodeURIComponent(
+            row.id
+          )}&anio=${periodo.anio}&mes=${periodo.mes}`
         );
-        if (!data?.exito) throw new Error(data?.mensaje || "No se pudo consultar el comprobante.");
-
-        const comp = data?.data || null;
-        if (!comp) {
-          showToast("advertencia", `Este trabajador todavía no tiene comprobante cargado para ${periodo.label}.`, 2600);
+        if (!data?.data) {
+          showToast("advertencia", `No hay comprobante para ${periodo.label}.`, 2600);
           return;
         }
-
-        setTrabajadorCompViewData(comp);
+        setTrabajadorCompViewData(data.data);
         setModalVerTrabCompOpen(true);
-      } catch (e) {
-        console.error("Error viendo comprobante trabajador:", e);
-        const msg = String(e?.message || e);
-        setErrorMsg(msg);
-        showToast("error", `❌ Error: ${msg}`, 4200);
+      } catch (error) {
+        showToast("error", `Error consultando el comprobante: ${error.message}`, 4000);
       }
     },
     [fetchJSON, getPeriodoTrabajador, showToast]
   );
 
-  /* ===== AÑOS ===== */
-  useEffect(() => {
-    let alive = true;
-
-    (async () => {
-      try {
-        setErrorMsg("");
-        setLoadingAnios(true);
-
-        const data = await fetchJSON(`${BASE_URL}/api.php?action=reportes&op=anios`).catch(
-          () => null
-        );
-
-        const arr = Array.isArray(data?.anios) ? data.anios : [];
-        const years = ["TODOS", ...arr.map((y) => String(y))];
-
-        if (!alive) return;
-        setAniosDisponibles(years);
-
-        if (!didInitAnios.current) {
-          const now = new Date();
-          const yNow = String(now.getFullYear());
-
-          let yDefault = "TODOS";
-          if (years.includes(yNow)) yDefault = yNow;
-          else if (arr.length > 0) yDefault = String(arr[0]);
-
-          setAnioSeleccionado(yDefault);
-          didInitAnios.current = true;
-        }
-      } catch (e) {
-        console.error("Error cargando años:", e);
-        if (!alive) return;
-
-        const msg = String(e?.message || e);
-        setErrorMsg(msg);
-        setAniosDisponibles(["TODOS"]);
-        if (!didInitAnios.current) {
-          setAnioSeleccionado("TODOS");
-          didInitAnios.current = true;
-        }
-        showToast("error", `❌ No se pudieron cargar los años: ${msg}`, 4200);
-      } finally {
-        if (alive) setLoadingAnios(false);
-      }
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, [fetchJSON, showToast]);
-
-  /* ===== MESES + MEDIOS ===== */
-  useEffect(() => {
-    let alive = true;
-
-    (async () => {
-      try {
-        setErrorMsg("");
-        setLoadingMeses(true);
-
-        const data = await fetchJSON(`${BASE_URL}/api.php?action=listas`).catch(() => null);
-
-        const meses = Array.isArray(data?.listas?.meses) ? data.listas.meses : [];
-        const mesesNorm = meses
-          .map((m) => ({
-            ...m,
-            id: m.id ?? m.id_mes,
-            mes: m.mes ?? m.nombre ?? m.label,
-          }))
-          .filter((m) => m.id != null);
-
-        const medios = Array.isArray(data?.listas?.medios_pago)
-          ? data.listas.medios_pago
-          : Array.isArray(data?.listas?.medios)
-          ? data.listas.medios
-          : [];
-
-        const mediosNorm = medios
-          .map((m) => ({
-            ...m,
-            id: m.id ?? m.id_medio_pago,
-            nombre: m.nombre ?? m.medio ?? m.label,
-          }))
-          .filter((m) => m.id != null);
-
-        if (!alive) return;
-
-        setMesesDisponibles(mesesNorm);
-        setMediosDisponibles(mediosNorm);
-
-        if (!didInitMeses.current) {
-          const now = new Date();
-          const mNow = String(now.getMonth() + 1);
-          const exists = mesesNorm.some((m) => String(m.id) === mNow);
-          setMesSeleccionado(exists ? mNow : "TODOS");
-          didInitMeses.current = true;
-        }
-      } catch (e) {
-        console.error("Error cargando meses:", e);
-        if (!alive) return;
-
-        const msg = String(e?.message || e);
-        setErrorMsg(msg);
-        setMesesDisponibles([]);
-        setMediosDisponibles([]);
-        if (!didInitMeses.current) {
-          setMesSeleccionado("TODOS");
-          didInitMeses.current = true;
-        }
-        showToast("error", `❌ No se pudieron cargar listas (meses/medios): ${msg}`, 4200);
-      } finally {
-        if (alive) setLoadingMeses(false);
-      }
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, [fetchJSON, showToast]);
-
-  /* ===== TRABAJADORES ACTIVOS PARA EL MODAL DE EGRESOS ===== */
-  useEffect(() => {
-    let alive = true;
-
-    (async () => {
-      try {
-        const data = await fetchJSON(
-          `${BASE_URL}/api.php?action=reportes&op=trabajadores_activos`
-        );
-
-        if (!alive) return;
-
-        const arr = Array.isArray(data?.trabajadores) ? data.trabajadores : [];
-        const norm = arr.map((r) => ({
-          id: r.id ?? r.id_trabajador ?? null,
-          nombre: r.nombre ?? "",
-          apellido: r.apellido ?? "",
-          rol: r.rol ?? "",
-          alias_pago: r.alias_pago ?? "",
-        }));
-
-        setTrabajadoresActivos(norm);
-      } catch (e) {
-        if (!alive) return;
-        console.error("Error cargando trabajadores activos:", e);
-        setTrabajadoresActivos([]);
-      }
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, [fetchJSON]);
-
-  /* =========================================================
-     CARGA DATOS PRINCIPAL
-  ========================================================= */
-  useEffect(() => {
-    let alive = true;
-
-    const buildBaseUrl = () => {
-      const u = new URL(`${BASE_URL}/api.php`);
-      u.searchParams.set("action", "reportes");
-
-      if (anioSeleccionado !== "TODOS") {
-        const y = parseInt(anioSeleccionado, 10);
-        if (!Number.isNaN(y)) u.searchParams.set("anio", String(y));
-      }
-      if (mesSeleccionado !== "TODOS") {
-        const m = parseInt(mesSeleccionado, 10);
-        if (!Number.isNaN(m)) u.searchParams.set("mes", String(m));
-      }
-      return u;
-    };
-
-    (async () => {
-      try {
-        setErrorMsg("");
-        setLoadingData(true);
-
-        {
-          const uMov = buildBaseUrl();
-          uMov.searchParams.set("op", "movimientos");
-          const dataMov = await fetchJSON(uMov.toString());
-
-          const pagosArr = Array.isArray(dataMov?.pagos)
-            ? dataMov.pagos
-            : Array.isArray(dataMov?.ingresos)
-            ? dataMov.ingresos
-            : [];
-
-          const egresosArr = Array.isArray(dataMov?.egresos) ? dataMov.egresos : [];
-
-          const normPagos = (r) => ({
-            id: r.id ?? r.ID ?? r.id_mov ?? r.id_pago ?? null,
-            fecha: r.fecha ?? r.Fecha ?? r.fecha_mov ?? r.fechaPago ?? r.fecha_pago ?? "",
-            concepto: r.concepto ?? r.Concepto ?? r.nombre_concepto ?? "",
-            descripcion: r.descripcion ?? r.detalle ?? r.Descripcion ?? "",
-            categoria: r.categoria ?? r.Categoria ?? r.nombre_categoria ?? "",
-            medio: r.medio ?? r.Medio ?? r.medio_pago ?? r.Medio_Pago ?? "",
-            monto: Number(r.monto ?? r.Monto ?? r.importe ?? r.Precio ?? 0) || 0,
-            cliente_nombre: r.cliente_nombre ?? r.cliente ?? "",
-            sistema_nombre: r.sistema_nombre ?? r.sistema ?? "",
-            id_medio_pago: r.id_medio_pago ?? r.idMedio ?? r.id_medio ?? r.medio_id ?? null,
-            comprobante: r.comprobante ?? "",
-          });
-
-          const normEgresos = (r) => ({
-            id: r.id ?? r.ID ?? r.id_mov ?? r.id_egreso ?? null,
-            fecha: r.fecha ?? r.Fecha ?? "",
-            concepto: r.concepto ?? r.Concepto ?? "",
-            descripcion: r.descripcion ?? r.detalle ?? r.Descripcion ?? "",
-            categoria: r.categoria ?? r.Categoria ?? r.nombre_categoria ?? "",
-            medio: r.medio ?? r.Medio ?? r.medio_pago ?? r.Medio_Pago ?? "",
-            monto: Number(r.monto ?? r.Monto ?? r.importe ?? r.Precio ?? 0) || 0,
-            id_medio_pago: r.id_medio_pago ?? r.idMedio ?? r.id_medio ?? r.medio_id ?? null,
-            comprobante: r.comprobante ?? "",
-            id_trabajador: r.id_trabajador ?? null,
-            trabajador: r.trabajador ?? "",
-          });
-
-          if (!alive) return;
-          setPagos(pagosArr.map(normPagos));
-          setEgresos(egresosArr.map(normEgresos));
-        }
-
-        if (view === "trabajadores") {
-          const uT = buildBaseUrl();
-          uT.searchParams.set("op", "trabajadores");
-          const dataT = await fetchJSON(uT.toString());
-
-          const arr = Array.isArray(dataT?.trabajadores) ? dataT.trabajadores : [];
-          const normT = (r) => ({
-            id: r.id ?? r.id_trabajador ?? null,
-            nombre: r.nombre ?? "",
-            apellido: r.apellido ?? "",
-            rol: r.rol ?? "",
-            alias_pago: r.alias_pago ?? "",
-            sistemas_cobrados: Number(r.sistemas_cobrados ?? 0) || 0,
-            monto: Number(r.monto ?? 0) || 0,
-            monto_reembolso: Number(r.monto_reembolso ?? 0) || 0,
-            monto_sistemas: Number(r.monto_sistemas ?? 0) || 0,
-            comprobante_pago: r.comprobante_pago ?? r.archivo_url ?? "",
-            comprobante_pago_fecha: r.comprobante_pago_fecha ?? r.created_at ?? "",
-            comprobante_pago_nombre: r.comprobante_pago_nombre ?? r.archivo_nombre ?? "",
-            comprobante_pago_tipo: r.comprobante_pago_tipo ?? r.archivo_tipo ?? "",
-            comprobante_pago_id_mes: r.comprobante_pago_id_mes ?? r.id_mes ?? null,
-            comprobante_pago_anio: r.comprobante_pago_anio ?? r.anio ?? null,
-          });
-
-          if (!alive) return;
-          setTrabajadores(arr.map(normT));
-        } else {
-          if (!alive) return;
-          setTrabajadores([]);
-        }
-      } catch (e) {
-        console.error("Error cargando reportes:", e);
-        if (!alive) return;
-
-        const msg = String(e?.message || e);
-        setErrorMsg(msg);
-
-        setPagos([]);
-        setEgresos([]);
-        setTrabajadores([]);
-
-        showToast("error", `❌ Error cargando datos: ${msg}`, 4200);
-      } finally {
-        if (alive) setLoadingData(false);
-      }
-    })();
-
-    return () => {
-      alive = false;
-    };
-  }, [mesSeleccionado, anioSeleccionado, view, fetchJSON, reloadKey, showToast]);
-
-  const totalPagos = useMemo(
-    () =>
-      (Array.isArray(pagos) ? pagos : []).reduce(
-        (acc, r) => acc + (Number(r?.monto || 0) || 0),
-        0
-      ),
-    [pagos]
-  );
-
-  const totalEgresos = useMemo(
-    () =>
-      (Array.isArray(egresos) ? egresos : []).reduce(
-        (acc, r) => acc + (Number(r?.monto || 0) || 0),
-        0
-      ),
-    [egresos]
-  );
-
-  const balance = useMemo(() => totalPagos - totalEgresos, [totalPagos, totalEgresos]);
-
-  const totalTrabajadores = useMemo(
-    () =>
-      (Array.isArray(trabajadores) ? trabajadores : []).reduce(
-        (acc, r) => acc + (Number(r?.monto || 0) || 0),
-        0
-      ),
-    [trabajadores]
-  );
-
-  const q = (searchText || "").trim().toLowerCase();
-
-  const pagosFiltrados = useMemo(() => {
-    if (!q) return pagos;
-    return (Array.isArray(pagos) ? pagos : []).filter((r) => {
-      const blob = `${r?.fecha ?? ""} ${r?.concepto ?? ""} ${r?.cliente_nombre ?? ""} ${
-        r?.sistema_nombre ?? ""
-      } ${r?.categoria ?? ""} ${r?.medio ?? ""} ${r?.monto ?? ""}`.toLowerCase();
-      return blob.includes(q);
-    });
-  }, [pagos, q]);
-
-  const egresosFiltrados = useMemo(() => {
-    if (!q) return egresos;
-    return (Array.isArray(egresos) ? egresos : []).filter((r) => {
-      const blob = `${r?.fecha ?? ""} ${r?.concepto ?? ""} ${r?.descripcion ?? ""} ${
-        r?.categoria ?? ""
-      } ${r?.medio ?? ""} ${r?.monto ?? ""} ${r?.trabajador ?? ""}`.toLowerCase();
-      return blob.includes(q);
-    });
-  }, [egresos, q]);
-
-  const trabajadoresFiltrados = useMemo(() => {
-    if (!q) return trabajadores;
-    return (Array.isArray(trabajadores) ? trabajadores : []).filter((r) => {
-      const blob = `${r?.nombre ?? ""} ${r?.apellido ?? ""} ${r?.rol ?? ""} ${
-        r?.alias_pago ?? ""
-      } ${r?.sistemas_cobrados ?? ""} ${r?.monto ?? ""}`.toLowerCase();
-      return blob.includes(q);
-    });
-  }, [trabajadores, q]);
-
-  const colsMov = useMemo(
-    () => [
-      { key: "fecha", label: "Fecha", fr: "1fr" },
-      {
-        key: "cliente_nombre",
-        label: "Cliente",
-        fr: "1.2fr",
-        render: (r) => {
-          if (r?.cliente_nombre) return r.cliente_nombre;
-          const parts = String(r?.concepto || "").split(" - ");
-          return parts[0] || r?.concepto || "";
-        },
-      },
-      {
-        key: "sistema_nombre",
-        label: "Sistema",
-        fr: "1.8fr",
-        center: true,
-        render: (r) => {
-          if (r?.sistema_nombre) return r.sistema_nombre;
-          const parts = String(r?.concepto || "").split(" - ");
-          return parts[1] || "";
-        },
-      },
-      { key: "medio", label: "Medio", fr: "1.2fr", center: true },
-      {
-        key: "monto",
-        label: "Monto",
-        fr: "1fr",
-        center: true,
-        render: (r) => `$${nfPesos.format(Number(r?.monto || 0))}`,
-      },
-    ],
-    []
-  );
-
-  const colsEgresos = useMemo(
-    () => [
-      { key: "fecha", label: "Fecha", fr: "1fr" },
-      { key: "concepto", label: "Concepto", fr: "1.2fr", render: (r) => r?.concepto || "—" },
-      {
-        key: "descripcion",
-        label: "Descripción",
-        fr: "1.5fr",
-        render: (r) => (
-          <span className="truncate" title={r?.descripcion || ""}>
-            {r?.descripcion || "—"}
-          </span>
-        ),
-      },
-      {
-        key: "trabajador",
-        label: "Trabajador",
-        fr: "1.3fr",
-        render: (r) => r?.trabajador || "—",
-      },
-      { key: "medio", label: "Medio", fr: "1fr", center: true },
-      {
-        key: "monto",
-        label: "Monto",
-        fr: "1fr",
-        center: true,
-        render: (r) => `$${nfPesos.format(Number(r?.monto || 0))}`,
-      },
-    ],
-    []
-  );
-
-  const colsTrab = useMemo(
-    () => [
-      {
-        key: "trabajador",
-        label: "Trabajador",
-        fr: "1.6fr",
-        render: (r) => `${r?.apellido || ""} ${r?.nombre || ""}`.trim() || "—",
-      },
-      { key: "rol", label: "Rol", fr: "1fr" },
-      { key: "alias_pago", label: "Alias", fr: "1.3fr", render: (r) => r?.alias_pago || "—" },
-      {
-        key: "sistemas_cobrados",
-        label: "Sistemas",
-        fr: "0.8fr",
-        center: true,
-        render: (r) => String(r?.sistemas_cobrados ?? 0),
-      },
-      {
-        key: "monto_reembolso",
-        label: "Reembolso",
-        fr: "1fr",
-        center: true,
-        render: (r) => `$${nfPesos.format(Number(r?.monto_reembolso || 0))}`,
-      },
-      {
-        key: "monto_sistemas",
-        label: "Por sistemas",
-        fr: "1fr",
-        center: true,
-        render: (r) => `$${nfPesos.format(Number(r?.monto_sistemas || 0))}`,
-      },
-      {
-        key: "monto",
-        label: "Total a pagar",
-        fr: "1fr",
-        center: true,
-        render: (r) => `$${nfPesos.format(Number(r?.monto || 0))}`,
-      },
-    ],
-    []
-  );
-
   const exportarExcel = useCallback(() => {
     try {
-      const wb = XLSX.utils.book_new();
-
-      const mesTxt =
-        mesSeleccionado === "TODOS"
-          ? "TODOS"
-          : mesesDisponibles.find((m) => String(m.id) === String(mesSeleccionado))?.mes ||
-            `MES_${mesSeleccionado}`;
-
-      const anioTxt = anioSeleccionado === "TODOS" ? "TODOS" : anioSeleccionado;
+      const workbook = XLSX.utils.book_new();
+      const orgCode = String(activeOrganization?.codigo || activeOrganization?.nombre || "ENTIDAD")
+        .replace(/\s+/g, "_")
+        .toUpperCase();
+      const filePeriod = `${anioSeleccionado}_${String(labelMes).replace(/\s+/g, "_")}`;
 
       if (view === "trabajadores") {
-        const ws = XLSX.utils.json_to_sheet(
-          trabajadoresFiltrados.map((r) => ({
-            TRABAJADOR: `${r.apellido || ""} ${r.nombre || ""}`.trim(),
-            ROL: r.rol,
-            ALIAS: r.alias_pago,
-            SISTEMAS: r.sistemas_cobrados,
-            REEMBOLSO: r.monto_reembolso,
-            POR_SISTEMAS: r.monto_sistemas,
-            TOTAL_A_PAGAR: r.monto,
-          })),
-          {
-            header: [
-              "TRABAJADOR",
-              "ROL",
-              "ALIAS",
-              "SISTEMAS",
-              "REEMBOLSO",
-              "POR_SISTEMAS",
-              "TOTAL_A_PAGAR",
-            ],
-          }
-        );
-        ws["!cols"] = [
-          { wch: 28 },
-          { wch: 14 },
-          { wch: 22 },
-          { wch: 10 },
-          { wch: 14 },
-          { wch: 14 },
-          { wch: 16 },
+        const workerRows = trabajadoresFiltrados.map((row) => ({
+          TRABAJADOR: `${row.apellido || ""} ${row.nombre || ""}`.trim(),
+          ALIAS: row.alias_pago,
+          PORCENTAJE: row.porcentaje_efectivo,
+          SISTEMAS_COBRADOS: row.sistemas_cobrados,
+          IMPACTO_EGRESOS: row.descuento_egresos,
+          NETO_POR_SISTEMAS: row.monto_sistemas,
+          REEMBOLSO: row.monto_reembolso,
+          TOTAL_A_PAGAR: row.monto,
+          LIQUIDACION_INDIRECTA: row.liquidacion_indirecta ? "SI" : "NO",
+          REGLA_HISTORICA_FALTANTE: row.usa_fallback_historico ? "SI" : "NO",
+        }));
+        const sheet = XLSX.utils.json_to_sheet(workerRows);
+        sheet["!cols"] = [
+          { wch: 28 }, { wch: 22 }, { wch: 14 }, { wch: 18 }, { wch: 18 },
+          { wch: 20 }, { wch: 14 }, { wch: 18 }, { wch: 22 }, { wch: 26 },
         ];
-        XLSX.utils.book_append_sheet(wb, ws, "Trabajadores");
-        XLSX.writeFile(wb, `reportes_trabajadores_${anioTxt}_${mesTxt}.xlsx`);
-        showToast("exito", "📄 Excel generado (Trabajadores).", 2200);
-        return;
+        XLSX.utils.book_append_sheet(workbook, sheet, "Liquidación");
+
+        const detailRows = trabajadoresFiltrados.flatMap((worker) =>
+          (worker.detalle || []).map((detail) => ({
+            TRABAJADOR: `${worker.apellido || ""} ${worker.nombre || ""}`.trim(),
+            FECHA_PAGO: detail.fecha_pago,
+            PERIODO: `${detail.id_mes || ""}/${detail.anio || ""}`,
+            CLIENTE: detail.cliente_nombre,
+            SISTEMA: detail.sistema_nombre,
+            MONTO_PAGO: detail.monto_pago,
+            PORCENTAJE: detail.porcentaje_pago,
+            PARTE_BRUTA: detail.monto_bruto,
+            PARTE_NETA: detail.monto_neto,
+            ORIGEN_REGLA: detail.origen,
+            RUTA: Array.isArray(detail.rutas) ? detail.rutas.join(" > ") : "",
+          }))
+        );
+        if (detailRows.length) {
+          XLSX.utils.book_append_sheet(
+            workbook,
+            XLSX.utils.json_to_sheet(detailRows),
+            "Detalle por pago"
+          );
+        }
+      } else if (view === "egresos") {
+        XLSX.utils.book_append_sheet(
+          workbook,
+          XLSX.utils.json_to_sheet(
+            egresosFiltrados.map((row) => ({
+              FECHA: row.fecha,
+              CONCEPTO: row.concepto,
+              DESCRIPCION: row.descripcion,
+              TIPO: row.tipo_egreso,
+              REEMBOLSO_A: row.trabajador,
+              MEDIO: row.medio,
+              MONTO: row.monto,
+              COMPROBANTE: row.comprobante,
+            }))
+          ),
+          "Egresos"
+        );
+      } else {
+        XLSX.utils.book_append_sheet(
+          workbook,
+          XLSX.utils.json_to_sheet(
+            pagosFiltrados.map((row) => ({
+              FECHA_PAGO: row.fecha,
+              ANIO_PERIODO: row.anio_periodo,
+              MES_PERIODO: row.categoria,
+              CLIENTE: row.cliente_nombre,
+              SISTEMA: row.sistema_nombre,
+              MEDIO: row.medio,
+              MONTO: row.monto,
+              COMPROBANTE: row.comprobante,
+              FACTURA_PDF: row.factura_pdf,
+            }))
+          ),
+          "Ingresos"
+        );
       }
 
-      if (view === "egresos") {
-        const ws = XLSX.utils.json_to_sheet(
-          egresosFiltrados.map((r) => ({
-            FECHA: r.fecha,
-            CONCEPTO: r.concepto,
-            DESCRIPCION: r.descripcion,
-            TRABAJADOR: r.trabajador || "",
-            MEDIO: r.medio,
-            MONTO: r.monto,
-            COMPROBANTE: r.comprobante || "",
-          })),
-          {
-            header: [
-              "FECHA",
-              "CONCEPTO",
-              "DESCRIPCION",
-              "TRABAJADOR",
-              "MEDIO",
-              "MONTO",
-              "COMPROBANTE",
-            ],
-          }
-        );
-        ws["!cols"] = [
-          { wch: 12 },
-          { wch: 26 },
-          { wch: 34 },
-          { wch: 24 },
-          { wch: 16 },
-          { wch: 12 },
-          { wch: 28 },
-        ];
-        XLSX.utils.book_append_sheet(wb, ws, "Egresos");
-        XLSX.writeFile(wb, `reportes_egresos_${anioTxt}_${mesTxt}.xlsx`);
-        showToast("exito", "📄 Excel generado (Egresos).", 2200);
-        return;
-      }
-
-      const ws = XLSX.utils.json_to_sheet(
-        pagosFiltrados.map((r) => ({
-          FECHA: r.fecha,
-          CLIENTE: r.cliente_nombre || String(r.concepto || "").split(" - ")[0] || "",
-          SISTEMA: r.sistema_nombre || String(r.concepto || "").split(" - ")[1] || "",
-          MEDIO: r.medio,
-          MONTO: r.monto,
-          COMPROBANTE: r.comprobante || "",
-        })),
-        { header: ["FECHA", "CLIENTE", "SISTEMA", "MEDIO", "MONTO", "COMPROBANTE"] }
-      );
-
-      ws["!cols"] = [
-        { wch: 12 },
-        { wch: 22 },
-        { wch: 28 },
-        { wch: 16 },
-        { wch: 12 },
-        { wch: 28 },
-      ];
-      XLSX.utils.book_append_sheet(wb, ws, "Pagos");
-      XLSX.writeFile(wb, `reportes_pagos_${anioTxt}_${mesTxt}.xlsx`);
-      showToast("exito", "📄 Excel generado (Pagos).", 2200);
-    } catch (e) {
-      const msg = String(e?.message || e);
-      showToast("error", `❌ No se pudo exportar Excel: ${msg}`, 3800);
+      XLSX.writeFile(workbook, `reportes_${orgCode}_${view}_${filePeriod}.xlsx`);
+      showToast("exito", "Excel generado correctamente.", 2200);
+    } catch (error) {
+      showToast("error", `No se pudo exportar el Excel: ${error.message}`, 3800);
     }
   }, [
-    view,
-    pagosFiltrados,
-    egresosFiltrados,
-    trabajadoresFiltrados,
-    mesSeleccionado,
-    mesesDisponibles,
+    activeOrganization,
     anioSeleccionado,
+    egresosFiltrados,
+    labelMes,
+    pagosFiltrados,
     showToast,
+    trabajadoresFiltrados,
+    view,
   ]);
 
-  const labelMes =
-    mesSeleccionado === "TODOS"
-      ? "Todos los meses"
-      : mesesDisponibles.find((m) => String(m.id) === String(mesSeleccionado))?.mes || "—";
-
-  const labelAnio = anioSeleccionado === "TODOS" ? "Todos los años" : `Año ${anioSeleccionado}`;
-
-  const crearEgreso = useCallback(
-    async (formData) => {
-      try {
-        setErrorMsg("");
-        setSavingEgreso(true);
-        showToast("cargando", "Registrando egreso…", 1200);
-
-        const url = `${BASE_URL}/api.php?action=reportes&op=crear_egreso`;
-        const data = await postFormData(url, formData);
-
-        if (!data?.exito) throw new Error(data?.mensaje || "No se pudo crear el egreso.");
-
-        setModalEgresoOpen(false);
-        setReloadKey((k) => k + 1);
-
-        showToast("exito", "Egreso creado correctamente.", 3000);
-      } catch (e) {
-        console.error("Error creando egreso:", e);
-        const msg = String(e?.message || e);
-        setErrorMsg(msg);
-        showToast("error", `❌ Error al crear egreso: ${msg}`, 3800);
-      } finally {
-        setSavingEgreso(false);
-      }
-    },
-    [postFormData, showToast]
-  );
-
-  const disableFilters = loadingMeses || loadingAnios;
+  const disableFilters = loadingAnios || loadingMeses;
+  const exactWorkerPeriod = Boolean(getPeriodoTrabajador());
 
   return (
-    <div className="contable-viewport">
+    <div className="contable-viewport" onChangeCapture={uppercaseTextFieldOnChange}>
       {toast.show ? (
         <Toast
           key={toast.key}
@@ -1242,9 +984,28 @@ export default function Reportes() {
           <FontAwesomeIcon icon={faCoins} /> Reportes
         </h1>
 
-        <button className="contable-back-button" onClick={volver} aria-label="Volver">
-          <FontAwesomeIcon icon={faArrowLeft} />
-          &nbsp; Volver
+        <div className="reportes-organization-tabs" role="tablist" aria-label="Entidad del reporte">
+          {organizations.map((organization) => {
+            const id = Number(organization?.id_organizacion || 0);
+            const active = id === activeOrganizationId;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={`reportes-organization-tab ${active ? "is-active" : ""}`}
+                onClick={() => changeOrganization(organization)}
+              >
+                <FontAwesomeIcon icon={faBuilding} />
+                {String(organization?.codigo || organization?.nombre || `Entidad ${id}`).toUpperCase()}
+              </button>
+            );
+          })}
+        </div>
+
+        <button className="contable-back-button" onClick={() => navigate(-1)} aria-label="Volver">
+          <FontAwesomeIcon icon={faArrowLeft} /> Volver
         </button>
       </header>
 
@@ -1253,85 +1014,59 @@ export default function Reportes() {
           <h3 className="side-block-title" style={{ marginTop: 0 }}>
             <FontAwesomeIcon icon={faCalendarAlt} /> Filtros
           </h3>
-
           <section className="side-block">
             <label className="side-field">
-              <span>
-                Año {loadingAnios ? <span style={{ opacity: 0.7 }}>(cargando…)</span> : null}
-              </span>
+              <span>Año {loadingAnios ? "(cargando…)" : ""}</span>
               <select
                 value={anioSeleccionado}
-                onChange={(e) => setAnioSeleccionado(e.target.value)}
-                disabled={loadingAnios || aniosDisponibles.length === 0}
+                onChange={(event) => setAnioSeleccionado(event.target.value)}
+                disabled={loadingAnios || !aniosDisponibles.length}
               >
-                {aniosDisponibles.map((y) => (
-                  <option key={y} value={y}>
-                    {y === "TODOS" ? "Todos los años" : y}
+                {aniosDisponibles.map((year) => (
+                  <option value={year} key={year}>
+                    {year === "TODOS" ? "Todos los años" : year}
                   </option>
                 ))}
               </select>
             </label>
 
             <label className="side-field">
-              <span>Mes</span>
+              <span>Mes del período</span>
               <select
                 value={mesSeleccionado}
-                onChange={(e) => setMesSeleccionado(e.target.value)}
-                disabled={loadingMeses || mesesDisponibles.length === 0}
+                onChange={(event) => setMesSeleccionado(event.target.value)}
+                disabled={loadingMeses || !mesesDisponibles.length}
               >
                 <option value="TODOS">Todos los meses</option>
-                {mesesDisponibles.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {String(m.mes || "").toUpperCase()}
+                {mesesDisponibles.map((month) => (
+                  <option value={month.id} key={month.id}>
+                    {String(month.mes || "").toUpperCase()}
                   </option>
                 ))}
               </select>
             </label>
 
+            <div className="reportes-active-entity">
+              <span>Entidad activa</span>
+              <strong>{String(activeOrganization?.nombre || activeOrganization?.codigo || "—")}</strong>
+              <small>Rol: {activeRole.toUpperCase()}</small>
+            </div>
+
             <div className="side-actions">
-              <button
-                className="btn-dark excel"
-                type="button"
-                onClick={exportarExcel}
-                disabled={disableFilters}
-                title="Exportar Excel"
-              >
+              <button className="btn-dark excel" type="button" onClick={exportarExcel} disabled={disableFilters}>
                 <FontAwesomeIcon icon={faFileExcel} /> Excel
               </button>
-
-              <button
-                className="btn-dark"
-                type="button"
-                onClick={() => setModalGraficosOpen(true)}
-                disabled={disableFilters}
-                title="Ver gráficos"
-              >
+              <button className="btn-dark" type="button" onClick={() => setModalGraficosOpen(true)} disabled={disableFilters}>
                 <FontAwesomeIcon icon={faChartLine} /> Gráficos
               </button>
             </div>
 
-            {errorMsg ? (
-              <div
-                style={{
-                  marginTop: 10,
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  background: "rgba(220,38,38,.08)",
-                  border: "1px solid rgba(220,38,38,.25)",
-                  color: "#991b1b",
-                  fontSize: 12,
-                  lineHeight: 1.35,
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                <b>Error:</b> {errorMsg}
-              </div>
-            ) : null}
+            {errorMsg ? <div className="reportes-error-box"><b>Error:</b> {errorMsg}</div> : null}
           </section>
         </aside>
 
         <main className="contable-main">
-          <div className="main-switch" role="tablist" aria-label="Cambiar vista principal">
+          <div className="main-switch" role="tablist" aria-label="Vista del reporte">
             <div className="switch-left">
               <button
                 type="button"
@@ -1340,9 +1075,8 @@ export default function Reportes() {
                 className={`segmented ${view === "pagos" ? "is-active" : ""}`}
                 onClick={() => setView("pagos")}
               >
-                <FontAwesomeIcon icon={faMoneyBillTrendUp} /> Pagos
+                <FontAwesomeIcon icon={faMoneyBillTrendUp} /> Ingresos
               </button>
-
               <button
                 type="button"
                 role="tab"
@@ -1352,7 +1086,6 @@ export default function Reportes() {
               >
                 <FontAwesomeIcon icon={faMoneyBillTransfer} /> Egresos
               </button>
-
               <button
                 type="button"
                 role="tab"
@@ -1360,24 +1093,13 @@ export default function Reportes() {
                 className={`segmented ${view === "trabajadores" ? "is-active" : ""}`}
                 onClick={() => setView("trabajadores")}
               >
-                <FontAwesomeIcon icon={faUsers} /> Trabajadores
+                <FontAwesomeIcon icon={faUsers} /> Liquidación
               </button>
-
-              {view === "egresos" && (
-                <button
-                  type="button"
-                  className="segmented"
-                  onClick={() => setModalEgresoOpen(true)}
-                  style={{
-                    marginLeft: 8,
-                    borderColor: "rgba(11,94,215,.35)",
-                    color: "#0b5ed7",
-                    fontWeight: 800,
-                  }}
-                >
+              {view === "egresos" && canWrite ? (
+                <button type="button" className="segmented reportes-new-expense" onClick={() => setModalEgresoOpen(true)}>
                   <FontAwesomeIcon icon={faPlus} /> Nuevo egreso
                 </button>
-              )}
+              ) : null}
             </div>
 
             <div className="switch-right">
@@ -1387,236 +1109,178 @@ export default function Reportes() {
                   type="text"
                   placeholder="Buscar…"
                   value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
+                  onChange={(event) => setSearchText(event.target.value)}
                   disabled={disableFilters}
                 />
               </div>
             </div>
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-              gap: "12px",
-              margin: "12px 10px 6px",
-            }}
-          >
-            <div
-              style={{
-                border: "1px dashed rgba(0,0,0,.12)",
-                borderRadius: 12,
-                padding: "10px 16px",
-                background: "#fff",
-              }}
-            >
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>
-                <FontAwesomeIcon icon={faMoneyBillTrendUp} /> Total pagos
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4 }}>
-                ${nfPesos.format(totalPagos)}
-              </div>
-              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-                {`${labelAnio} • ${labelMes || "Todos los meses"}`}
-              </div>
-            </div>
-
-            <div
-              style={{
-                border: "1px dashed rgba(0,0,0,.12)",
-                borderRadius: 12,
-                padding: "10px 16px",
-                background: "#fff",
-              }}
-            >
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>
-                <FontAwesomeIcon icon={faMoneyBillTransfer} /> Total egresos
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4 }}>
-                ${nfPesos.format(totalEgresos)}
-              </div>
-              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-                {`${labelAnio} • ${labelMes || "Todos los meses"}`}
-              </div>
-            </div>
-
-            <div
-              style={{
-                border: "1px dashed rgba(0,0,0,.12)",
-                borderRadius: 12,
-                padding: "10px 16px",
-                background: "#fff",
-                borderColor:
-                  view === "trabajadores" ? "#0ea5e9" : balance < 0 ? "#dc2626" : "#16a34a",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color:
-                    view === "trabajadores"
-                      ? "#0ea5e9"
-                      : balance < 0
-                      ? "#dc2626"
-                      : "#16a34a",
-                }}
-              >
-                {view === "trabajadores"
-                  ? "Total a pagar (trabajadores)"
-                  : "Balance (pagos − egresos)"}
-              </div>
-
-              <div
-                style={{
-                  fontSize: 22,
-                  fontWeight: 800,
-                  marginTop: 4,
-                  color:
-                    view === "trabajadores"
-                      ? "#0ea5e9"
-                      : balance < 0
-                      ? "#dc2626"
-                      : "#16a34a",
-                }}
-              >
-                ${nfPesos.format(view === "trabajadores" ? totalTrabajadores : Math.abs(balance))}
-              </div>
-
-              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-                {view === "trabajadores"
-                  ? `${labelAnio} • ${labelMes || "Todos los meses"}`
-                  : balance < 0
-                  ? "Déficit"
-                  : "Superávit"}
-              </div>
-            </div>
+          <div className="reportes-summary-grid">
+            <article className="reportes-summary-card">
+              <span><FontAwesomeIcon icon={faMoneyBillTrendUp} /> Total ingresos</span>
+              <strong>{money(totalPagos)}</strong>
+              <small>{periodoLabel}</small>
+            </article>
+            <article className="reportes-summary-card">
+              <span><FontAwesomeIcon icon={faMoneyBillTransfer} /> Total egresos</span>
+              <strong>{money(totalEgresos)}</strong>
+              <small>{periodoLabel}</small>
+            </article>
+            <article className={`reportes-summary-card ${view === "trabajadores" ? "info" : balance < 0 ? "danger" : "success"}`}>
+              <span>{view === "trabajadores" ? "Total a pagar" : "Balance operativo"}</span>
+              <strong>{money(view === "trabajadores" ? totalTrabajadores : balance)}</strong>
+              <small>{view === "trabajadores" ? periodoLabel : balance < 0 ? "Déficit" : "Superávit"}</small>
+            </article>
           </div>
 
-          <div style={{ padding: "10px 12px 14px", flex: "1 1 auto", minHeight: 0, overflow: "hidden" }}>
-            {view === "pagos" && (
+          {view === "trabajadores" ? (
+            <>
+              {advertencias.length || beneficiariosNoPersona.length ? (
+                <div className="reportes-warning-panel">
+                  <div className="reportes-warning-title">
+                    <FontAwesomeIcon icon={faTriangleExclamation} /> Controles de liquidación
+                  </div>
+                  {advertencias.map((warning, index) => <p key={`warning-${index}`}>{warning}</p>)}
+                  {beneficiariosNoPersona.map((item, index) => (
+                    <p key={`beneficiary-${index}`}>
+                      {item.beneficiario || "Entidad sin trabajador final"}: {money(item.monto_neto)} pendiente de pago mediante su entidad.
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          <div className="reportes-table-area">
+            {view === "pagos" ? (
               <GridTable
-                title="Pagos"
-                columns={colsMov}
+                title="Ingresos"
+                columns={colsPagos}
                 rows={pagosFiltrados}
                 loading={loadingData}
-                actions={(r) => (
+                actions={(row) => (
                   <div className="actions-cell">
                     <button
                       type="button"
-                      className={`icon-btn ${r?.comprobante ? "" : "disabled"}`}
-                      title={r?.comprobante ? "Ver comprobante" : "Sin comprobante"}
-                      onClick={() => openViewerFromRow(r, "Comprobante de pago")}
-                      aria-label="Ver comprobante"
-                      disabled={!r?.comprobante}
+                      className={`icon-btn ${row.comprobante ? "" : "disabled"}`}
+                      title={row.comprobante ? "Ver comprobante" : "Sin comprobante"}
+                      disabled={!row.comprobante}
+                      onClick={() => openViewerFromRow(row, "Comprobante de pago")}
                     >
                       <FontAwesomeIcon icon={faEye} />
                     </button>
-
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      title="Adjuntar comprobante"
-                      onClick={() => {
-                        setPagoItem(r);
-                        setModalPagoCompOpen(true);
-                      }}
-                      aria-label="Adjuntar comprobante"
-                    >
-                      <FontAwesomeIcon icon={faPaperclip} />
-                    </button>
+                    {canWrite ? (
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        title="Adjuntar comprobante"
+                        onClick={() => {
+                          setPagoItem(row);
+                          setModalPagoCompOpen(true);
+                        }}
+                      >
+                        <FontAwesomeIcon icon={faPaperclip} />
+                      </button>
+                    ) : null}
                   </div>
                 )}
               />
-            )}
+            ) : null}
 
-            {view === "egresos" && (
+            {view === "egresos" ? (
               <GridTable
                 title="Egresos"
                 columns={colsEgresos}
                 rows={egresosFiltrados}
                 loading={loadingData}
-                actions={(r) => (
+                actions={(row) => (
                   <div className="actions-cell">
                     <button
                       type="button"
-                      className={`icon-btn ${r?.comprobante ? "" : "disabled"}`}
-                      title={r?.comprobante ? "Ver comprobante" : "Sin comprobante"}
-                      onClick={() => openViewerFromRow(r, "Comprobante")}
-                      aria-label="Ver comprobante"
-                      disabled={!r?.comprobante}
+                      className={`icon-btn ${row.comprobante ? "" : "disabled"}`}
+                      title={row.comprobante ? "Ver comprobante" : "Sin comprobante"}
+                      disabled={!row.comprobante}
+                      onClick={() => openViewerFromRow(row)}
                     >
                       <FontAwesomeIcon icon={faEye} />
                     </button>
-
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      title="Editar"
-                      onClick={() => onEditar(r)}
-                      aria-label="Editar"
-                    >
-                      <FontAwesomeIcon icon={faPenToSquare} />
-                    </button>
-
-                    <button
-                      type="button"
-                      className="icon-btn danger"
-                      title="Eliminar"
-                      onClick={() => onEliminarEgreso(r)}
-                      aria-label="Eliminar"
-                    >
-                      <FontAwesomeIcon icon={faTrash} />
-                    </button>
+                    {canWrite ? (
+                      <>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="Editar egreso"
+                          onClick={() => {
+                            setEditarItem({ ...row, id: row.id ?? row.id_egreso });
+                            setModalEditarOpen(true);
+                          }}
+                        >
+                          <FontAwesomeIcon icon={faPenToSquare} />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn danger"
+                          title="Eliminar egreso"
+                          onClick={() => {
+                            setEgresoAEliminar(row);
+                            setModalEliminarOpen(true);
+                          }}
+                        >
+                          <FontAwesomeIcon icon={faTrash} />
+                        </button>
+                      </>
+                    ) : null}
                   </div>
                 )}
               />
-            )}
+            ) : null}
 
-            {view === "trabajadores" && (
+            {view === "trabajadores" ? (
               <GridTable
-                title="Trabajadores"
-                columns={colsTrab}
+                title="Liquidación"
+                columns={colsTrabajadores}
                 rows={trabajadoresFiltrados}
                 loading={loadingData}
-                actions={(r) => {
-                  const periodo = getPeriodoTrabajador();
-                  const periodoOk = Boolean(periodo);
-                  const tieneComprobanteTrabajador =
-                    periodoOk && Boolean(String(r?.comprobante_pago || "").trim());
-                  const msgSinPeriodo = "Seleccioná año y mes para manejar comprobantes";
-
+                actions={(row) => {
+                  const hasProof = exactWorkerPeriod && Boolean(String(row.comprobante_pago || "").trim());
+                  const canUpload = canWrite && exactWorkerPeriod && row.puede_comprobante;
                   return (
                     <div className="actions-cell">
                       <button
                         type="button"
-                        className={`icon-btn ${periodoOk ? "" : "disabled"}`}
-                        title={periodoOk ? `Subir comprobante de ${periodo.label}` : msgSinPeriodo}
-                        onClick={() => abrirSubirComprobanteTrabajador(r)}
-                        aria-label={periodoOk ? `Subir comprobante de ${periodo.label}` : msgSinPeriodo}
-                        aria-disabled={!periodoOk}
-                        disabled={!periodoOk}
+                        className="icon-btn"
+                        title="Ver cálculo detallado"
+                        onClick={() => {
+                          setDetalleTrabajador(row);
+                          setModalDetalleOpen(true);
+                        }}
                       >
-                        <FontAwesomeIcon icon={faPaperclip} />
+                        <FontAwesomeIcon icon={faCircleInfo} />
                       </button>
-
+                      {canWrite ? (
+                        <button
+                          type="button"
+                          className={`icon-btn ${canUpload ? "" : "disabled"}`}
+                          title={
+                            !exactWorkerPeriod
+                              ? "Seleccioná año y mes puntual"
+                              : row.puede_comprobante
+                              ? "Subir comprobante de pago"
+                              : "Liquidación indirecta: se paga mediante otra entidad"
+                          }
+                          disabled={!canUpload}
+                          onClick={() => abrirSubirComprobanteTrabajador(row)}
+                        >
+                          <FontAwesomeIcon icon={faPaperclip} />
+                        </button>
+                      ) : null}
                       <button
                         type="button"
-                        className={`icon-btn ${tieneComprobanteTrabajador ? "" : "disabled"}`}
-                        title={
-                          !periodoOk
-                            ? msgSinPeriodo
-                            : tieneComprobanteTrabajador
-                            ? `Ver comprobante de ${periodo.label}`
-                            : `Sin comprobante cargado para ${periodo.label}`
-                        }
-                        onClick={() => {
-                          if (!tieneComprobanteTrabajador) return;
-                          verComprobanteTrabajador(r);
-                        }}
-                        aria-label={tieneComprobanteTrabajador ? `Ver comprobante de ${periodo.label}` : "Sin comprobante cargado"}
-                        aria-disabled={!tieneComprobanteTrabajador}
-                        disabled={!tieneComprobanteTrabajador}
+                        className={`icon-btn ${hasProof ? "" : "disabled"}`}
+                        title={hasProof ? "Ver comprobante" : "Sin comprobante para el período"}
+                        disabled={!hasProof}
+                        onClick={() => verComprobanteTrabajador(row)}
                       >
                         <FontAwesomeIcon icon={faEye} />
                       </button>
@@ -1624,23 +1288,19 @@ export default function Reportes() {
                   );
                 }}
               />
-            )}
+            ) : null}
           </div>
         </main>
       </div>
 
       <ModalNuevoEgreso
         open={modalEgresoOpen}
-        onClose={() => {
-          if (savingEgreso) return;
-          setModalEgresoOpen(false);
-        }}
+        onClose={() => !savingEgreso && setModalEgresoOpen(false)}
         onConfirm={crearEgreso}
         loading={savingEgreso}
         medios={mediosDisponibles}
         trabajadores={trabajadoresActivos}
       />
-
       <ModalEditarMovimiento
         open={modalEditarOpen}
         onClose={() => {
@@ -1650,28 +1310,24 @@ export default function Reportes() {
         }}
         onConfirm={confirmarEditar}
         loading={savingEditar}
-        tipo={editarTipo}
+        tipo="egreso"
         item={editarItem}
         medios={mediosDisponibles}
         buildFileUrl={buildFileUrl}
         trabajadores={trabajadoresActivos}
         onVerComprobante={(path) => {
-          const p = String(path || "").trim();
-          if (!p) {
-            showToast("advertencia", "No hay comprobante para mostrar.", 2200);
-            return;
-          }
+          const value = String(path || "").trim();
+          if (!value) return;
           setCompItem({
-            id: editarItem?.id ?? null,
+            id: editarItem?.id,
             concepto: editarItem?.concepto || "Comprobante",
             fecha: editarItem?.fecha || "",
-            comprobante: p,
-            url: buildFileUrl(p),
+            comprobante: value,
+            url: buildFileUrl(value),
           });
           setModalVerCompOpen(true);
         }}
       />
-
       <ModalEliminarEgreso
         open={modalEliminarOpen}
         egreso={egresoAEliminar}
@@ -1683,7 +1339,6 @@ export default function Reportes() {
         }}
         onConfirm={confirmarEliminarEgreso}
       />
-
       <ModalVerComprobante
         open={modalVerCompOpen}
         onClose={() => {
@@ -1694,7 +1349,6 @@ export default function Reportes() {
         subtitle={compItem?.fecha ? `Fecha: ${compItem.fecha}` : ""}
         url={compItem?.url || ""}
       />
-
       <ModalComprobantePago
         open={modalPagoCompOpen}
         onClose={() => {
@@ -1707,7 +1361,6 @@ export default function Reportes() {
         item={pagoItem}
         buildFileUrl={buildFileUrl}
       />
-
       <ModalSubirComprobanteTrabajador
         open={modalTrabCompOpen}
         trabajador={trabajadorCompItem}
@@ -1720,7 +1373,6 @@ export default function Reportes() {
         }}
         onConfirm={guardarComprobanteTrabajador}
       />
-
       <ModalVerComprobanteTrabajador
         open={modalVerTrabCompOpen}
         trabajador={trabajadorCompViewItem}
@@ -1732,7 +1384,16 @@ export default function Reportes() {
           setTrabajadorCompViewData(null);
         }}
       />
-
+      <ModalDetalleLiquidacionTrabajador
+        open={modalDetalleOpen}
+        trabajador={detalleTrabajador}
+        organizacion={activeOrganization}
+        periodo={periodoLabel}
+        onClose={() => {
+          setModalDetalleOpen(false);
+          setDetalleTrabajador(null);
+        }}
+      />
       <ModalGraficosReportes
         open={modalGraficosOpen}
         onClose={() => setModalGraficosOpen(false)}

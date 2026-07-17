@@ -16,6 +16,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import BASE_URL from "../../config/config";
 import Toast from "../Global/Toast";
+import { uppercaseTextFieldOnChange } from "../Global/uppercaseFields";
 import { fetchJSONAuth } from "../Global/api";
 import {
   clearStoredSession,
@@ -256,7 +257,7 @@ export default function Trabajadores() {
   const isBalto = modeloReparto === "por_entidad";
 
   return (
-    <div className="ini_contenedor-principal">
+    <div className="ini_contenedor-principal" onChangeCapture={uppercaseTextFieldOnChange}>
       {toast.open && (
         <Toast
           key={toast.key}

@@ -415,3 +415,72 @@ function reparto_resumen_pago(PDO $pdo, int $idOrganizacion, int $idPago): array
     $resumen['origen'] = 'regla_actual_sin_snapshot';
     return $resumen;
 }
+
+/**
+ * Recalcula únicamente los montos de un snapshot histórico manteniendo intactos
+ * sus beneficiarios y porcentajes. Si el pago antiguo todavía no tenía snapshot,
+ * lo crea con la regla vigente y deja explícito ese origen en los reportes.
+ */
+function reparto_snapshot_pago_recalcular_monto(
+    PDO $pdo,
+    int $idOrganizacion,
+    int $idPago,
+    float $nuevoMonto
+): void {
+    if ($nuevoMonto <= 0) {
+        throw new RuntimeException('El monto del pago debe ser mayor a cero.');
+    }
+
+    if (!reparto_tabla_existe($pdo, 'pagos_reparto')) {
+        throw new RuntimeException('Falta ejecutar la migración que crea pagos_reparto.');
+    }
+
+    $st = $pdo->prepare("
+        SELECT id_pago_reparto, porcentaje
+        FROM pagos_reparto
+        WHERE id_organizacion = :org
+          AND id_pago = :pago
+        ORDER BY orden, id_pago_reparto
+    ");
+    $st->execute([':org' => $idOrganizacion, ':pago' => $idPago]);
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    if (!$rows) {
+        $pago = $pdo->prepare("
+            SELECT id_sistema
+            FROM pagos
+            WHERE id_organizacion = :org
+              AND id_pago = :pago
+            LIMIT 1
+        ");
+        $pago->execute([':org' => $idOrganizacion, ':pago' => $idPago]);
+        $idSistema = (int)($pago->fetchColumn() ?: 0);
+        if ($idSistema <= 0) {
+            throw new RuntimeException('Pago inexistente en la organización activa.');
+        }
+        reparto_snapshot_pago_guardar($pdo, $idOrganizacion, $idPago, $idSistema, $nuevoMonto);
+        return;
+    }
+
+    $items = array_map(static fn(array $row): array => [
+        'id_pago_reparto' => (int)$row['id_pago_reparto'],
+        'porcentaje' => (float)$row['porcentaje'],
+    ], $rows);
+    $items = reparto_aplicar_montos_exactos($items, $nuevoMonto);
+
+    $up = $pdo->prepare("
+        UPDATE pagos_reparto
+        SET monto = :monto
+        WHERE id_pago_reparto = :id
+          AND id_organizacion = :org
+          AND id_pago = :pago
+    ");
+    foreach ($items as $item) {
+        $up->execute([
+            ':monto' => reparto_redondear((float)($item['monto_estimado'] ?? 0), 2),
+            ':id' => (int)$item['id_pago_reparto'],
+            ':org' => $idOrganizacion,
+            ':pago' => $idPago,
+        ]);
+    }
+}

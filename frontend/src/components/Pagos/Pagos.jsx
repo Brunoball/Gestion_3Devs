@@ -26,13 +26,13 @@ import {
   faFileInvoiceDollar,
   faFileExcel,
   faBan,
-  faChartPie,
 } from "@fortawesome/free-solid-svg-icons";
 
 import * as XLSX from "xlsx";
 
 import BASE_URL from "../../config/config";
 import Toast from "../Global/Toast";
+import { uppercaseTextFieldOnChange } from "../Global/uppercaseFields";
 import { fetchJSONAuth } from "../Global/api";
 import {
   clearStoredSession,
@@ -48,7 +48,6 @@ import ModalPago from "./modales/ModalPago";
 import ModalEliminarPago from "./modales/ModalEliminarPago";
 import ModalFacturaArca from "./modales/ModalFacturaArca";
 import ModalAnularFactura from "./modales/ModalAnularFactura";
-import ModalEquipoPago from "./modales/ModalEquipoPago";
 import { saveArcaCreditNotePdf } from "./modales/arcaPdfBuilder";
 
 const ACTION_PAGOS = "pagos";
@@ -254,7 +253,6 @@ const Row = memo(
       onDeleteClick,
       onArcaClick,
       onAnularFacturaClick,
-      onDistributionClick,
       arcaLoadingId,
       canOpenPagoMap,
       facturaCheckLoadingMap,
@@ -305,15 +303,6 @@ const Row = memo(
 
         <div className="gpagos-virtual-cell gpagos-virtual-actions">
           <div className="gpagos-actions-inline">
-            <button
-              className="gpagos-action-button gpagos-split-button"
-              onClick={(e) => { e.stopPropagation(); onDistributionClick?.(item); }}
-              title="Ver distribución contable"
-              type="button"
-            >
-              <FontAwesomeIcon icon={faChartPie} />
-            </button>
-
             {/* Registrar pago (solo en deudores) */}
             {isDeudor && (
               <button
@@ -487,16 +476,12 @@ function Pagos() {
   // ✅ MODAL ANULAR FACTURA / NOTA DE CRÉDITO
   const [modalAnularFactura, setModalAnularFactura] = useState(null);
 
-  // ✅ DISTRIBUCIÓN CONTABLE DEL CLIENTE / PERÍODO
-  const [modalDistribucion, setModalDistribucion] = useState(null);
-
   // ✅ MODAL ARCA
   const [modalArca, setModalArca] = useState(null);
 
   const closeModalPago = useCallback(() => setModalPago(null), []);
   const closeModalEliminar = useCallback(() => setModalEliminar(null), []);
   const closeModalAnularFactura = useCallback(() => setModalAnularFactura(null), []);
-  const closeModalDistribucion = useCallback(() => setModalDistribucion(null), []);
   const closeModalArca = useCallback(() => setModalArca(null), []);
 
   // ===== Virtual / infinite =====
@@ -1063,23 +1048,6 @@ function Pagos() {
 
   const onArcaClick = useCallback((row) => openModalArca(row), [openModalArca]);
 
-  const onDistributionClick = useCallback((row) => {
-    const idCliente = getIdCliente(row);
-    if (!idCliente || !selectedYear || !selectedMonthId) {
-      showToast("advertencia", "Seleccioná año y mes para ver la distribución.");
-      return;
-    }
-    setModalDistribucion({
-      open: true,
-      id_cliente: idCliente,
-      anio: Number(selectedYear),
-      id_mes: Number(selectedMonthId),
-      mes: getMesLabelById(meses, selectedMonthId),
-      labelCliente: buildClienteLabel(row),
-      estado: activeTab,
-    });
-  }, [selectedYear, selectedMonthId, meses, activeTab, showToast]);
-
   const onDeleteClick = useCallback((row) => {
     const id_pago = getIdPago(row);
     if (!id_pago) return;
@@ -1349,16 +1317,6 @@ function Pagos() {
                 </div>
 
                 <div className="gpagos-mobile-actions">
-                  <button
-                    className="gpagos-mobile-split-button"
-                    onClick={(e) => { e.stopPropagation(); onDistributionClick(row); }}
-                    type="button"
-                    title="Ver distribución contable"
-                  >
-                    <FontAwesomeIcon icon={faChartPie} />
-                    <span>Distribución</span>
-                  </button>
-
                   {isDeudor && (
                     <button
                       className={`gpagos-mobile-pay-button ${
@@ -1480,7 +1438,6 @@ function Pagos() {
                 onDeleteClick={onDeleteClick}
                 onArcaClick={onArcaClick}
                 onAnularFacturaClick={onAnularFacturaClick}
-                onDistributionClick={onDistributionClick}
                 arcaLoadingId={arcaLoadingId}
                 canOpenPagoMap={canOpenPagoMap}
                 facturaCheckLoadingMap={facturaCheckLoadingMap}
@@ -1502,7 +1459,6 @@ function Pagos() {
     onDeleteClick,
     onArcaClick,
     onAnularFacturaClick,
-    onDistributionClick,
     hasMore,
     loadMoreItems,
     listKey,
@@ -1515,7 +1471,7 @@ function Pagos() {
   ]);
 
   return (
-    <div className="gpagos-container">
+    <div className="gpagos-container" onChangeCapture={uppercaseTextFieldOnChange}>
       {toast.show ? (
         <Toast
           key={toast.key}
@@ -1525,17 +1481,6 @@ function Pagos() {
           onClose={closeToast}
         />
       ) : null}
-
-      {modalDistribucion?.open && (
-        <ModalEquipoPago
-          open={modalDistribucion.open}
-          onClose={closeModalDistribucion}
-          apiBase={API}
-          action={ACTION_PAGOS}
-          data={modalDistribucion}
-          idOrganizacion={activeOrganizationId}
-        />
-      )}
 
       {modalPago?.open && (
         <ModalPago

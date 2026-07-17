@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import BASE_URL from "../../config/config";
 import Toast from "../Global/Toast";
+import { uppercaseTextFieldOnChange } from "../Global/uppercaseFields";
 import { fetchJSONAuth } from "../Global/api";
 import {
   clearStoredSession,
@@ -155,7 +156,7 @@ export default function Mantenimiento() {
   };
 
   return (
-    <div className="ini_contenedor-principal">
+    <div className="ini_contenedor-principal" onChangeCapture={uppercaseTextFieldOnChange}>
       {toast.show && <Toast key={toast.key} tipo={toast.tipo} mensaje={toast.mensaje} onClose={() => setToast((t) => ({ ...t, show: false }))} />}
       <main className="MP-Wrap">
         <section className="MP-Card">

@@ -5,11 +5,9 @@ import {
   faChartLine,
   faChartPie,
   faUsers,
-  faCircleInfo,
   faArrowTrendUp,
   faArrowTrendDown,
   faChartColumn,
-  faUser,
   faCalendarAlt,
 } from "@fortawesome/free-solid-svg-icons";
 
@@ -405,6 +403,12 @@ export default function ModalGraficosReportes({
   const cacheTrabRef = useRef(new Map());
   const mountedRef = useRef(false);
 
+  useEffect(() => {
+    // fetchJSON cambia cuando cambia la entidad activa: nunca reutilizar liquidaciones
+    // cacheadas de 3DEVS en BALTO (ni viceversa).
+    cacheTrabRef.current.clear();
+  }, [fetchJSON]);
+
   const labelMesById = useCallback(
     (id) => {
       const m = (mesesDisponibles || []).find((x) => String(x.id) === String(id));
@@ -440,12 +444,14 @@ export default function ModalGraficosReportes({
       setErr("");
       setLoading(true);
 
-      const u = new URL(`${baseUrl}/api.php`);
-      u.searchParams.set("action", "reportes");
-      u.searchParams.set("op", "movimientos");
-      u.searchParams.set("anio", yearForQuery);
+      const params = new URLSearchParams({
+        action: "reportes",
+        op: "movimientos",
+        anio: yearForQuery,
+      });
+      const endpoint = `${String(baseUrl || "").replace(/\/+$/, "")}/api.php?${params.toString()}`;
 
-      const data = await fetchJSON(u.toString());
+      const data = await fetchJSON(endpoint);
       const pagos = Array.isArray(data?.pagos)
         ? data.pagos
         : Array.isArray(data?.ingresos)
@@ -455,6 +461,7 @@ export default function ModalGraficosReportes({
 
       const norm = (r) => ({
         fecha: r.fecha ?? r.Fecha ?? r.fecha_mov ?? r.fechaPago ?? r.fecha_pago ?? "",
+        id_mes: Number(r.id_mes ?? 0) || 0,
         monto: Number(r.monto ?? r.Monto ?? r.importe ?? r.Precio ?? 0) || 0,
       });
 
@@ -480,7 +487,8 @@ export default function ModalGraficosReportes({
       };
 
       pN.forEach((r) => {
-        const m = monthFromFecha(r.fecha);
+        // Los ingresos se grafican por período facturado, no por fecha de acreditación.
+        const m = r.id_mes || monthFromFecha(r.fecha);
         if (m && m >= 1 && m <= 12) byMonthIng[m - 1] += r.monto;
       });
       eN.forEach((r) => {
@@ -512,21 +520,24 @@ export default function ModalGraficosReportes({
   }, [baseUrl, fetchJSON, labelMesById, showToast, yearForQuery]);
 
   // ========= Trabajadores helpers =========
-  const fetchTrabAcumulado = useCallback(
-    async (anio, mesHasta) => {
-      const key = `${anio}::${mesHasta}`;
+  // El endpoint devuelve un mes exacto. La acumulación se construye aquí sumando
+  // meses reales, evitando restas incorrectas y preservando el cálculo auditado.
+  const fetchTrabMes = useCallback(
+    async (anio, mes) => {
+      const key = `${anio}::${mes}`;
       if (cacheTrabRef.current.has(key)) return cacheTrabRef.current.get(key);
 
-      const u = new URL(`${baseUrl}/api.php`);
-      u.searchParams.set("action", "reportes");
-      u.searchParams.set("op", "trabajadores");
-      u.searchParams.set("anio", String(anio));
-      u.searchParams.set("mes", String(mesHasta));
+      const params = new URLSearchParams({
+        action: "reportes",
+        op: "trabajadores",
+        anio: String(anio),
+        mes: String(mes),
+      });
+      const endpoint = `${String(baseUrl || "").replace(/\/+$/, "")}/api.php?${params.toString()}`;
 
-      const data = await fetchJSON(u.toString());
+      const data = await fetchJSON(endpoint);
       const arr = Array.isArray(data?.trabajadores) ? data.trabajadores : [];
-
-      const normT = (r) => ({
+      const mapped = arr.map((r) => ({
         id: r.id ?? r.id_trabajador ?? null,
         nombre: r.nombre ?? "",
         apellido: r.apellido ?? "",
@@ -534,14 +545,28 @@ export default function ModalGraficosReportes({
         alias_pago: r.alias_pago ?? "",
         sistemas_cobrados: Number(r.sistemas_cobrados ?? 0) || 0,
         monto: Number(r.monto ?? 0) || 0,
-      });
+      }));
 
-      const mapped = arr.map(normT);
       cacheTrabRef.current.set(key, mapped);
       return mapped;
     },
     [baseUrl, fetchJSON]
   );
+
+  const aggregateWorkerMonths = useCallback(async (anio, monthTo) => {
+    const accumulator = new Map();
+    for (let month = 1; month <= monthTo; month += 1) {
+      const rows = await fetchTrabMes(anio, month);
+      rows.forEach((row) => {
+        const key = String(row.id);
+        const current = accumulator.get(key) || { ...row, monto: 0, sistemas_cobrados: 0 };
+        current.monto += Number(row.monto || 0);
+        current.sistemas_cobrados += Number(row.sistemas_cobrados || 0);
+        accumulator.set(key, current);
+      });
+    }
+    return Array.from(accumulator.values());
+  }, [fetchTrabMes]);
 
   const loadTrabajadores = useCallback(async () => {
     try {
@@ -550,29 +575,11 @@ export default function ModalGraficosReportes({
 
       const y = String(trabYear || "").trim() || String(new Date().getFullYear());
       const m = clamp(Number(trabMonth) || 1, 1, 12);
+      const rows = trabMonthMode === "HASTA"
+        ? await aggregateWorkerMonths(y, m)
+        : await fetchTrabMes(y, m);
 
-      if (trabMonthMode === "HASTA") {
-        const arr = await fetchTrabAcumulado(y, m);
-        setTrab(arr.slice().sort((a, b) => (b.monto || 0) - (a.monto || 0)));
-        return;
-      }
-
-      const arrUpTo = await fetchTrabAcumulado(y, m);
-      const arrPrev = m > 1 ? await fetchTrabAcumulado(y, m - 1) : [];
-
-      const prevById = new Map(arrPrev.map((t) => [String(t.id), t]));
-      const diff = arrUpTo.map((t) => {
-        const prev = prevById.get(String(t.id));
-        const montoPrev = Number(prev?.monto || 0) || 0;
-        const sistPrev = Number(prev?.sistemas_cobrados || 0) || 0;
-        return {
-          ...t,
-          monto: Math.max(0, (Number(t.monto || 0) || 0) - montoPrev),
-          sistemas_cobrados: Math.max(0, (Number(t.sistemas_cobrados || 0) || 0) - sistPrev),
-        };
-      });
-
-      setTrab(diff.slice().sort((a, b) => (b.monto || 0) - (a.monto || 0)));
+      setTrab(rows.slice().sort((a, b) => (b.monto || 0) - (a.monto || 0)));
     } catch (e) {
       const msg = String(e?.message || e);
       setErr(msg);
@@ -581,7 +588,7 @@ export default function ModalGraficosReportes({
     } finally {
       setLoadingTrab(false);
     }
-  }, [fetchTrabAcumulado, showToast, trabMonth, trabMonthMode, trabYear]);
+  }, [aggregateWorkerMonths, fetchTrabMes, showToast, trabMonth, trabMonthMode, trabYear]);
 
   const openDetalleTrabajador = useCallback(
     async (worker) => {
@@ -599,24 +606,16 @@ export default function ModalGraficosReportes({
 
         const y = String(trabYear || "").trim() || String(new Date().getFullYear());
         const mSel = clamp(Number(trabMonth) || 1, 1, 12);
-
         const months = Array.from({ length: mSel }).map((_, i) => i + 1);
+        const byMonth = [];
 
-        const acumulados = [];
-        for (const mm of months) {
-          const arr = await fetchTrabAcumulado(y, mm);
-          const found = arr.find((t) => String(t.id) === String(worker.id));
-          acumulados.push(Number(found?.monto || 0) || 0);
+        for (const month of months) {
+          const rows = await fetchTrabMes(y, month);
+          const found = rows.find((row) => String(row.id) === String(worker.id));
+          byMonth.push(Math.round(Number(found?.monto || 0)));
         }
 
-        const byMonth = acumulados.map((acc, idx) => {
-          const prev = idx === 0 ? 0 : acumulados[idx - 1];
-          return Math.max(0, Math.round(acc - prev));
-        });
-
-        const labels = months.map((mm) => String(buildMonthLabel(mm)).toUpperCase());
-
-        setDetalleSeriesMeses(labels);
+        setDetalleSeriesMeses(months.map((month) => String(buildMonthLabel(month)).toUpperCase()));
         setDetalleSeriesMontos(byMonth);
       } catch (e) {
         const msg = String(e?.message || e);
@@ -625,7 +624,7 @@ export default function ModalGraficosReportes({
         setDetalleLoading(false);
       }
     },
-    [buildMonthLabel, fetchTrabAcumulado, showToast, trabMonth, trabYear]
+    [buildMonthLabel, fetchTrabMes, showToast, trabMonth, trabYear]
   );
 
   const balance = useMemo(() => (Number(totIng) || 0) - (Number(totEgr) || 0), [totIng, totEgr]);
