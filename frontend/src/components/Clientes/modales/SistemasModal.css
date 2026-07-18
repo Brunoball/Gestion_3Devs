@@ -152,6 +152,75 @@
 .mi-section__title{ font-weight:900; color:var(--mi-text); }
 .mi-section__sub{ margin-top:4px; color:var(--mi-muted); font-size:13px; }
 
+/* Estado vacío del listado de sistemas */
+.cl-systems-empty{
+  min-height: 230px;
+  margin: 8px 4px 2px;
+  padding: 30px 22px;
+  border: 1px dashed #bfd0e5;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(248, 251, 255, .95), rgba(241, 246, 252, .88));
+  color: #617187;
+  text-align: center;
+}
+
+.cl-systems-empty__icon{
+  width: 54px;
+  height: 54px;
+  margin-bottom: 13px;
+  border: 1px solid #d4e2f2;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  color: #3978d1;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, .1);
+  font-size: 1.25rem;
+}
+
+.cl-systems-empty strong{
+  color: #263b58;
+  font-size: .96rem;
+  font-weight: 800;
+}
+
+.cl-systems-empty p{
+  max-width: 390px;
+  margin: 6px 0 0;
+  color: #718096;
+  font-size: .8rem;
+  line-height: 1.45;
+}
+
+.cl-systems-empty__button{
+  min-height: 39px;
+  margin-top: 17px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 7px 16px rgba(37, 99, 235, .2);
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition: transform .16s ease, background .16s ease;
+}
+
+.cl-systems-empty__button:hover{
+  background: #1d4ed8;
+  transform: translateY(-1px);
+}
+
 /* =============== Estilos internos (para lo de adentro) =============== */
 .mi-grid{
   display:grid;

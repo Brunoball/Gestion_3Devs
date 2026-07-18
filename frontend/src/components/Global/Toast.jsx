@@ -9,28 +9,27 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import './Toast.css';
 
-const Toast = ({ tipo, mensaje, onClose, duracion }) => {
+// La duración se administra únicamente desde este componente global.
+const TOAST_DURACION_MS = 3000;
+const TOAST_SALIDA_MS = 500;
+
+const Toast = ({ tipo, mensaje, onClose }) => {
   const [desapareciendo, setDesapareciendo] = useState(false);
 
   useEffect(() => {
-    if (duracion === undefined) {
-      console.warn("⚠ Toast: No se especificó la duración del mensaje.");
-      return;
-    }
-
     const mostrarTimer = setTimeout(() => {
       setDesapareciendo(true);
-    }, duracion - 500);
+    }, TOAST_DURACION_MS - TOAST_SALIDA_MS);
 
     const ocultarTimer = setTimeout(() => {
-      onClose();
-    }, duracion);
+      onClose?.();
+    }, TOAST_DURACION_MS);
 
     return () => {
       clearTimeout(mostrarTimer);
       clearTimeout(ocultarTimer);
     };
-  }, [onClose, duracion]);
+  }, [onClose]);
 
   const iconos = {
     exito: faCheckCircle,

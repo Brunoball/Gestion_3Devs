@@ -375,7 +375,6 @@ export default function ModalGraficosReportes({
 }) {
   const [tab, setTab] = useState("general"); // general | trabajadores | resumen
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
 
   const [lineLabels, setLineLabels] = useState([]);
   const [lineIngresos, setLineIngresos] = useState([]);
@@ -441,7 +440,6 @@ export default function ModalGraficosReportes({
 
   const loadGeneral = useCallback(async () => {
     try {
-      setErr("");
       setLoading(true);
 
       const params = new URLSearchParams({
@@ -512,7 +510,6 @@ export default function ModalGraficosReportes({
       setTotEgr(Math.round(tEgr));
     } catch (e) {
       const msg = String(e?.message || e);
-      setErr(msg);
       showToast?.("error", `❌ No se pudieron cargar los gráficos: ${msg}`, 4200);
     } finally {
       setLoading(false);
@@ -570,7 +567,6 @@ export default function ModalGraficosReportes({
 
   const loadTrabajadores = useCallback(async () => {
     try {
-      setErr("");
       setLoadingTrab(true);
 
       const y = String(trabYear || "").trim() || String(new Date().getFullYear());
@@ -582,7 +578,6 @@ export default function ModalGraficosReportes({
       setTrab(rows.slice().sort((a, b) => (b.monto || 0) - (a.monto || 0)));
     } catch (e) {
       const msg = String(e?.message || e);
-      setErr(msg);
       showToast?.("error", `❌ No se pudieron cargar trabajadores: ${msg}`, 4200);
       setTrab([]);
     } finally {
@@ -650,7 +645,6 @@ export default function ModalGraficosReportes({
     if (!mountedRef.current) mountedRef.current = true;
 
     setTab("general");
-    setErr("");
     loadGeneral();
 
     const defaultYear =
@@ -743,8 +737,6 @@ export default function ModalGraficosReportes({
                 </button>
 
               </div>
-
-              {err ? <div className="mgr-error">❌ {err}</div> : null}
 
               {/* =========================
                  CONTENT

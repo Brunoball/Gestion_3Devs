@@ -45,20 +45,6 @@
 }
 
 /* =========================
-   Error box (en el estilo de tus cards)
-========================= */
-.mgr-error{
-  margin: 10px 0 0;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(211,47,47,.08);
-  border: 1px solid rgba(211,47,47,.25);
-  color: #7f1d1d;
-  font-size: 12px;
-  white-space: pre-wrap;
-}
-
-/* =========================
    KPIs
 ========================= */
 .mgr-kpis{

@@ -84,7 +84,6 @@ export default function EliminarSistemaModal({
           tipo={toast.tipo}
           mensaje={toast.mensaje}
           onClose={closeToast}
-          duracion={3000}
         />
       )}
 

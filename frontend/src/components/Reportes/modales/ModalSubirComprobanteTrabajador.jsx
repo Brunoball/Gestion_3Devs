@@ -42,11 +42,11 @@ export default function ModalSubirComprobanteTrabajador({
   periodo,
   onClose,
   onConfirm,
+  showToast,
   loading = false,
 }) {
   const fileRef = useRef(null);
   const [file, setFile] = useState(null);
-  const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState(false);
 
   const id = useMemo(() => trabajador?.id ?? null, [trabajador?.id]);
@@ -71,7 +71,6 @@ export default function ModalSubirComprobanteTrabajador({
   useEffect(() => {
     if (!open) return;
     setFile(null);
-    setError("");
     setDragOver(false);
     if (fileRef.current) fileRef.current.value = "";
   }, [open, id, periodoTxt]);
@@ -90,7 +89,6 @@ export default function ModalSubirComprobanteTrabajador({
   };
 
   const validarYSetFile = (f) => {
-    setError("");
     if (!f) return;
 
     const mimeOk = !f.type || ALLOWED.includes(f.type);
@@ -98,13 +96,13 @@ export default function ModalSubirComprobanteTrabajador({
 
     if (!mimeOk && !extOk) {
       setFile(null);
-      setError("Tipo de archivo no permitido. Usá PDF, JPG, PNG o WEBP.");
+      showToast?.("error", "Tipo de archivo no permitido. Usá PDF, JPG, PNG o WEBP.");
       return;
     }
 
     if (!f.size || f.size > MAX_BYTES) {
       setFile(null);
-      setError("El comprobante debe pesar hasta 8MB.");
+      showToast?.("error", "El comprobante debe pesar hasta 8MB.");
       return;
     }
 
@@ -123,16 +121,15 @@ export default function ModalSubirComprobanteTrabajador({
   const removeSelectedFile = () => {
     if (loading) return;
     setFile(null);
-    setError("");
     if (fileRef.current) fileRef.current.value = "";
   };
 
   const submit = async (e) => {
     e?.preventDefault?.();
     if (loading) return;
-    if (!id) return setError("Trabajador inválido.");
-    if (!periodoValido) return setError("Seleccioná un año y un mes puntual para este comprobante.");
-    if (!file) return setError("Seleccioná o arrastrá un comprobante.");
+    if (!id) return showToast?.("error", "Trabajador inválido.");
+    if (!periodoValido) return showToast?.("advertencia", "Seleccioná un año y un mes puntual para este comprobante.");
+    if (!file) return showToast?.("advertencia", "Seleccioná o arrastrá un comprobante.");
 
     const p = periodo || trabajador?.periodo_comprobante || {};
     const mes = Number(p.mes || p.id_mes || 0);
@@ -191,7 +188,7 @@ export default function ModalSubirComprobanteTrabajador({
                   <div className="cmp-warning">Seleccioná un año y un mes puntual antes de cargar el comprobante.</div>
                 )}
 
-                <div className={`cmp-box ${error ? "is-error" : ""}`}>
+                <div className="cmp-box">
                   <div className="cmp-head">
                     <div className="cmp-title">
                       <FontAwesomeIcon icon={faUpload} /> Archivo
@@ -263,7 +260,6 @@ export default function ModalSubirComprobanteTrabajador({
                     <div className="cmp-empty">Todavía no seleccionaste ningún archivo.</div>
                   )}
 
-                  {error ? <div className="cmp-warning">{error}</div> : null}
                 </div>
               </article>
             </div>

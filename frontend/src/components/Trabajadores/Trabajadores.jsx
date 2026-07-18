@@ -85,10 +85,10 @@ export default function Trabajadores() {
   const [openBaja, setOpenBaja] = useState(false);
   const [openBajaListado, setOpenBajaListado] = useState(false);
   const [sel, setSel] = useState(null);
-  const [toast, setToast] = useState({ open: false, tipo: "info", mensaje: "", duracion: 2800, key: 0 });
+  const [toast, setToast] = useState({ open: false, tipo: "info", mensaje: "", key: 0 });
 
-  const showToast = useCallback((tipo, mensaje, duracion = 2800) => {
-    setToast((current) => ({ open: true, tipo, mensaje, duracion, key: current.key + 1 }));
+  const showToast = useCallback((tipo, mensaje) => {
+    setToast((current) => ({ open: true, tipo, mensaje, key: current.key + 1 }));
   }, []);
 
   const request = useCallback(
@@ -221,7 +221,7 @@ export default function Trabajadores() {
       showToast("exito", response?.mensaje || "Distribución guardada.");
       await cargar();
     } catch (error) {
-      showToast("error", error?.message || "No se pudo guardar la distribución.", 3800);
+      showToast("error", error?.message || "No se pudo guardar la distribución.");
     } finally {
       setSavingReparto(false);
     }
@@ -267,7 +267,6 @@ export default function Trabajadores() {
           key={toast.key}
           tipo={toast.tipo}
           mensaje={toast.mensaje}
-          duracion={toast.duracion}
           onClose={() => setToast((current) => ({ ...current, open: false }))}
         />
       )}

@@ -194,7 +194,6 @@ export default function Reportes() {
   const [loadingAnios, setLoadingAnios] = useState(true);
   const [loadingMeses, setLoadingMeses] = useState(true);
   const [loadingData, setLoadingData] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
   const [pagos, setPagos] = useState([]);
   const [egresos, setEgresos] = useState([]);
   const [trabajadores, setTrabajadores] = useState([]);
@@ -461,7 +460,6 @@ export default function Reportes() {
 
     (async () => {
       try {
-        setErrorMsg("");
         setLoadingData(true);
 
         // Congela una sola vez los movimientos históricos de la entidad y de
@@ -571,7 +569,6 @@ export default function Reportes() {
         }
       } catch (error) {
         if (!alive) return;
-        setErrorMsg(String(error?.message || error));
         setPagos([]);
         setEgresos([]);
         setTrabajadores([]);
@@ -1070,7 +1067,7 @@ export default function Reportes() {
   const exactWorkerPeriod = Boolean(getPeriodoTrabajador());
 
   return (
-    <div className="contable-viewport" onChangeCapture={uppercaseTextFieldOnChange}>
+    <div className="contable-viewport reportes-viewport" onChangeCapture={uppercaseTextFieldOnChange}>
       {toast.show ? (
         <Toast
           key={toast.key}
@@ -1081,7 +1078,7 @@ export default function Reportes() {
         />
       ) : null}
 
-      <header className="contable-topbar">
+      <header className="contable-topbar reportes-header">
         <h1 className="contable-topbar-title">
           <FontAwesomeIcon icon={faCoins} /> Reportes
         </h1>
@@ -1112,7 +1109,7 @@ export default function Reportes() {
       </header>
 
       <div className="contable-grid reportes-grid">
-        <aside className="contable-sidebar">
+        <aside className="contable-sidebar reportes-filterbar">
           <h3 className="side-block-title" style={{ marginTop: 0 }}>
             <FontAwesomeIcon icon={faCalendarAlt} /> Filtros
           </h3>
@@ -1163,11 +1160,10 @@ export default function Reportes() {
               </button>
             </div>
 
-            {errorMsg ? <div className="reportes-error-box"><b>Error:</b> {errorMsg}</div> : null}
           </section>
         </aside>
 
-        <main className="contable-main">
+        <main className="contable-main reportes-main-island">
           <div className="main-switch" role="tablist" aria-label="Vista del reporte">
             <div className="switch-left">
               <button
@@ -1516,6 +1512,7 @@ export default function Reportes() {
         trabajador={trabajadorCompItem}
         periodo={trabajadorCompItem?.periodo_comprobante || getPeriodoTrabajador()}
         loading={savingTrabComp}
+        showToast={showToast}
         onClose={() => {
           if (savingTrabComp) return;
           setModalTrabCompOpen(false);

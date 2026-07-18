@@ -2,7 +2,7 @@
 import React, { useEffect } from "react";
 import "./SistemasModal.css";
 
-import { FaPlus } from "react-icons/fa";
+import { FaCubes, FaPlus } from "react-icons/fa";
 
 export default function SistemasModal({
   open,
@@ -94,11 +94,13 @@ export default function SistemasModal({
               <div className="mi-content">{children}</div>
 
               {lista.length === 0 && (
-                <div className="mi-empty">
-                  <span>Este cliente todavía no tiene sistemas cargados.</span>
+                <div className="cl-systems-empty" role="status">
+                  <span className="cl-systems-empty__icon" aria-hidden="true"><FaCubes /></span>
+                  <strong>Sin sistemas cargados</strong>
+                  <p>Este cliente todavía no tiene sistemas registrados.</p>
                   {canWrite && (
-                    <button className="mi-link" type="button" onClick={onOpenAdd}>
-                      Agregar el primero
+                    <button className="cl-systems-empty__button" type="button" onClick={onOpenAdd}>
+                      <FaPlus /> Agregar el primer sistema
                     </button>
                   )}
                 </div>

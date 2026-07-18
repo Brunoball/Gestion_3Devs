@@ -95,7 +95,6 @@ export default function EliminarClienteModal({
           tipo={toast.tipo}
           mensaje={toast.mensaje}
           onClose={closeToast}
-          duracion={3000}
         />
       )}
 
