@@ -51,7 +51,7 @@ export default function ModalDetalleLiquidacionTrabajador({
 
   return (
     <div
-      className="mi-modal__overlay"
+      className="mi-modal__overlay reportes-modal-theme"
       role="dialog"
       aria-modal="true"
       aria-label="Detalle de liquidación"

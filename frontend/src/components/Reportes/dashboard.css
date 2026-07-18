@@ -1577,3 +1577,147 @@ html[data-theme="oscuro"] .reportes-main-island .gridtable-empty-inner > div:las
     grid-template-columns: 1fr;
   }
 }
+
+/* =========================================================
+   Tarjetas de resumen con mayor jerarquía visual
+   ========================================================= */
+.reportes-main-island .reportes-summary-card {
+  --summary-accent: #2563eb;
+  position: relative;
+  min-height: 82px;
+  overflow: hidden;
+  border-color: rgba(37, 99, 235, 0.2);
+  background: linear-gradient(135deg, #ffffff 0%, #f2f7ff 100%);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.07);
+}
+
+.reportes-main-island .reportes-summary-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--summary-accent);
+}
+
+.reportes-main-island .reportes-summary-card::after {
+  content: "";
+  position: absolute;
+  right: -26px;
+  bottom: -38px;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--summary-accent) 9%, transparent);
+  pointer-events: none;
+}
+
+.reportes-main-island .reportes-summary-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.reportes-main-island .reportes-summary-card span {
+  color: #334155;
+}
+
+.reportes-main-island .reportes-summary-card span svg {
+  color: var(--summary-accent);
+}
+
+.reportes-main-island .reportes-summary-card strong {
+  color: #17345f;
+  letter-spacing: -0.02em;
+}
+
+.reportes-main-island .reportes-summary-card.is-income {
+  --summary-accent: #0284c7;
+  border-color: rgba(2, 132, 199, 0.25);
+  background: linear-gradient(135deg, #ffffff 0%, #edf8ff 100%);
+}
+
+.reportes-main-island .reportes-summary-card.is-income strong {
+  color: #0369a1;
+}
+
+.reportes-main-island .reportes-summary-card.is-expense {
+  --summary-accent: #d97706;
+  border-color: rgba(217, 119, 6, 0.25);
+  background: linear-gradient(135deg, #ffffff 0%, #fff8e8 100%);
+}
+
+.reportes-main-island .reportes-summary-card.is-expense strong {
+  color: #b45309;
+}
+
+.reportes-main-island .reportes-summary-card.success {
+  --summary-accent: #10b981;
+  border-color: rgba(16, 185, 129, 0.28);
+  background: linear-gradient(135deg, #ffffff 0%, #edfdf6 100%);
+}
+
+.reportes-main-island .reportes-summary-card.success strong {
+  color: #15803d;
+}
+
+.reportes-main-island .reportes-summary-card.danger {
+  --summary-accent: #ef4444;
+  border-color: rgba(239, 68, 68, 0.28);
+  background: linear-gradient(135deg, #ffffff 0%, #fff2f2 100%);
+}
+
+.reportes-main-island .reportes-summary-card.danger strong {
+  color: #b91c1c;
+}
+
+.reportes-main-island .reportes-summary-card.info {
+  --summary-accent: #7c3aed;
+  border-color: rgba(124, 58, 237, 0.25);
+  background: linear-gradient(135deg, #ffffff 0%, #f7f2ff 100%);
+}
+
+.reportes-main-island .reportes-summary-card.info strong {
+  color: #6d28d9;
+}
+
+html[data-theme="oscuro"] .reportes-main-island .reportes-summary-card {
+  border-color: #40516a;
+  background: linear-gradient(135deg, #24344d 0%, #202b3d 100%);
+  box-shadow: 0 9px 22px rgba(0, 0, 0, 0.2);
+}
+
+html[data-theme="oscuro"] .reportes-main-island .reportes-summary-card.is-income {
+  border-color: rgba(56, 189, 248, 0.34);
+  background: linear-gradient(135deg, #20384d 0%, #202d3e 100%);
+}
+
+html[data-theme="oscuro"] .reportes-main-island .reportes-summary-card.is-expense {
+  border-color: rgba(245, 158, 11, 0.34);
+  background: linear-gradient(135deg, #3b3224 0%, #2d2d2d 100%);
+}
+
+html[data-theme="oscuro"] .reportes-main-island .reportes-summary-card.success {
+  border-color: rgba(52, 211, 153, 0.34);
+  background: linear-gradient(135deg, #203a38 0%, #202f38 100%);
+}
+
+html[data-theme="oscuro"] .reportes-main-island .reportes-summary-card.danger {
+  border-color: rgba(248, 113, 113, 0.34);
+  background: linear-gradient(135deg, #432b32 0%, #302b35 100%);
+}
+
+html[data-theme="oscuro"] .reportes-main-island .reportes-summary-card.info {
+  border-color: rgba(167, 139, 250, 0.34);
+  background: linear-gradient(135deg, #302d4d 0%, #282d43 100%);
+}
+
+html[data-theme="oscuro"] .reportes-main-island .reportes-summary-card.is-income strong {
+  color: #7dd3fc;
+}
+
+html[data-theme="oscuro"] .reportes-main-island .reportes-summary-card.is-expense strong {
+  color: #fbbf24;
+}
+
+html[data-theme="oscuro"] .reportes-main-island .reportes-summary-card.info strong {
+  color: #c4b5fd;
+}

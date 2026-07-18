@@ -371,7 +371,7 @@ export default function ModalEditarMovimiento({
 
   return (
     <div
-      className="mi-modal__overlay reportes-floating-modal"
+      className="mi-modal__overlay reportes-floating-modal reportes-modal-theme"
       onClick={(e) => e.target.classList.contains("mi-modal__overlay") && cerrar()}
     >
       {toast.open && toast.message ? (

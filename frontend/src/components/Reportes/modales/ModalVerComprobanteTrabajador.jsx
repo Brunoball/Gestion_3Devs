@@ -37,7 +37,7 @@ export default function ModalVerComprobanteTrabajador({ open, trabajador, compro
 
   return (
     <div
-      className="mi-modal__overlay"
+      className="mi-modal__overlay reportes-modal-theme"
       onClick={(e) => e.target.classList.contains("mi-modal__overlay") && onClose?.()}
     >
       <div

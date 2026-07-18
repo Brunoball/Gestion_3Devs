@@ -49,7 +49,7 @@ export default function ModalVerComprobante({
 
   return (
     <div
-      className="mi-modal__overlay"
+      className="mi-modal__overlay reportes-modal-theme"
       onClick={(e) =>
         e.target.classList.contains("mi-modal__overlay") && cerrar()
       }

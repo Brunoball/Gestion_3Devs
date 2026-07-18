@@ -1,0 +1,107 @@
+/* Tarjetas internas de los modales de Reportes. */
+
+.reportes-modal-theme .mi-card {
+  --reportes-card-accent: #2563eb;
+  position: relative;
+  overflow: visible;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  background: linear-gradient(145deg, #ffffff 0%, #f6f9ff 100%);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.07);
+}
+
+.reportes-modal-theme .mi-grid > .mi-card:nth-child(3n + 2) {
+  --reportes-card-accent: #7c3aed;
+  border-color: rgba(124, 58, 237, 0.18);
+  background: linear-gradient(145deg, #ffffff 0%, #faf7ff 100%);
+}
+
+.reportes-modal-theme .mi-grid > .mi-card:nth-child(3n + 3) {
+  --reportes-card-accent: #0f9f6e;
+  border-color: rgba(15, 159, 110, 0.2);
+  background: linear-gradient(145deg, #ffffff 0%, #f4fcf8 100%);
+}
+
+.reportes-modal-theme .mi-card::before {
+  content: "";
+  position: absolute;
+  top: 15px;
+  bottom: 15px;
+  left: -1px;
+  width: 4px;
+  border-radius: 0 999px 999px 0;
+  background: var(--reportes-card-accent);
+  box-shadow: 4px 0 12px color-mix(in srgb, var(--reportes-card-accent) 22%, transparent);
+}
+
+.reportes-modal-theme .mi-card__title {
+  position: relative;
+  color: #203550;
+  border-bottom-color: rgba(148, 163, 184, 0.28);
+}
+
+.reportes-modal-theme .mi-card__title svg {
+  color: var(--reportes-card-accent);
+}
+
+.reportes-modal-theme .mgr-kpi {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(37, 99, 235, 0.18);
+  background: linear-gradient(145deg, #ffffff 0%, #f3f7ff 100%);
+  box-shadow: 0 7px 18px rgba(15, 23, 42, 0.06);
+}
+
+.reportes-modal-theme .mgr-kpi::after {
+  content: "";
+  position: absolute;
+  right: -28px;
+  bottom: -32px;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.reportes-modal-theme .mgr-kpi.is-good {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: linear-gradient(145deg, #ffffff 0%, #effcf6 100%);
+}
+
+.reportes-modal-theme .mgr-kpi.is-bad {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: linear-gradient(145deg, #ffffff 0%, #fff5f5 100%);
+}
+
+html[data-theme="oscuro"] .reportes-modal-theme .mi-card {
+  border-color: rgba(125, 180, 255, 0.26);
+  background: linear-gradient(145deg, #202c40 0%, #1b2638 100%);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme="oscuro"] .reportes-modal-theme .mi-grid > .mi-card:nth-child(3n + 2) {
+  border-color: rgba(167, 139, 250, 0.28);
+  background: linear-gradient(145deg, #282b43 0%, #20263a 100%);
+}
+
+html[data-theme="oscuro"] .reportes-modal-theme .mi-grid > .mi-card:nth-child(3n + 3) {
+  border-color: rgba(52, 211, 153, 0.26);
+  background: linear-gradient(145deg, #203a38 0%, #1d2e34 100%);
+}
+
+html[data-theme="oscuro"] .reportes-modal-theme .mi-card__title {
+  color: #e2e8f0;
+  border-bottom-color: #3b4a60;
+}
+
+html[data-theme="oscuro"] .reportes-modal-theme .mgr-kpi {
+  border-color: #3c506d;
+  background: linear-gradient(145deg, #24344d 0%, #202b3d 100%);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reportes-modal-theme .mi-card,
+  .reportes-modal-theme .mgr-kpi {
+    transition: none;
+  }
+}

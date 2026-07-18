@@ -49,6 +49,7 @@ import ModalVerComprobanteTrabajador from "./modales/ModalVerComprobanteTrabajad
 import ModalDetalleLiquidacionTrabajador from "./modales/ModalDetalleLiquidacionTrabajador";
 import ModalConfirmarPagoTrabajador from "./modales/ModalConfirmarPagoTrabajador";
 import "./modales/ModalFloatingLabels.css";
+import "./modales/ModalCards.css";
 
 function pickComponent(mod, preferredName) {
   return (
@@ -1222,12 +1223,12 @@ export default function Reportes() {
           </div>
 
           <div className="reportes-summary-grid">
-            <article className="reportes-summary-card">
+            <article className="reportes-summary-card is-income">
               <span><FontAwesomeIcon icon={faMoneyBillTrendUp} /> Total ingresos</span>
               <strong>{money(totalPagos)}</strong>
               <small>{periodoLabel}</small>
             </article>
-            <article className="reportes-summary-card">
+            <article className="reportes-summary-card is-expense">
               <span><FontAwesomeIcon icon={faMoneyBillTransfer} /> Total egresos</span>
               <strong>{money(totalEgresos)}</strong>
               <small>{periodoLabel}</small>

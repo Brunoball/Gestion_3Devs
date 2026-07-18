@@ -219,7 +219,7 @@ function ModalTrabajadorDetalle({
 
   return (
     <div
-      className="mi-modal__overlay reportes-floating-modal"
+      className="mi-modal__overlay reportes-floating-modal reportes-modal-theme"
       role="dialog"
       aria-modal="true"
       aria-label="Detalle de trabajador"
@@ -685,7 +685,7 @@ export default function ModalGraficosReportes({
   return (
     <>
       <div
-        className="mi-modal__overlay reportes-floating-modal"
+        className="mi-modal__overlay reportes-floating-modal reportes-modal-theme"
         role="dialog"
         aria-modal="true"
         aria-label="Gráficos de Reportes"
