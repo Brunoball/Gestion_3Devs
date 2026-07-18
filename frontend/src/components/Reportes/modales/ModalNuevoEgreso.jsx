@@ -182,7 +182,7 @@ export default function ModalNuevoEgreso({
 
   return (
     <div
-      className="mi-modal__overlay"
+      className="mi-modal__overlay reportes-floating-modal"
       onClick={(e) => e.target.classList.contains("mi-modal__overlay") && cerrar()}
     >
       {toast.open && toast.message ? (
@@ -248,7 +248,7 @@ export default function ModalNuevoEgreso({
                 <h3 className="mi-card__title">Datos del egreso</h3>
 
                 <div className="fl-grid">
-                  <div className="fl-field">
+                  <div className={`fl-field ${fecha ? "is-filled" : ""}`}>
                     <input
                       ref={firstRef}
                       className="fl-input"

@@ -406,7 +406,6 @@ html, body {
 }
 .gridtable-cell{
   padding:12px 14px;
-  color:#0f172a;
   overflow: hidden; /* recorta shimmer/overflow */
 }
 .centers{ text-align:center; }
@@ -1219,6 +1218,12 @@ html, body {
 }
 
 .reportes-main-island .detalle-empty {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.reportes-main-island .gridtable-body.minimal.is-empty {
+  height: 100%;
   min-height: 100%;
 }
 
@@ -1543,6 +1548,11 @@ html[data-theme="oscuro"] .reportes-main-island .gridtable-empty-inner > div:las
   .reportes-main-island .gridtable-scroll.minimal {
     height: auto;
     overflow: visible !important;
+  }
+
+  .reportes-main-island .gridtable-body.minimal.is-empty {
+    height: auto;
+    min-height: 240px;
   }
 
   html[data-theme="oscuro"] .reportes-main-island .segmented.is-active {

@@ -371,7 +371,7 @@ export default function ModalEditarMovimiento({
 
   return (
     <div
-      className="mi-modal__overlay"
+      className="mi-modal__overlay reportes-floating-modal"
       onClick={(e) => e.target.classList.contains("mi-modal__overlay") && cerrar()}
     >
       {toast.open && toast.message ? (
@@ -521,7 +521,7 @@ export default function ModalEditarMovimiento({
                     <h3 className="mi-card__title">Datos del registro</h3>
 
                     <div className="fl-grid">
-                      <div className="fl-field">
+                      <div className={`fl-field ${fecha ? "is-filled" : ""}`}>
                         <input
                           ref={firstRef}
                           className="fl-input"

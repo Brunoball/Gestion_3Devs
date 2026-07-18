@@ -48,6 +48,7 @@ import ModalSubirComprobanteTrabajador from "./modales/ModalSubirComprobanteTrab
 import ModalVerComprobanteTrabajador from "./modales/ModalVerComprobanteTrabajador";
 import ModalDetalleLiquidacionTrabajador from "./modales/ModalDetalleLiquidacionTrabajador";
 import ModalConfirmarPagoTrabajador from "./modales/ModalConfirmarPagoTrabajador";
+import "./modales/ModalFloatingLabels.css";
 
 function pickComponent(mod, preferredName) {
   return (
@@ -110,7 +111,7 @@ function GridTable({ title, columns = [], rows = [], loading = false, actions = 
         </div>
 
         <div className="gridtable-scroll minimal">
-          <div className="gridtable-body minimal">
+          <div className={`gridtable-body minimal ${!loading && !safeRows.length ? "is-empty" : ""}`}>
             {loading ? (
               Array.from({ length: SKELETON_ROWS }).map((_, rowIndex) => (
                 <div

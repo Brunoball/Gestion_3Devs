@@ -1,0 +1,152 @@
+/* Floating labels propios de Reportes.
+   Se acotan a sus modales para no alterar campos de otras secciones. */
+
+.reportes-floating-modal {
+  --reportes-fl-bg: var(--mi-bg, #ffffff);
+  --reportes-fl-text: var(--mi-text, #0f172a);
+  --reportes-fl-muted: var(--mi-muted, #64748b);
+  --reportes-fl-border: var(--mi-border, #d8e1ec);
+  --reportes-fl-active: var(--mi-primary-600, #2e5cbf);
+}
+
+.reportes-floating-modal .fl-field {
+  position: relative;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  display: block;
+  overflow: visible;
+}
+
+.reportes-floating-modal .fl-field:has(> .fl-input) {
+  height: 52px;
+  min-height: 52px;
+}
+
+.reportes-floating-modal .fl-field:has(> textarea.fl-input) {
+  height: auto;
+  min-height: 88px;
+}
+
+.reportes-floating-modal .fl-input {
+  width: 100%;
+  height: 52px;
+  min-height: 52px;
+  padding: 0 14px;
+  border: 1px solid var(--reportes-fl-border);
+  border-radius: 11px;
+  background: var(--reportes-fl-bg);
+  color: var(--reportes-fl-text);
+  line-height: 1.25;
+  outline: 0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.reportes-floating-modal textarea.fl-input {
+  height: 88px;
+  min-height: 88px;
+  padding: 17px 14px 10px;
+  line-height: 1.4;
+}
+
+.reportes-floating-modal .fl-select {
+  padding: 0 38px 0 14px;
+}
+
+.reportes-floating-modal .fl-label {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 12px;
+  max-width: calc(100% - 24px);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  color: var(--reportes-fl-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 1;
+  transform: translateY(-50%);
+  transform-origin: left center;
+  transition:
+    top 0.16s ease,
+    transform 0.16s ease,
+    padding 0.16s ease,
+    color 0.16s ease,
+    background 0.16s ease,
+    font-size 0.16s ease;
+}
+
+.reportes-floating-modal .fl-input:focus {
+  border-color: var(--reportes-fl-active);
+  box-shadow: 0 0 0 3px rgba(46, 92, 191, 0.14);
+}
+
+.reportes-floating-modal .fl-field:focus-within > .fl-label,
+.reportes-floating-modal .fl-field.is-filled > .fl-label,
+.reportes-floating-modal .fl-input:not([type="date"]):not(:placeholder-shown) + .fl-label,
+.reportes-floating-modal .fl-input:-webkit-autofill + .fl-label,
+.reportes-floating-modal .fl-select + .fl-label {
+  top: 0;
+  padding: 0 6px;
+  background: var(--reportes-fl-bg);
+  color: var(--reportes-fl-muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  transform: translateY(-50%);
+}
+
+.reportes-floating-modal .fl-field:focus-within > .fl-label {
+  color: var(--reportes-fl-active);
+}
+
+.reportes-floating-modal .fl-field:not(.is-filled):not(:focus-within) > input[type="date"] {
+  color: transparent;
+}
+
+.reportes-floating-modal .fl-input:disabled {
+  background: #f5f7fa;
+  color: #718096;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+html[data-theme="oscuro"] .reportes-floating-modal {
+  --reportes-fl-bg: #1f2a3d;
+  --reportes-fl-text: #e2e8f0;
+  --reportes-fl-muted: #aab7c8;
+  --reportes-fl-border: #40516a;
+  --reportes-fl-active: #7db4ff;
+}
+
+html[data-theme="oscuro"] .reportes-floating-modal .fl-input:disabled {
+  background: #263246;
+  color: #96a4b7;
+}
+
+@media (max-width: 900px) {
+  .reportes-floating-modal .fl-field:has(> .fl-input),
+  .reportes-floating-modal .fl-input {
+    height: 50px;
+    min-height: 50px;
+  }
+
+  .reportes-floating-modal .fl-field:has(> textarea.fl-input),
+  .reportes-floating-modal textarea.fl-input {
+    height: 84px;
+    min-height: 84px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reportes-floating-modal .fl-input,
+  .reportes-floating-modal .fl-label {
+    transition: none;
+  }
+}

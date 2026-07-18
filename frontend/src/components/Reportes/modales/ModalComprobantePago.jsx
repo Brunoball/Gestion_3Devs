@@ -123,7 +123,7 @@ export default function ModalComprobantePago({
 
   return (
     <div
-      className="mi-modal__overlay"
+      className="mi-modal__overlay reportes-floating-modal"
       onClick={(e) => e.target.classList.contains("mi-modal__overlay") && closeSafe()}
     >
       <div
