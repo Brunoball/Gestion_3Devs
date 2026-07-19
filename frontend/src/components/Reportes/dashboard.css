@@ -459,10 +459,24 @@ html, body {
    Acciones (botones ícono)
    ========================= */
 .actions-cell{
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  flex-wrap: nowrap;
+  box-sizing: border-box;
+}
+.gridtable-cell--actions{
+  min-width: 0;
+  padding-right: 5px !important;
+  padding-left: 5px !important;
+}
+.actions-cell .icon-btn{
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
 }
 .icon-btn{
   width: 34px;
@@ -591,7 +605,7 @@ html, body {
   }
   .gridtable-header{ display:none; }
   .gridtable-body .gridtable-row{
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr !important;
     border: 2px solid #E2E8F0;
     border-radius:12px;
     margin:10px 4px;

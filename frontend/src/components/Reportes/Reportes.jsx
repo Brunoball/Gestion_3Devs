@@ -85,8 +85,9 @@ function GridTable({ title, columns = [], rows = [], loading = false, actions = 
             {
               key: "__actions",
               label: "Acciones",
-              fr: "1fr",
+              fr: "minmax(172px, 1.15fr)",
               center: true,
+              className: "gridtable-cell--actions",
               render: actions,
             },
           ]
@@ -102,7 +103,7 @@ function GridTable({ title, columns = [], rows = [], loading = false, actions = 
           {allColumns.map((column) => (
             <div
               key={column.key}
-              className={`gridtable-cell ${column.center ? "centers" : ""} ${
+              className={`gridtable-cell ${column.className || ""} ${column.center ? "centers" : ""} ${
                 column.right ? "rights" : ""
               }`}
             >
@@ -122,7 +123,10 @@ function GridTable({ title, columns = [], rows = [], loading = false, actions = 
                   aria-hidden="true"
                 >
                   {allColumns.map((column) => (
-                    <div className="gridtable-cell" key={`${rowIndex}-${column.key}`}>
+                    <div
+                      className={`gridtable-cell ${column.className || ""}`}
+                      key={`${rowIndex}-${column.key}`}
+                    >
                       <span className="skeleton-bar" />
                     </div>
                   ))}
@@ -138,7 +142,7 @@ function GridTable({ title, columns = [], rows = [], loading = false, actions = 
                   {allColumns.map((column) => (
                     <div
                       key={column.key}
-                      className={`gridtable-cell ${column.center ? "centers" : ""} ${
+                      className={`gridtable-cell ${column.className || ""} ${column.center ? "centers" : ""} ${
                         column.right ? "rights" : ""
                       }`}
                       data-label={column.label}
