@@ -85,7 +85,7 @@ function GridTable({ title, columns = [], rows = [], loading = false, actions = 
             {
               key: "__actions",
               label: "Acciones",
-              fr: "minmax(172px, 1.15fr)",
+              fr: "minmax(170px, 1.15fr)",
               center: true,
               className: "gridtable-cell--actions",
               render: actions,
