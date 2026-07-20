@@ -3,7 +3,6 @@ import React, { useEffect, useMemo, useState, useCallback, useRef } from "react"
 import { FaCoins, FaTimes, FaCheck, FaEye, FaBan } from "react-icons/fa";
 import BASE_URL from "../../../config/config";
 import { fetchJSONAuth } from "../../Global/api";
-import { saveArcaCreditNotePdf } from "./arcaPdfBuilder";
 
 import "../../Trabajadores/modales/ModalEditarTrabajador.css";
 import "./ModalPago.css";
@@ -136,7 +135,7 @@ export default function ModalPago({
   id_sistema,
   cerrarModal,
   onPagoRealizado,
-  onFacturaAnulada,
+  onSolicitarAnulacionFactura,
   anioSeleccionado,
   mesSeleccionado,
   idOrganizacion,
@@ -154,7 +153,6 @@ export default function ModalPago({
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   });
   const [pagoExitoso, setPagoExitoso]   = useState(false);
-  const [anulandoFactura, setAnulandoFactura] = useState(false);
   const [registrando, setRegistrando] = useState(false);
   const registrandoRef = useRef(false);
   // ✅ Mapa { [id_sistema]: nombre } para mostrar en el desglose
@@ -237,11 +235,11 @@ export default function ModalPago({
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Escape" && !registrando && !anulandoFactura) cerrarModal?.();
+      if (e.key === "Escape" && !registrando) cerrarModal?.();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [cerrarModal, registrando, anulandoFactura]);
+  }, [cerrarModal, registrando]);
 
   // Cargar medios de pago
   useEffect(() => {
@@ -430,69 +428,32 @@ export default function ModalPago({
     onPagoRealizado, tieneDesglose, sistemasConMonto,
   ]);
 
-  const handleAnularFactura = useCallback(async () => {
+  const handleAnularFactura = useCallback(() => {
     const idFactura = Number(factura?.id_factura || 0);
     if (!Number.isFinite(idFactura) || idFactura <= 0) return;
 
-    const tieneCAE = Boolean(factura?.cae && String(factura.cae) !== "00000000000000");
-    if (tieneCAE) {
-      setError(
-        "La factura fue emitida en ARCA y está protegida. Primero debe emitirse y registrarse la Nota de Crédito correspondiente."
-      );
-      return;
-    }
-
-    const ok = window.confirm(
-      "Esta factura no tiene CAE válido. Se eliminará la factura/PDF local del sistema. ¿Continuar?"
-    );
-    if (!ok) return;
-
     setError("");
-    setAnulandoFactura(true);
-    try {
-      const result = await fetchJSON(`${API}?action=pagos&op=factura_anular_con_nc`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id_factura: idFactura,
-          motivo: "Anulación desde modal de pago",
-        }),
-      });
-
-      if (result?.exito === false) {
-        throw new Error(result?.mensaje || "No se pudo anular la factura.");
-      }
-
-      if ((result?.emitio_nota_credito || result?.nota_credito_existente) && result?.nota_credito) {
-        try {
-          await saveArcaCreditNotePdf({
-            notaCredito: result.nota_credito,
-            facturaOriginal: result?.factura_original || {},
-            data: {
-              labelCliente: result?.factura_original?.cliente_nombre || "",
-              labelSistema: result?.factura_original?.sistema_nombre || "",
-              motivo: "Anulación desde modal de pago",
-            },
-            download: true,
-          });
-        } catch (pdfErr) {
-          console.warn("No se pudo descargar el PDF simple de Nota de Crédito:", pdfErr);
-        }
-      }
-
-      setFactura(null);
-      setMonto("");
-      onFacturaAnulada?.(result);
-      cerrarModal?.();
-    } catch (e) {
-      setError(e?.message || "No se pudo anular la factura.");
-    } finally {
-      setAnulandoFactura(false);
-    }
-  }, [API, fetchJSON, factura, onFacturaAnulada, cerrarModal]);
+    onSolicitarAnulacionFactura?.({
+      ...factura,
+      cliente_nombre:
+        factura?.cliente_nombre ||
+        detalle?.cliente?.nombre ||
+        detalle?.cliente_nombre ||
+        (typeof detalle?.cliente === "string" ? detalle.cliente : "") ||
+        "",
+      sistema_nombre:
+        factura?.sistema_nombre ||
+        detalle?.sistema?.nombre ||
+        detalle?.sistema_nombre ||
+        (typeof detalle?.sistema === "string" ? detalle.sistema : "") ||
+        detalle?.nombre_sistema ||
+        detalle?.nombre ||
+        "",
+    });
+  }, [factura, detalle, onSolicitarAnulacionFactura]);
 
   const cerrar = () => {
-    if (registrando || anulandoFactura) return;
+    if (registrando) return;
     cerrarModal?.();
   };
 
@@ -526,7 +487,7 @@ export default function ModalPago({
             type="button"
             onClick={cerrar}
             aria-label="Cerrar"
-            disabled={registrando || anulandoFactura}
+            disabled={registrando}
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
               fill="none" stroke="currentColor" strokeWidth="2">
@@ -687,17 +648,18 @@ export default function ModalPago({
                         type="button"
                         className="mit-btn mit-btn--ghost pay-btn-small"
                         onClick={handleAnularFactura}
-                        disabled={
-                          anulandoFactura ||
-                          Boolean(factura?.cae && String(factura.cae) !== "00000000000000")
-                        }
+                        disabled={!onSolicitarAnulacionFactura}
                         title={
-                          factura?.cae && String(factura.cae) !== "00000000000000"
-                            ? "Factura emitida en ARCA: requiere Nota de Crédito trazable"
+                          factura?.cae && !/^0+$/.test(String(factura.cae))
+                            ? "Emitir Nota de Crédito"
                             : "Eliminar factura local"
                         }
                       >
-                        <FaBan /> {anulandoFactura ? "Anulando..." : "Anular"}
+                        <FaBan />{
+                          factura?.cae && !/^0+$/.test(String(factura.cae))
+                            ? "Emitir Nota de Crédito"
+                            : "Eliminar factura"
+                        }
                       </button>
                     ) : null}
                   </div>
@@ -765,7 +727,7 @@ export default function ModalPago({
               type="button"
               className="mit-btn mit-btn--ghost"
               onClick={cerrar}
-              disabled={registrando || anulandoFactura}
+              disabled={registrando}
             >
               <FaTimes style={{ marginRight: 8 }} />Cerrar
             </button>

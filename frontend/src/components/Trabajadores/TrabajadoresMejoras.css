@@ -472,3 +472,12 @@ html[data-theme="oscuro"] .TP-SectionTabs button > span {
 @media (prefers-reduced-motion: reduce) {
   .TP-SectionPanel { animation: none; }
 }
+
+/* Reparto por cantidad: solo se seleccionan integrantes. */
+.TP-RepartoRow--simple {
+  grid-template-columns: minmax(240px, 1fr) 42px;
+}
+
+@media (max-width: 850px) {
+  .TP-RepartoRow--simple { grid-template-columns: 1fr; }
+}

@@ -219,6 +219,11 @@ function getMesLabelById(mesesArr, id) {
 /* =========================================================
    ✅ DETECTOR "SIN FACTURA" igual al ModalPago
 ========================================================= */
+function facturaTieneCAEValido(factura) {
+  const cae = String(factura?.cae ?? "").trim();
+  return cae !== "" && !/^0+$/.test(cae);
+}
+
 function computeSinFacturaFromFactura(factura) {
   const pdfUrl = factura?.pdf_path || factura?.pdf_url || null;
 
@@ -286,6 +291,7 @@ const Row = memo(
     const facturaInfo = idSistema ? facturaInfoMap?.[idSistema] : null;
     const idFactura = Number(item?.id_factura || facturaInfo?.id_factura || 0);
     const tieneFactura = Number.isFinite(idFactura) && idFactura > 0;
+    const facturaFiscal = facturaTieneCAEValido(facturaInfo || item);
 
     const payDisabled = !isDeudor ? true : facturaChecking ? true : canOpenPago === false;
 
@@ -347,7 +353,8 @@ const Row = memo(
                   e.stopPropagation();
                   onAnularFacturaClick?.(item, facturaInfo);
                 }}
-                title="Anular factura / emitir Nota de Crédito"
+                title={facturaFiscal ? "Emitir Nota de Crédito" : "Eliminar factura local"}
+                aria-label={facturaFiscal ? "Emitir Nota de Crédito" : "Eliminar factura local"}
                 type="button"
               >
                 <FontAwesomeIcon icon={faBan} />
@@ -1100,6 +1107,9 @@ function Pagos() {
       pto_vta: factura?.pto_vta ?? row?.pto_vta ?? null,
       cbte_nro: factura?.cbte_nro ?? row?.cbte_nro ?? null,
       cae: factura?.cae ?? row?.cae ?? null,
+      estado: factura?.estado ?? row?.estado_factura ?? null,
+      monto_ars: factura?.monto_ars ?? row?.monto ?? null,
+      total_ars: factura?.total_ars ?? factura?.monto_ars ?? row?.monto ?? null,
       pdf_path: factura?.pdf_path ?? row?.comprobante ?? null,
     });
   }, [fetchJSON, selectedYear, selectedMonthId, showToast]);
@@ -1199,10 +1209,12 @@ function Pagos() {
         body: JSON.stringify({
           id_factura: modalAnularFactura.id_factura,
           motivo: "Anulación desde módulo Pagos",
+          confirmar_emision: true,
         }),
       });
 
       const emitioNC = Boolean(resp?.emitio_nota_credito || resp?.nota_credito_existente);
+      let pdfDescargado = false;
 
       if (emitioNC && resp?.nota_credito) {
         try {
@@ -1216,22 +1228,20 @@ function Pagos() {
             },
             download: true,
           });
+          pdfDescargado = true;
         } catch (pdfErr) {
           console.warn("No se pudo descargar el PDF simple de Nota de Crédito:", pdfErr);
-          showToast(
-            "advertencia",
-            "La Nota de Crédito se emitió, pero no se pudo descargar el PDF simple.",
-            4200
-          );
         }
       }
 
       showToast(
-        "exito",
+        emitioNC && !pdfDescargado ? "advertencia" : "exito",
         emitioNC
-          ? "Nota de Crédito emitida, PDF descargado y factura eliminada correctamente."
-          : "Factura eliminada correctamente.",
-        3800
+          ? pdfDescargado
+            ? "Nota de Crédito emitida, PDF descargado y factura anulada correctamente."
+            : "La Nota de Crédito se emitió y la factura quedó anulada, pero no se pudo descargar el PDF."
+          : "Factura local eliminada correctamente.",
+        emitioNC && !pdfDescargado ? 4800 : 3800
       );
 
       closeModalAnularFactura();
@@ -1298,6 +1308,7 @@ function Pagos() {
             const facturaInfo = idSistema ? facturaInfoMap?.[idSistema] : null;
             const idFactura = Number(row?.id_factura || facturaInfo?.id_factura || 0);
             const tieneFactura = Number.isFinite(idFactura) && idFactura > 0;
+            const facturaFiscal = facturaTieneCAEValido(facturaInfo || row);
 
             const payDisabled = !isDeudor ? true : facturaChecking ? true : canOpenPago === false;
 
@@ -1360,10 +1371,10 @@ function Pagos() {
                         onAnularFacturaClick(row, facturaInfo);
                       }}
                       type="button"
-                      title="Anular factura / emitir Nota de Crédito"
+                      title={facturaFiscal ? "Emitir Nota de Crédito" : "Eliminar factura local"}
                     >
                       <FontAwesomeIcon icon={faBan} />
-                      <span>Anular factura</span>
+                      <span>{facturaFiscal ? "Emitir Nota de Crédito" : "Eliminar factura"}</span>
                     </button>
                   )}
 
@@ -1492,17 +1503,22 @@ function Pagos() {
             recargarListado();
             showToast("exito", "Pago realizado con éxito.", 2600);
           }}
-          onFacturaAnulada={(resp) => {
+          onSolicitarAnulacionFactura={(facturaActual) => {
             closeModalPago();
-            recargarListado();
-            const emitioNC = Boolean(resp?.emitio_nota_credito || resp?.nota_credito_existente);
-            showToast(
-              "exito",
-              emitioNC
-                ? "Nota de Crédito emitida y factura eliminada correctamente."
-                : "Factura eliminada correctamente.",
-              3400
-            );
+            setModalAnularFactura({
+              open: true,
+              id_factura: Number(facturaActual?.id_factura || 0),
+              labelCliente: facturaActual?.cliente_nombre || modalPago?.labelCliente || "",
+              labelSistema: facturaActual?.sistema_nombre || modalPago?.labelSistema || "",
+              cbte_tipo: facturaActual?.cbte_tipo ?? null,
+              pto_vta: facturaActual?.pto_vta ?? null,
+              cbte_nro: facturaActual?.cbte_nro ?? null,
+              cae: facturaActual?.cae ?? null,
+              estado: facturaActual?.estado ?? null,
+              monto_ars: facturaActual?.monto_ars ?? null,
+              total_ars: facturaActual?.total_ars ?? facturaActual?.monto_ars ?? null,
+              pdf_path: facturaActual?.pdf_path ?? null,
+            });
           }}
           anioSeleccionado={modalPago.anioSeleccionado}
           mesSeleccionado={modalPago.mesSeleccionado}

@@ -9,7 +9,6 @@ import {
   FaPen,
   FaPlus,
   FaSave,
-  FaBalanceScale,
   FaTimes,
   FaTrashAlt,
   FaUsers,
@@ -57,14 +56,6 @@ function formatARS(value) {
   });
 }
 
-function splitExact(count) {
-  if (!count) return [];
-  const totalUnits = 1000000;
-  const base = Math.floor(totalUnits / count);
-  let rest = totalUnits - base * count;
-  return Array.from({ length: count }, () => ((base + (rest-- > 0 ? 1 : 0)) / 10000).toFixed(4));
-}
-
 function TeamEditor({
   system,
   workers,
@@ -74,8 +65,6 @@ function TeamEditor({
   onSave,
   saving,
 }) {
-  const total = items.reduce((sum, item) => sum + Number(item.porcentaje || 0), 0);
-  const totalOk = Math.abs(total - 100) <= 0.0001;
   const assignedIds = new Set(items.map((item) => Number(item.id_trabajador)));
   const available = workers.filter((worker) => !assignedIds.has(Number(worker.id)));
   const [selected, setSelected] = useState("");
@@ -90,27 +79,22 @@ function TeamEditor({
         nombre: worker.nombre,
         apellido: worker.apellido,
         rol: worker.rol,
-        porcentaje: "",
         rol_en_sistema: "",
       },
     ]);
     setSelected("");
   };
 
-  const divide = () => {
-    if (!items.length) return;
-    const values = splitExact(items.length);
-    onChange(items.map((item, index) => ({ ...item, porcentaje: values[index] })));
-  };
-
   return (
     <div className="CL-TeamBox">
       <div className="CL-TeamHeader">
         <div>
-          <strong><FaUsers /> Equipo y reparto de este sistema</strong>
-          <span>Solo se aplica a los cobros propios de 3DEVS para este sistema.</span>
+          <strong><FaUsers /> Integrantes de este sistema</strong>
+          <span>El monto de cada cobro se divide en partes iguales entre las personas seleccionadas.</span>
         </div>
-        <span className={totalOk ? "is-ok" : ""}>Total {total.toFixed(4)}%</span>
+        <span className={items.length ? "is-ok" : ""}>
+          {items.length} {items.length === 1 ? "integrante" : "integrantes"} · partes iguales
+        </span>
       </div>
 
       {items.map((item, index) => (
@@ -125,18 +109,6 @@ function TeamEditor({
             onChange={(event) => onChange(items.map((row, i) => i === index ? { ...row, rol_en_sistema: event.target.value } : row))}
             disabled={!canWrite}
           />
-          <label>
-            <input
-              type="number"
-              min="0.0001"
-              max="100"
-              step="0.0001"
-              value={item.porcentaje ?? ""}
-              onChange={(event) => onChange(items.map((row, i) => i === index ? { ...row, porcentaje: event.target.value } : row))}
-              disabled={!canWrite}
-            />
-            <span>%</span>
-          </label>
           {canWrite && (
             <button type="button" className="CL-IconDanger" onClick={() => onChange(items.filter((_, i) => i !== index))} title="Quitar">
               <FaTrashAlt />
@@ -156,8 +128,7 @@ function TeamEditor({
             ))}
           </select>
           <button type="button" onClick={add} disabled={!selected}><FaPlus /> Agregar</button>
-          <button type="button" onClick={divide} disabled={!items.length}><FaBalanceScale /> Dividir 100%</button>
-          <button type="button" className="is-primary" onClick={() => onSave(system.id_sistema)} disabled={!items.length || !totalOk || saving}>
+          <button type="button" className="is-primary" onClick={() => onSave(system.id_sistema)} disabled={!items.length || saving}>
             <FaSave /> {saving ? "Guardando…" : "Guardar equipo"}
           </button>
         </div>
@@ -169,6 +140,8 @@ function TeamEditor({
 function EntityDistribution({ summary }) {
   const direct = summary?.regla_directa || [];
   const effective = summary?.items || [];
+  const comesFrom3Devs = (item) => (item?.rutas || [])
+    .some((route) => String(route || "").toUpperCase().split("→").map((part) => part.trim()).includes("3DEVS"));
   return (
     <div className="CL-EntitySplit">
       <div className="CL-EntitySplitTitle"><FaBuilding /> Distribución automática de BALTO</div>
@@ -192,7 +165,7 @@ function EntityDistribution({ summary }) {
           <div className="CL-SplitChips">
             {effective.map((item, index) => (
               <span key={`effective-${item.id_trabajador || item.id_organizacion_beneficiaria}-${index}`}>
-                <b>{item.beneficiario_nombre}</b> {Number(item.porcentaje || 0).toFixed(4)}%
+                <b>{item.beneficiario_nombre}</b> {comesFrom3Devs(item) ? "· parte igual dentro de 3DEVS" : `${Number(item.porcentaje || 0).toFixed(4)}%`}
                 {item.rutas?.length ? <small>{item.rutas.join(" / ")}</small> : null}
               </span>
             ))}
@@ -373,7 +346,7 @@ export default function Clientes() {
       setTeams((current) => ({
         ...current,
         [system.id_sistema]: Array.isArray(data?.asignados)
-          ? data.asignados.map((item) => ({ ...item, porcentaje: String(item.porcentaje ?? 0) }))
+          ? data.asignados
           : [],
       }));
     } else {
@@ -491,7 +464,6 @@ export default function Clientes() {
           id_sistema: idSystem,
           items: (teams[idSystem] || []).map((item) => ({
             id_trabajador: Number(item.id_trabajador || item.id),
-            porcentaje: Number(item.porcentaje),
             rol_en_sistema: item.rol_en_sistema || "",
           })),
         }),
@@ -548,7 +520,7 @@ export default function Clientes() {
                         <FaInfoCircle />
                         <span className="CL-PolicyTooltip" role="tooltip">
                           <strong>{modeloReparto === "por_sistema" ? "Reparto por sistema" : "Reparto general por entidad"}</strong>
-                          <span>{modeloReparto === "por_sistema" ? "En cada sistema de 3DEVS se define quién trabajó y qué porcentaje recibe." : "Todos los clientes BALTO usan automáticamente el 50% contador / 50% 3DEVS configurado en Trabajadores."}</span>
+                          <span>{modeloReparto === "por_sistema" ? "En cada sistema de 3DEVS se elige quién integra el reparto; el monto se divide entre esas personas en partes iguales." : "Todos los clientes BALTO usan automáticamente el 50% contador / 50% 3DEVS configurado en Trabajadores."}</span>
                         </span>
                       </span>
                     </div>

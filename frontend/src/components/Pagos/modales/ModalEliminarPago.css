@@ -165,3 +165,65 @@
 .mpdel-btn--solid-danger:hover{
   background: #b91c1c;
 }
+
+/* Confirmación explícita para factura / Nota de Crédito */
+.mpdel-confirm{
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin-top: 14px;
+  padding: 12px 13px;
+  border: 1px solid #fecaca;
+  border-radius: 13px;
+  background: #fff7f7;
+  cursor: pointer;
+}
+
+.mpdel-confirm input{
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mpdel-confirm__box{
+  width: 21px;
+  height: 21px;
+  flex: 0 0 21px;
+  border: 2px solid #dc2626;
+  border-radius: 6px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+  transition: background .15s ease, box-shadow .15s ease;
+}
+
+.mpdel-confirm__box::after{
+  content: "✓";
+  color: #fff;
+  font-size: 14px;
+  font-weight: 900;
+  transform: scale(0);
+  transition: transform .12s ease;
+}
+
+.mpdel-confirm input:checked + .mpdel-confirm__box{
+  background: #dc2626;
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, .14);
+}
+
+.mpdel-confirm input:checked + .mpdel-confirm__box::after{
+  transform: scale(1);
+}
+
+.mpdel-confirm input:focus-visible + .mpdel-confirm__box{
+  outline: 3px solid rgba(220, 38, 38, .22);
+  outline-offset: 2px;
+}
+
+.mpdel-confirm__text{
+  color: #374151;
+  font-size: 13px;
+  line-height: 1.45;
+}

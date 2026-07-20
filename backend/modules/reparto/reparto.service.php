@@ -9,10 +9,11 @@ declare(strict_types=1);
  * - Cada pago congela su reparto exacto en `pagos_reparto_snapshots`.
  * - Cada egreso con pagadores congela sus reembolsos en
  *   `egresos_reparto_snapshots`.
- * - Cambiar porcentajes solo afecta movimientos futuros; nunca reescribe el
- *   historial ya registrado.
+ * - Cambiar integrantes o reglas solo afecta movimientos futuros; nunca
+ *   reescribe el historial ya registrado.
  * - En repartos entre entidades, los montos se asignan jerárquicamente para
- *   respetar cada nivel exacto (por ejemplo: BALTO 50/50 y luego 3DEVS 33/33/33).
+ *   respetar cada nivel exacto (por ejemplo: BALTO 50/50 y luego la parte de
+ *   3DEVS en partes iguales entre sus integrantes seleccionados).
  */
 
 function reparto_redondear(float $value, int $scale = 4): float
@@ -131,6 +132,70 @@ function reparto_normalizar_porcentajes(array $items, int $scale = 4): array
     return $items;
 }
 
+/**
+ * Genera porcentajes técnicos para columnas y reportes heredados.
+ * Esos valores nunca deciden el monto de un reparto igualitario.
+ */
+function reparto_porcentajes_partes_iguales(int $cantidad, int $scale = 4): array
+{
+    if ($cantidad <= 0) return [];
+
+    $items = array_fill(0, $cantidad, ['porcentaje' => 1.0]);
+    return array_map(
+        static fn(array $item): float => (float)$item['porcentaje'],
+        reparto_normalizar_porcentajes($items, $scale)
+    );
+}
+
+/** Prepara los metadatos de una lista cuyo criterio real es cantidad de personas. */
+function reparto_preparar_partes_iguales(array $items): array
+{
+    $porcentajes = reparto_porcentajes_partes_iguales(count($items));
+    foreach ($items as $index => &$item) {
+        $item['porcentaje'] = $porcentajes[$index] ?? 0.0;
+        $item['modo_reparto'] = 'partes_iguales';
+    }
+    unset($item);
+    return $items;
+}
+
+/**
+ * Divide centavos en partes iguales. El centavo indivisible rota según la
+ * semilla del movimiento para no favorecer siempre a la primera persona.
+ */
+function reparto_aplicar_partes_iguales(array $items, float $monto, int $semilla = 0): array
+{
+    if (!$items) return [];
+
+    $items = reparto_preparar_partes_iguales($items);
+    $cantidad = count($items);
+    $totalCentavos = (int)round(max(0.0, $monto) * 100);
+    $base = intdiv($totalCentavos, $cantidad);
+    $resto = $totalCentavos - ($base * $cantidad);
+    $inicio = (($semilla % $cantidad) + $cantidad) % $cantidad;
+
+    foreach ($items as &$item) $item['monto_estimado'] = $base / 100;
+    unset($item);
+    for ($i = 0; $i < $resto; $i++) {
+        $index = ($inicio + $i) % $cantidad;
+        $items[$index]['monto_estimado'] = (($base + 1) / 100);
+    }
+
+    return $items;
+}
+
+function reparto_regla_igualitaria_valida(array $items): bool
+{
+    if (!$items) return false;
+    foreach ($items as $item) {
+        if (($item['tipo_beneficiario'] ?? '') !== 'trabajador'
+            || (int)($item['id_trabajador'] ?? 0) <= 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
 function reparto_regla_valida(array $items): bool
 {
     if (!$items) return false;
@@ -217,17 +282,18 @@ function reparto_items_sistema(PDO $pdo, int $idOrganizacion, int $idSistema): a
         ];
     }
 
-    // Nunca se inventa un reparto igualitario. Si la suma no es exactamente
-    // 100%, el pago queda bloqueado y debe corregirse la configuración.
-    $configured = reparto_regla_valida($items);
+    // En organizaciones por sistema solo importan los integrantes activos.
+    // Los porcentajes persistidos se conservan únicamente por compatibilidad.
+    $configured = reparto_regla_igualitaria_valida($items);
+    if ($configured) $items = reparto_preparar_partes_iguales($items);
     foreach ($items as &$item) $item['configurado'] = $configured;
     unset($item);
-    if ($configured) $items = reparto_normalizar_porcentajes($items);
 
     return [
         'items' => $items,
         'configurado' => $configured,
-        'usa_reparto_igualitario' => false,
+        'usa_reparto_igualitario' => true,
+        'modo_reparto' => 'partes_iguales',
         'total' => reparto_redondear(array_sum(array_column($items, 'porcentaje'))),
     ];
 }
@@ -259,7 +325,11 @@ function reparto_expandir_organizacion(
     }
 
     $items = reparto_items_organizacion($pdo, $idOrganizacion);
-    if (!reparto_regla_valida($items)) {
+    $usaPartesIguales = $org['modelo_reparto'] === 'por_sistema';
+    $reglaValida = $usaPartesIguales
+        ? reparto_regla_igualitaria_valida($items)
+        : reparto_regla_valida($items);
+    if (!$reglaValida) {
         return [[
             'tipo_beneficiario' => 'organizacion',
             'id_organizacion_beneficiaria' => $idOrganizacion,
@@ -271,6 +341,7 @@ function reparto_expandir_organizacion(
         ]];
     }
 
+    if ($usaPartesIguales) $items = reparto_preparar_partes_iguales($items);
     $visitadas[] = $idOrganizacion;
     $out = [];
     foreach ($items as $item) {
@@ -308,7 +379,8 @@ function reparto_distribuir_organizacion_jerarquico(
     float $monto,
     float $porcentajePadre = 100.0,
     array $visitadas = [],
-    string $ruta = ''
+    string $ruta = '',
+    int $semilla = 0
 ): array {
     $org = reparto_organizacion_config($pdo, $idOrganizacion);
     $currentRoute = $ruta !== '' ? $ruta : $org['codigo'];
@@ -330,7 +402,11 @@ function reparto_distribuir_organizacion_jerarquico(
     }
 
     $direct = reparto_items_organizacion($pdo, $idOrganizacion);
-    if (!reparto_regla_valida($direct)) {
+    $usaPartesIguales = $org['modelo_reparto'] === 'por_sistema';
+    $reglaValida = $usaPartesIguales
+        ? reparto_regla_igualitaria_valida($direct)
+        : reparto_regla_valida($direct);
+    if (!$reglaValida) {
         return [
             'configurado' => false,
             'items' => [[
@@ -347,7 +423,9 @@ function reparto_distribuir_organizacion_jerarquico(
     }
 
     $visitadas[] = $idOrganizacion;
-    $directWithAmounts = reparto_aplicar_montos_exactos($direct, $monto);
+    $directWithAmounts = $usaPartesIguales
+        ? reparto_aplicar_partes_iguales($direct, $monto, $semilla)
+        : reparto_aplicar_montos_exactos($direct, $monto);
     $out = [];
     $configured = true;
 
@@ -384,7 +462,8 @@ function reparto_distribuir_organizacion_jerarquico(
             $branchAmount,
             $effective,
             $visitadas,
-            $childRoute
+            $childRoute,
+            $semilla
         );
         $configured = $configured && (bool)$child['configurado'];
         foreach ($child['items'] as $row) $out[] = $row;
@@ -430,20 +509,41 @@ function reparto_agrupar_items_finales(array $items): array
     return $final;
 }
 
-function reparto_resumen_organizacion(PDO $pdo, int $idOrganizacion, float $monto = 0.0): array
+function reparto_resumen_organizacion(
+    PDO $pdo,
+    int $idOrganizacion,
+    float $monto = 0.0,
+    int $semilla = 0
+): array
 {
     $org = reparto_organizacion_config($pdo, $idOrganizacion);
     $direct = reparto_items_organizacion($pdo, $idOrganizacion);
-    $directValid = reparto_regla_valida($direct);
-    $directWithAmounts = $directValid ? reparto_aplicar_montos_exactos($direct, $monto) : $direct;
-    $tree = reparto_distribuir_organizacion_jerarquico($pdo, $idOrganizacion, $monto);
+    $usaPartesIguales = $org['modelo_reparto'] === 'por_sistema';
+    $directValid = $usaPartesIguales
+        ? reparto_regla_igualitaria_valida($direct)
+        : reparto_regla_valida($direct);
+    $directWithAmounts = !$directValid
+        ? $direct
+        : ($usaPartesIguales
+            ? reparto_aplicar_partes_iguales($direct, $monto, $semilla)
+            : reparto_aplicar_montos_exactos($direct, $monto));
+    $tree = reparto_distribuir_organizacion_jerarquico(
+        $pdo,
+        $idOrganizacion,
+        $monto,
+        100.0,
+        [],
+        '',
+        $semilla
+    );
     $final = reparto_agrupar_items_finales($tree['items']);
 
     return [
         'organizacion' => $org,
         'modelo_reparto' => $org['modelo_reparto'],
         'configurado' => $directValid && (bool)$tree['configurado'] && count($final) > 0,
-        'usa_reparto_igualitario' => false,
+        'usa_reparto_igualitario' => $usaPartesIguales,
+        'modo_reparto' => $usaPartesIguales ? 'partes_iguales' : 'porcentajes',
         'origen' => 'regla_vigente',
         'total_porcentaje' => reparto_redondear(array_sum(array_column($final, 'porcentaje'))),
         'monto_base' => reparto_redondear($monto, 2),
@@ -453,22 +553,29 @@ function reparto_resumen_organizacion(PDO $pdo, int $idOrganizacion, float $mont
 }
 
 /** Resumen final y exacto para un sistema. */
-function reparto_resumen_sistema(PDO $pdo, int $idOrganizacion, int $idSistema, float $monto = 0.0): array
+function reparto_resumen_sistema(
+    PDO $pdo,
+    int $idOrganizacion,
+    int $idSistema,
+    float $monto = 0.0,
+    int $semilla = 0
+): array
 {
     $org = reparto_organizacion_config($pdo, $idOrganizacion);
 
     if ($org['modelo_reparto'] === 'por_entidad') {
-        return reparto_resumen_organizacion($pdo, $idOrganizacion, $monto);
+        return reparto_resumen_organizacion($pdo, $idOrganizacion, $monto, $semilla);
     }
 
     $direct = reparto_items_sistema($pdo, $idOrganizacion, $idSistema);
-    $items = reparto_aplicar_montos_exactos($direct['items'], $monto);
+    $items = reparto_aplicar_partes_iguales($direct['items'], $monto, $semilla);
 
     return [
         'organizacion' => $org,
         'modelo_reparto' => $org['modelo_reparto'],
         'configurado' => (bool)$direct['configurado'],
         'usa_reparto_igualitario' => (bool)$direct['usa_reparto_igualitario'],
+        'modo_reparto' => 'partes_iguales',
         'origen' => 'regla_vigente',
         'total_porcentaje' => reparto_redondear(array_sum(array_column($items, 'porcentaje'))),
         'monto_base' => reparto_redondear($monto, 2),
@@ -496,10 +603,6 @@ function reparto_validar_resumen_contable(array $summary, float $expectedAmount)
     if (empty($summary['configurado']) || !$items || $totalPercentageUnits !== 1000000) {
         throw new DomainException('La configuración de reparto está incompleta o no suma exactamente 100%.');
     }
-    if (!empty($summary['usa_reparto_igualitario'])) {
-        throw new DomainException('No se permite liquidar con un reparto igualitario automático.');
-    }
-
     $distributed = round(array_sum(array_map(
         static fn(array $item): float => (float)($item['monto_estimado'] ?? 0),
         $items
@@ -587,7 +690,8 @@ function reparto_resumen_pago(PDO $pdo, int $idOrganizacion, int $idPago, bool $
         $pdo,
         $idOrganizacion,
         (int)$payment['id_sistema'],
-        (float)$payment['monto']
+        (float)$payment['monto'],
+        $idPago
     );
     reparto_validar_resumen_contable($summary, (float)$payment['monto']);
 
@@ -700,7 +804,15 @@ function reparto_resumen_egreso(
         }
         $payerOrganization = (int)($payer['id_organizacion_pagadora'] ?? 0);
         if ($payerOrganization <= 0) throw new DomainException('Hay una organización pagadora inválida.');
-        $tree = reparto_distribuir_organizacion_jerarquico($pdo, $payerOrganization, $amount);
+        $tree = reparto_distribuir_organizacion_jerarquico(
+            $pdo,
+            $payerOrganization,
+            $amount,
+            100.0,
+            [],
+            '',
+            $idEgreso
+        );
         $items = reparto_agrupar_items_finales($tree['items'] ?? []);
         if (empty($tree['configurado']) || !$items) {
             throw new DomainException('La organización pagadora no tiene un reparto válido.');

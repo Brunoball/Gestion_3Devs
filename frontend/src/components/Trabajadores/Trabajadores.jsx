@@ -9,7 +9,6 @@ import {
   faMagnifyingGlass,
   faUsersSlash,
   faSave,
-  faScaleBalanced,
   faDiagramProject,
   faBuilding,
   faCircleInfo,
@@ -37,21 +36,6 @@ import ModalBajaTrabajador from "./modales/ModalBajaTrabajador";
 import ModalTrabajadoresBaja from "./modales/ModalTrabajadoresBaja";
 
 const API = `${BASE_URL}/api.php?action=trabajadores`;
-
-function splitExact(count) {
-  if (!count) return [];
-  const totalUnits = 1000000;
-  const base = Math.floor(totalUnits / count);
-  let rest = totalUnits - base * count;
-  return Array.from({ length: count }, () => ((base + (rest-- > 0 ? 1 : 0)) / 10000).toFixed(4));
-}
-
-function formatPct(value) {
-  const n = Number(value || 0);
-  return Number.isFinite(n)
-    ? n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })
-    : "0,00";
-}
 
 export default function Trabajadores() {
   const navigate = useNavigate();
@@ -123,7 +107,6 @@ export default function Trabajadores() {
             .filter((item) => item.tipo_beneficiario === "trabajador")
             .map((item) => ({
               id_trabajador: String(item.id_trabajador || ""),
-              porcentaje: Number(item.porcentaje || 0).toFixed(4),
             }))
         );
         setContadorBalto("");
@@ -176,11 +159,10 @@ export default function Trabajadores() {
     );
   }, [rows, q]);
 
-  const totalInterno = useMemo(
-    () => repartoInterno.reduce((sum, item) => sum + (Number(item.porcentaje) || 0), 0),
-    [repartoInterno]
-  );
-  const internoOk = repartoInterno.length > 0 && Math.abs(totalInterno - 100) <= 0.0001;
+  const idsInternos = repartoInterno.map((item) => String(item.id_trabajador || "")).filter(Boolean);
+  const internoOk = repartoInterno.length > 0
+    && idsInternos.length === repartoInterno.length
+    && new Set(idsInternos).size === idsInternos.length;
   const devsOrganization = repartoOrgs.find(
     (item) => String(item.codigo || "").toUpperCase() === "3DEVS"
   );
@@ -193,20 +175,10 @@ export default function Trabajadores() {
       (item) => String(item.rol || "").toLowerCase() !== "contador"
     );
     if (!candidates.length) return showToast("advertencia", "No hay integrantes activos vinculados a 3DEVS.");
-    const percentages = splitExact(candidates.length);
     setRepartoInterno(
-      candidates.map((item, index) => ({
+      candidates.map((item) => ({
         id_trabajador: String(item.id),
-        porcentaje: percentages[index],
       }))
-    );
-  };
-
-  const dividirInterno = () => {
-    if (!repartoInterno.length) return cargarIntegrantesActivos();
-    const percentages = splitExact(repartoInterno.length);
-    setRepartoInterno((current) =>
-      current.map((item, index) => ({ ...item, porcentaje: percentages[index] }))
     );
   };
 
@@ -228,13 +200,12 @@ export default function Trabajadores() {
   };
 
   const guardarInterno3devs = () => {
-    if (!internoOk) return showToast("advertencia", "La distribución debe sumar exactamente 100%.");
+    if (!internoOk) return showToast("advertencia", "Seleccioná integrantes válidos y sin repetir.");
     return guardarItems(
       repartoInterno.map((item) => ({
         tipo_beneficiario: "trabajador",
         id_trabajador: Number(item.id_trabajador),
         id_organizacion_beneficiaria: null,
-        porcentaje: Number(item.porcentaje),
       }))
     );
   };
@@ -342,7 +313,7 @@ export default function Trabajadores() {
                           <span>
                             {isBalto
                               ? "Cada cobro BALTO se divide 50% para el contador y 50% para 3DEVS. No se duplican los tres integrantes en cada cliente."
-                              : "El porcentaje de los clientes propios se define en Clientes → Sistemas. Acá solo se define cómo se reparte la parte institucional que 3DEVS recibe desde BALTO."}
+                              : "En Clientes → Sistemas se eligen los integrantes de cada equipo. Cada monto se divide en partes iguales, y acá se elige quién comparte la parte que 3DEVS recibe desde BALTO."}
                           </span>
                         </span>
                       </span>
@@ -439,7 +410,7 @@ export default function Trabajadores() {
               </div>
 
               <div className="TP-RuleNote">
-                La mitad que recibe 3DEVS se distribuye automáticamente según la distribución interna configurada en la pestaña 3DEVS.
+                La mitad que recibe 3DEVS se divide en partes iguales entre los integrantes configurados en la pestaña 3DEVS.
               </div>
               {puedeEditar && (
                 <div className="TP-RepartoActions">
@@ -454,9 +425,11 @@ export default function Trabajadores() {
               <div className="TP-RepartoHeader">
                 <div>
                   <h3>Distribución interna de la participación de 3DEVS</h3>
-                  <p>Solo se usa para distribuir el 50% que BALTO transfiere a 3DEVS. No reemplaza los porcentajes por sistema.</p>
+                  <p>Elegí quiénes comparten el 50% que BALTO transfiere a 3DEVS. Esa parte se divide automáticamente por la cantidad de integrantes.</p>
                 </div>
-                <div className={`TP-RepartoTotal ${internoOk ? "is-ok" : ""}`}>Total: {formatPct(totalInterno)}%</div>
+                <div className={`TP-RepartoTotal ${internoOk ? "is-ok" : ""}`}>
+                  {repartoInterno.length} {repartoInterno.length === 1 ? "integrante" : "integrantes"} · partes iguales
+                </div>
               </div>
 
               <div className="TP-RepartoList">
@@ -472,15 +445,6 @@ export default function Trabajadores() {
                         <option key={worker.id} value={worker.id}>{worker.apellido}, {worker.nombre}</option>
                       ))}
                     </select>
-                    <label className="TP-RepartoPct">
-                      <input
-                        type="number" min="0.0001" max="100" step="0.0001"
-                        value={item.porcentaje}
-                        onChange={(event) => setRepartoInterno((current) => current.map((row, i) => i === index ? { ...row, porcentaje: event.target.value } : row))}
-                        disabled={!puedeEditar}
-                      />
-                      <span>%</span>
-                    </label>
                     {puedeEditar && (
                       <button type="button" className="TP-IconBtn TP-IconBtn--del" onClick={() => setRepartoInterno((current) => current.filter((_, i) => i !== index))}>×</button>
                     )}
@@ -494,11 +458,8 @@ export default function Trabajadores() {
                   <button type="button" className="TP-Btn TP-Btn--ghost" onClick={cargarIntegrantesActivos}>
                     <FontAwesomeIcon icon={faPlus} /> Cargar integrantes activos
                   </button>
-                  <button type="button" className="TP-Btn TP-Btn--ghost" onClick={dividirInterno}>
-                    <FontAwesomeIcon icon={faScaleBalanced} /> Dividir 100% exacto
-                  </button>
                   <button type="button" className="TP-Btn TP-Btn--primary" onClick={guardarInterno3devs} disabled={savingReparto || !internoOk}>
-                    <FontAwesomeIcon icon={faSave} /> {savingReparto ? "Guardando…" : "Guardar distribución"}
+                    <FontAwesomeIcon icon={faSave} /> {savingReparto ? "Guardando…" : "Guardar integrantes"}
                   </button>
                 </div>
               )}

@@ -21,6 +21,12 @@ function formatPct(value) {
     : "0,00";
 }
 
+function comesFrom3Devs(item) {
+  return (item?.rutas || []).some((route) =>
+    String(route || "").toUpperCase().split("→").map((part) => part.trim()).includes("3DEVS")
+  );
+}
+
 export default function ModalEquipoPago({ open, onClose, apiBase, action, data, idOrganizacion }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -74,6 +80,7 @@ export default function ModalEquipoPago({ open, onClose, apiBase, action, data, 
   const effective = summary?.items || [];
   const systems = summary?.sistemas || [];
   const isHistorical = summary?.estado_periodo === "pagado";
+  const isEqualParts = summary?.modelo_reparto === "por_sistema";
 
   return (
     <div className="mi-modal__overlay" onClick={(event) => event.target === event.currentTarget && !loading && onClose?.()}>
@@ -99,7 +106,9 @@ export default function ModalEquipoPago({ open, onClose, apiBase, action, data, 
                   <span>
                     {isHistorical
                       ? "Los pagos nuevos quedan congelados para que cambios futuros no alteren este período."
-                      : "Se calcula con los montos mensuales y porcentajes vigentes; se congela al registrar el pago."}
+                      : isEqualParts
+                        ? "Cada sistema se divide en partes iguales entre sus integrantes; se congela al registrar el pago."
+                        : "Se calcula con los montos mensuales y la regla contractual vigente; se congela al registrar el pago."}
                   </span>
                 </div>
               </div>
@@ -133,13 +142,19 @@ export default function ModalEquipoPago({ open, onClose, apiBase, action, data, 
                 ) : (
                   <div className="mep-tablewrap">
                     <table className="mep-table">
-                      <thead><tr><th>Beneficiario</th><th>Origen</th><th>Participación</th><th>Monto</th></tr></thead>
+                      <thead><tr><th>Beneficiario</th><th>Origen</th><th>Criterio</th><th>Monto</th></tr></thead>
                       <tbody>
                         {effective.map((item, index) => (
                           <tr key={`${item.id_trabajador || item.id_organizacion_beneficiaria}-${index}`}>
                             <td><strong>{item.beneficiario_nombre}</strong><small>{item.alias_pago || item.rol || ""}</small></td>
                             <td>{item.rutas?.length ? item.rutas.join(" / ") : "Directo"}</td>
-                            <td>{formatPct(item.porcentaje)}%</td>
+                            <td>
+                              {isEqualParts
+                                ? "Partes iguales por sistema"
+                                : comesFrom3Devs(item)
+                                  ? "Parte igual dentro de 3DEVS"
+                                  : `${formatPct(item.porcentaje)}%`}
+                            </td>
                             <td><b>{formatARS(item.monto_estimado)}</b></td>
                           </tr>
                         ))}

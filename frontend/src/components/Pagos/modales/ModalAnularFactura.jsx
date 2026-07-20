@@ -1,5 +1,5 @@
 // src/components/Pagos/modales/ModalAnularFactura.jsx
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { FaBan, FaFileInvoiceDollar, FaTimes } from "react-icons/fa";
 import "./ModalEliminarPago.css";
 
@@ -12,6 +12,16 @@ function fmtComprobante(data) {
   return `${nombre} ${pv}-${nro}`;
 }
 
+function moneyARS(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  try {
+    return n.toLocaleString("es-AR", { style: "currency", currency: "ARS" });
+  } catch {
+    return `$${n.toFixed(2)}`;
+  }
+}
+
 export default function ModalAnularFactura({
   open,
   onClose,
@@ -19,30 +29,34 @@ export default function ModalAnularFactura({
   loading = false,
   data = null,
 }) {
-  const cancelRef = useRef(null);
-  const tieneCAE = Boolean(data?.cae && String(data.cae) !== "00000000000000");
+  const [confirmado, setConfirmado] = useState(false);
+  const confirmRef = useRef(null);
+  const tieneCAE = Boolean(data?.cae && !/^0+$/.test(String(data.cae)));
 
   useEffect(() => {
     if (!open) return;
-    setTimeout(() => cancelRef.current?.focus(), 0);
+    setConfirmado(false);
+    setTimeout(() => confirmRef.current?.focus(), 0);
+  }, [open, data?.id_factura]);
+
+  useEffect(() => {
+    if (!open) return undefined;
 
     const onKey = (e) => {
-      if (e.key === "Escape") onClose?.();
-      if (e.key === "Enter") {
-        if (tieneCAE) onClose?.();
-        else onConfirm?.();
-      }
+      if (e.key === "Escape" && !loading) onClose?.();
+      if (e.key === "Enter" && confirmado && !loading) onConfirm?.();
     };
 
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose, onConfirm, tieneCAE]);
+  }, [open, onClose, onConfirm, confirmado, loading]);
 
   if (!open) return null;
 
   const cliente = data?.labelCliente || data?.cliente || "—";
   const sistema = data?.labelSistema || data?.sistema || "—";
   const idFactura = data?.id_factura || "—";
+  const importe = data?.total_ars ?? data?.monto_ars ?? data?.importe ?? null;
 
   const cerrar = () => {
     if (loading) return;
@@ -75,22 +89,21 @@ export default function ModalAnularFactura({
         </div>
 
         <h3 id="modal-anular-factura-title" className="mpdel-title mpdel-title--danger">
-          {tieneCAE ? "Factura emitida en ARCA" : "Eliminar factura"}
+          {tieneCAE ? "Emitir Nota de Crédito" : "Eliminar factura local"}
         </h3>
 
         <p className="mpdel-body">
           {tieneCAE ? (
             <>
-              Esta factura tiene CAE y está protegida. No se eliminará desde este flujo: primero debe
-              emitirse la <b>Nota de Crédito correspondiente en ARCA</b> y registrarse de forma trazable.
+              Se emitirá una <b>Nota de Crédito C en ARCA</b> asociada a esta factura. Al finalizar,
+              la factura quedará marcada como anulada en el sistema y se descargará el PDF con su QR fiscal.
             </>
           ) : (
             <>
-              Esta factura no tiene CAE fiscal válido. Se eliminará el registro y el PDF guardado.
+              Esta factura no tiene un CAE fiscal válido. Se eliminarán el registro y su PDF local,
+              sin borrar el pago del período.
             </>
           )}
-          <br />
-          El pago no se elimina: solo se desvincula la factura para poder generar una nueva.
         </p>
 
         <div className="mpdel-card">
@@ -111,14 +124,41 @@ export default function ModalAnularFactura({
             <span className="mpdel-value">{fmtComprobante(data)}</span>
           </div>
           <div className="mpdel-row">
-            <span className="mpdel-label">CAE</span>
-            <span className="mpdel-value">{data?.cae || "—"}</span>
+            <span className="mpdel-label">Importe</span>
+            <span className="mpdel-value">{moneyARS(importe)}</span>
           </div>
+          {tieneCAE ? (
+            <div className="mpdel-row">
+              <span className="mpdel-label">CAE factura</span>
+              <span className="mpdel-value">{data?.cae || "—"}</span>
+            </div>
+          ) : null}
         </div>
+
+        <label className="mpdel-confirm">
+          <input
+            ref={confirmRef}
+            type="checkbox"
+            checked={confirmado}
+            onChange={(e) => setConfirmado(e.target.checked)}
+            disabled={loading}
+          />
+          <span className="mpdel-confirm__box" aria-hidden="true" />
+          <span className="mpdel-confirm__text">
+            {tieneCAE ? (
+              <>
+                Confirmo que deseo <b>emitir la Nota de Crédito fiscal</b> por el importe total de la factura.
+              </>
+            ) : (
+              <>
+                Confirmo que deseo <b>eliminar esta factura local</b>.
+              </>
+            )}
+          </span>
+        </label>
 
         <div className="mpdel-actions">
           <button
-            ref={cancelRef}
             type="button"
             className="mpdel-btn mpdel-btn--ghost"
             onClick={cerrar}
@@ -130,10 +170,17 @@ export default function ModalAnularFactura({
           <button
             type="button"
             className="mpdel-btn mpdel-btn--solid-danger"
-            onClick={tieneCAE ? cerrar : onConfirm}
-            disabled={loading}
+            onClick={onConfirm}
+            disabled={loading || !confirmado}
+            title={!confirmado ? "Marcá la confirmación para continuar." : ""}
           >
-            {loading ? "Eliminando..." : tieneCAE ? "Cerrar" : "Eliminar factura"}
+            {loading
+              ? tieneCAE
+                ? "Emitiendo Nota de Crédito..."
+                : "Eliminando factura..."
+              : tieneCAE
+              ? "Emitir Nota de Crédito + PDF"
+              : "Eliminar factura"}
           </button>
         </div>
       </div>

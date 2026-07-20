@@ -538,13 +538,20 @@ try {
             if (!is_array($items) || count($items) === 0) trab_fail('Agregá al menos un beneficiario.', 422);
 
             $normalized = [];
+            $usaPartesIguales = $orgConfig['modelo_reparto'] === 'por_sistema';
             $total = 0.0;
             $seen = [];
             foreach ($items as $item) {
                 $type = strtolower(trim((string)($item['tipo_beneficiario'] ?? '')));
-                $pct = round((float)($item['porcentaje'] ?? 0), 4);
-                if (!in_array($type, ['trabajador', 'organizacion'], true) || $pct <= 0 || $pct > 100) {
-                    trab_fail('Hay un beneficiario o porcentaje inválido.', 422);
+                if (!in_array($type, ['trabajador', 'organizacion'], true)) {
+                    trab_fail('Hay un beneficiario inválido.', 422);
+                }
+                if ($usaPartesIguales && $type !== 'trabajador') {
+                    trab_fail('La distribución interna de 3DEVS solo admite trabajadores.', 422);
+                }
+                $pct = $usaPartesIguales ? 0.0 : round((float)($item['porcentaje'] ?? 0), 4);
+                if (!$usaPartesIguales && ($pct <= 0 || $pct > 100)) {
+                    trab_fail('Hay un porcentaje inválido.', 422);
                 }
 
                 $worker = $type === 'trabajador' ? (int)($item['id_trabajador'] ?? 0) : null;
@@ -567,11 +574,19 @@ try {
                     if (!$check->fetchColumn()) trab_fail('La organización beneficiaria no existe.', 422);
                 }
 
-                $total += $pct;
+                if (!$usaPartesIguales) $total += $pct;
                 $normalized[] = compact('type', 'pct', 'worker', 'benefOrg');
             }
 
-            if (abs($total - 100.0) > 0.0001) trab_fail('El reparto debe sumar exactamente 100%. Actualmente suma ' . number_format($total, 4, ',', '.') . '%.', 422);
+            if ($usaPartesIguales) {
+                $porcentajesCompatibles = reparto_porcentajes_partes_iguales(count($normalized));
+                foreach ($normalized as $index => &$item) {
+                    $item['pct'] = $porcentajesCompatibles[$index];
+                }
+                unset($item);
+            } elseif (abs($total - 100.0) > 0.0001) {
+                trab_fail('El reparto debe sumar exactamente 100%. Actualmente suma ' . number_format($total, 4, ',', '.') . '%.', 422);
+            }
 
             $pdo->beginTransaction();
             $close = $pdo->prepare('UPDATE organizaciones_reparto SET activo=0, fecha_hasta=NOW(), updated_at=NOW() WHERE id_organizacion=:org AND activo=1 AND fecha_hasta IS NULL');
@@ -594,7 +609,12 @@ try {
                 ]);
             }
             $pdo->commit();
-            trab_ok(['mensaje' => 'Reparto contable guardado.', 'total' => 100]);
+            trab_ok([
+                'mensaje' => $usaPartesIguales
+                    ? 'Integrantes guardados. La participación de 3DEVS se divide en partes iguales.'
+                    : 'Regla contable guardada.',
+                'cantidad_integrantes' => $usaPartesIguales ? count($normalized) : null,
+            ]);
         }
 
         default:

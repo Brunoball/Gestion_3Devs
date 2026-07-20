@@ -2,6 +2,39 @@
 // backend/modules/clientes/sistema_trabajadores.repo.php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../reparto/reparto.service.php';
+
+/** Mantiene compatible la columna histórica; los montos se dividen por cantidad. */
+function sistema_trabajadores_rebalancear(PDO $pdo, int $idOrganizacion, int $idSistema): void
+{
+  $st = $pdo->prepare("
+    SELECT id_trabajador
+    FROM sistemas_trabajadores
+    WHERE id_organizacion = :org AND id_sistema = :sistema
+    ORDER BY id_trabajador
+  ");
+  $st->execute([':org' => $idOrganizacion, ':sistema' => $idSistema]);
+  $ids = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN) ?: []);
+  $porcentajes = reparto_porcentajes_partes_iguales(count($ids));
+  if (!$ids) return;
+
+  $update = $pdo->prepare("
+    UPDATE sistemas_trabajadores
+    SET porcentaje_reparto = :porcentaje
+    WHERE id_organizacion = :org
+      AND id_sistema = :sistema
+      AND id_trabajador = :trabajador
+  ");
+  foreach ($ids as $index => $idTrabajador) {
+    $update->execute([
+      ':porcentaje' => $porcentajes[$index],
+      ':org' => $idOrganizacion,
+      ':sistema' => $idSistema,
+      ':trabajador' => $idTrabajador,
+    ]);
+  }
+}
+
 function sistema_trabajadores_listar(): void
 {
   global $pdo;
@@ -38,7 +71,6 @@ function sistema_trabajadores_agregar(): void
   $idOrganizacion = clientes_org_id();
   $idSistema = (int)($in['id_sistema'] ?? 0);
   $idTrabajador = (int)($in['id_trabajador'] ?? 0);
-  $porcentaje = round(max(0, (float)($in['porcentaje'] ?? 0)), 4);
 
   if ($idSistema <= 0) json_out(['exito' => false, 'mensaje' => 'id_sistema inválido'], 422);
   if ($idTrabajador <= 0) json_out(['exito' => false, 'mensaje' => 'id_trabajador inválido'], 422);
@@ -73,30 +105,33 @@ function sistema_trabajadores_agregar(): void
       json_out(['exito' => false, 'mensaje' => 'Trabajador inexistente o inactivo en esta organización.'], 404);
     }
 
+    $pdo->beginTransaction();
     $st = $pdo->prepare("
       INSERT INTO sistemas_trabajadores
         (id_organizacion, id_sistema, id_trabajador, porcentaje_reparto)
       VALUES
-        (:id_organizacion, :id_sistema, :id_trabajador, :porcentaje)
+        (:id_organizacion, :id_sistema, :id_trabajador, 100)
       ON DUPLICATE KEY UPDATE
-        porcentaje_reparto = VALUES(porcentaje_reparto)
+        id_trabajador = VALUES(id_trabajador)
     ");
     $st->execute([
       ':id_organizacion' => $idOrganizacion,
       ':id_sistema' => $idSistema,
       ':id_trabajador' => $idTrabajador,
-      ':porcentaje' => $porcentaje,
     ]);
+    sistema_trabajadores_rebalancear($pdo, $idOrganizacion, $idSistema);
+    $pdo->commit();
 
-    json_out(['exito' => true, 'mensaje' => 'Trabajador asignado']);
+    json_out(['exito' => true, 'mensaje' => 'Trabajador asignado. El monto se reparte en partes iguales.']);
   } catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
     json_out(['exito' => false, 'mensaje' => 'Error asignando trabajador.'], 500);
   }
 }
 
 /**
  * Guarda el equipo completo de un sistema en una sola operación.
- * El reparto debe sumar 100% exacto con hasta cuatro decimales.
+ * El monto se reparte en partes iguales entre sus integrantes.
  */
 function sistema_trabajadores_guardar(): void
 {
@@ -125,34 +160,29 @@ function sistema_trabajadores_guardar(): void
   }
 
   $normalized = [];
-  $total = 0.0;
   $seen = [];
   foreach ($items as $item) {
     $idTrabajador = (int)($item['id_trabajador'] ?? $item['id'] ?? 0);
-    $porcentaje = round((float)($item['porcentaje'] ?? $item['porcentaje_reparto'] ?? 0), 4);
     $rolSistema = trim((string)($item['rol_en_sistema'] ?? ''));
 
-    if ($idTrabajador <= 0 || $porcentaje <= 0 || $porcentaje > 100) {
-      json_out(['exito' => false, 'mensaje' => 'Hay un integrante o porcentaje inválido.'], 422);
+    if ($idTrabajador <= 0) {
+      json_out(['exito' => false, 'mensaje' => 'Hay un integrante inválido.'], 422);
     }
     if (isset($seen[$idTrabajador])) {
       json_out(['exito' => false, 'mensaje' => 'No se puede repetir el mismo trabajador.'], 422);
     }
     $seen[$idTrabajador] = true;
-    $total += $porcentaje;
     $normalized[] = [
       'id_trabajador' => $idTrabajador,
-      'porcentaje' => $porcentaje,
       'rol_en_sistema' => $rolSistema === '' ? null : mb_substr($rolSistema, 0, 60),
     ];
   }
 
-  if (abs($total - 100.0) > 0.0001) {
-    json_out([
-      'exito' => false,
-      'mensaje' => 'El reparto del sistema debe sumar exactamente 100%. Actualmente suma ' . number_format($total, 4, ',', '.') . '%.',
-    ], 422);
+  $porcentajesCompatibles = reparto_porcentajes_partes_iguales(count($normalized));
+  foreach ($normalized as $index => &$item) {
+    $item['porcentaje'] = $porcentajesCompatibles[$index];
   }
+  unset($item);
 
   try {
     $ids = array_column($normalized, 'id_trabajador');
@@ -198,7 +228,11 @@ function sistema_trabajadores_guardar(): void
     }
     $pdo->commit();
 
-    json_out(['exito' => true, 'mensaje' => 'Equipo y reparto del sistema guardados.', 'total' => 100]);
+    json_out([
+      'exito' => true,
+      'mensaje' => 'Equipo guardado. El monto se divide en partes iguales entre sus integrantes.',
+      'cantidad_integrantes' => count($normalized),
+    ]);
   } catch (Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     json_out(['exito' => false, 'mensaje' => 'Error guardando el equipo del sistema.'], 500);
@@ -219,6 +253,7 @@ function sistema_trabajadores_quitar(): void
   if ($idTrabajador <= 0) json_out(['exito' => false, 'mensaje' => 'id_trabajador inválido'], 422);
 
   try {
+    $pdo->beginTransaction();
     $st = $pdo->prepare("
       DELETE FROM sistemas_trabajadores
       WHERE id_organizacion = :id_organizacion
@@ -230,9 +265,12 @@ function sistema_trabajadores_quitar(): void
       ':id_sistema' => $idSistema,
       ':id_trabajador' => $idTrabajador,
     ]);
+    sistema_trabajadores_rebalancear($pdo, $idOrganizacion, $idSistema);
+    $pdo->commit();
 
-    json_out(['exito' => true, 'mensaje' => 'Trabajador quitado']);
+    json_out(['exito' => true, 'mensaje' => 'Trabajador quitado. El equipo restante se reparte en partes iguales.']);
   } catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
     json_out(['exito' => false, 'mensaje' => 'Error quitando trabajador.'], 500);
   }
 }

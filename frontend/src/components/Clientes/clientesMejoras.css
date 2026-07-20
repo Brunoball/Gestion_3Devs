@@ -361,3 +361,12 @@
     flex: 0 0 auto;
   }
 }
+
+/* Reparto por cantidad: persona, función opcional y acción de quitar. */
+.CL-TeamRow {
+  grid-template-columns: minmax(180px, 1fr) minmax(150px, .8fr) 40px;
+}
+
+@media (max-width: 900px) {
+  .CL-TeamRow { grid-template-columns: 1fr; }
+}
