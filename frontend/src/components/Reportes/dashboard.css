@@ -406,10 +406,14 @@ html, body {
 .gridtable-cell{
   padding:12px 14px;
   overflow: hidden; /* recorta shimmer/overflow */
+  min-width: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
 }
-.lefts{ text-align:left; }
-.centers{ text-align:center; }
-.rights{ text-align:right; }
+.lefts{ text-align:left; justify-content:flex-start; }
+.centers{ text-align:center; justify-content:center; }
+.rights{ text-align:right; justify-content:flex-end; }
 
 /* variante minimal: hover suave sin levantar */
 .gridtable-body.minimal .gridtable-row.minimal{
@@ -476,8 +480,8 @@ html, body {
 }
 .actions-cell .icon-btn{
   flex: 0 0 32px;
-  width: 32px;
-  height: 32px;
+  width: 29px;
+  height: 29px;
 }
 .icon-btn{
   width: 34px;
@@ -614,6 +618,7 @@ html, body {
   .gridtable-cell{
     display:grid;
     grid-template-columns: 140px 1fr;
+    justify-content:stretch;
     gap:12px;
     padding:10px 12px;
     border-bottom:1px dashed #E2E8F0;
@@ -631,7 +636,8 @@ html, body {
   .btn-dark{ min-height: 36px; }
 }
 .contable-tablewrap.minimal { overflow: hidden; }
-.gridtable-header.minimal { position: sticky; top: 0; z-index: 10; overflow: auto; scrollbar-gutter: stable both-edges; }
+.gridtable-header.minimal { position: sticky; top: 0; z-index: 10; overflow: hidden; scrollbar-gutter: auto; }
+.gridtable-header.minimal.has-vertical-scroll { scrollbar-gutter: stable; }
 .gridtable-scroll.minimal { overflow: auto; min-height: 0; flex: 1 1 auto; }
 
 /* =========================================================
@@ -826,6 +832,9 @@ html, body {
 /* El scroll horizontal pertenece solo al cuerpo de la tabla. */
 .gridtable-header.minimal{
   overflow:hidden !important;
+  scrollbar-gutter:auto !important;
+}
+.gridtable-header.minimal.has-vertical-scroll{
   scrollbar-gutter:stable !important;
 }
 

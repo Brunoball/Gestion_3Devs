@@ -77,6 +77,9 @@ const SKELETON_ROWS = 8;
 
 function GridTable({ title, columns = [], rows = [], loading = false, actions = null }) {
   const safeRows = Array.isArray(rows) ? rows : [];
+  const scrollRef = useRef(null);
+  const bodyRef = useRef(null);
+  const [hasVerticalScroll, setHasVerticalScroll] = useState(false);
   const allColumns = useMemo(
     () =>
       actions
@@ -96,10 +99,47 @@ function GridTable({ title, columns = [], rows = [], loading = false, actions = 
   );
   const template = allColumns.map((column) => column.fr || "1fr").join(" ");
 
+  const updateVerticalScroll = useCallback(() => {
+    const scrollElement = scrollRef.current;
+    if (!scrollElement) return;
+
+    const nextHasVerticalScroll = scrollElement.scrollHeight > scrollElement.clientHeight + 1;
+    setHasVerticalScroll((currentValue) =>
+      currentValue === nextHasVerticalScroll ? currentValue : nextHasVerticalScroll
+    );
+  }, []);
+
+  useEffect(() => {
+    const scrollElement = scrollRef.current;
+    const bodyElement = bodyRef.current;
+    if (!scrollElement) return undefined;
+
+    let animationFrame = window.requestAnimationFrame(updateVerticalScroll);
+    const scheduleUpdate = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(updateVerticalScroll);
+    };
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(scheduleUpdate) : null;
+    resizeObserver?.observe(scrollElement);
+    if (bodyElement) resizeObserver?.observe(bodyElement);
+    window.addEventListener("resize", scheduleUpdate);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", scheduleUpdate);
+    };
+  }, [loading, safeRows.length, template, updateVerticalScroll]);
+
   return (
     <section className="reportes-block">
       <div className="contable-tablewrap reportes-tablewrap minimal">
-        <div className="gridtable-header minimal" style={{ gridTemplateColumns: template }}>
+        <div
+          className={`gridtable-header minimal ${hasVerticalScroll ? "has-vertical-scroll" : ""}`}
+          style={{ gridTemplateColumns: template }}
+        >
           {allColumns.map((column) => (
             <div
               key={column.key}
@@ -112,8 +152,11 @@ function GridTable({ title, columns = [], rows = [], loading = false, actions = 
           ))}
         </div>
 
-        <div className="gridtable-scroll minimal">
-          <div className={`gridtable-body minimal ${!loading && !safeRows.length ? "is-empty" : ""}`}>
+        <div className="gridtable-scroll minimal" ref={scrollRef}>
+          <div
+            ref={bodyRef}
+            className={`gridtable-body minimal ${!loading && !safeRows.length ? "is-empty" : ""}`}
+          >
             {loading ? (
               Array.from({ length: SKELETON_ROWS }).map((_, rowIndex) => (
                 <div
