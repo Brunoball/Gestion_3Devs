@@ -103,9 +103,9 @@ function GridTable({ title, columns = [], rows = [], loading = false, actions = 
           {allColumns.map((column) => (
             <div
               key={column.key}
-              className={`gridtable-cell ${column.className || ""} ${column.center ? "centers" : ""} ${
-                column.right ? "rights" : ""
-              }`}
+              className={`gridtable-cell ${column.className || ""} ${column.left ? "lefts" : ""} ${
+                column.center ? "centers" : ""
+              } ${column.right ? "rights" : ""}`}
             >
               {column.label}
             </div>
@@ -142,9 +142,9 @@ function GridTable({ title, columns = [], rows = [], loading = false, actions = 
                   {allColumns.map((column) => (
                     <div
                       key={column.key}
-                      className={`gridtable-cell ${column.className || ""} ${column.center ? "centers" : ""} ${
-                        column.right ? "rights" : ""
-                      }`}
+                      className={`gridtable-cell ${column.className || ""} ${column.left ? "lefts" : ""} ${
+                        column.center ? "centers" : ""
+                      } ${column.right ? "rights" : ""}`}
                       data-label={column.label}
                     >
                       {column.render ? column.render(row) : row?.[column.key] ?? ""}
@@ -652,33 +652,23 @@ export default function Reportes() {
 
   const colsPagos = useMemo(
     () => [
-      { key: "fecha", label: "Fecha pago", fr: "1fr" },
-      { key: "cliente_nombre", label: "Cliente", fr: "1.35fr" },
-      { key: "sistema_nombre", label: "Sistema", fr: "1.65fr" },
+      { key: "fecha", label: "Fecha pago", fr: "1fr", left: true },
+      { key: "cliente_nombre", label: "Cliente", fr: "1.35fr", center: true },
+      { key: "sistema_nombre", label: "Sistema", fr: "1.65fr", center: true },
       { key: "categoria", label: "Período", fr: "1fr", center: true },
       { key: "medio", label: "Medio", fr: "1fr", center: true },
-      { key: "monto", label: "Monto", fr: "1fr", center: true, render: (row) => money(row.monto) },
+      { key: "monto", label: "Monto", fr: "1fr", right: true, render: (row) => money(row.monto) },
     ],
     []
   );
 
   const colsEgresos = useMemo(
     () => [
-      { key: "fecha", label: "Fecha", fr: "1fr" },
-      { key: "concepto", label: "Concepto", fr: "1.25fr", render: (row) => row.concepto || "—" },
-      {
-        key: "descripcion",
-        label: "Descripción",
-        fr: "1.55fr",
-        render: (row) => (
-          <span className="truncate" title={row.descripcion || ""}>
-            {row.descripcion || "—"}
-          </span>
-        ),
-      },
-      { key: "trabajador", label: "Pagado por", fr: "1.2fr", render: (row) => row.trabajador || "ENTIDAD ACTIVA" },
+      { key: "fecha", label: "Fecha", fr: "1fr", left: true },
+      { key: "concepto", label: "Concepto", fr: "1.8fr", left: true, render: (row) => row.concepto || "—" },
+      { key: "trabajador", label: "Pagado por", fr: "1.55fr", left: true, render: (row) => row.trabajador || "ENTIDAD ACTIVA" },
       { key: "medio", label: "Medio", fr: "1fr", center: true },
-      { key: "monto", label: "Monto", fr: "1fr", center: true, render: (row) => money(row.monto) },
+      { key: "monto", label: "Monto", fr: "1fr", right: true, render: (row) => money(row.monto) },
     ],
     []
   );
@@ -689,6 +679,7 @@ export default function Reportes() {
         key: "trabajador",
         label: "Trabajador",
         fr: "1.4fr",
+        left: true,
         render: (row) => (
           <div className="reportes-worker-name">
             <strong>{`${row.apellido || ""} ${row.nombre || ""}`.trim() || "—"}</strong>
@@ -697,7 +688,7 @@ export default function Reportes() {
           </div>
         ),
       },
-      { key: "alias_pago", label: "Alias", fr: "1.05fr", render: (row) => row.alias_pago || "—" },
+      { key: "alias_pago", label: "Alias", fr: "1.05fr", center: true, render: (row) => row.alias_pago || "—" },
       {
         key: "porcentaje_efectivo",
         label: "%",
@@ -710,11 +701,11 @@ export default function Reportes() {
         key: "descuento_egresos",
         label: "Impacto egresos",
         fr: "1fr",
-        center: true,
+        right: true,
         render: (row) => (Number(row.descuento_egresos) > 0 ? `− ${money(row.descuento_egresos)}` : money(0)),
       },
-      { key: "monto_reembolso", label: "Reembolso", fr: "1fr", center: true, render: (row) => money(row.monto_reembolso) },
-      { key: "monto", label: "Total a pagar", fr: "1fr", center: true, render: (row) => <strong>{money(row.monto)}</strong> },
+      { key: "monto_reembolso", label: "Reembolso", fr: "1fr", right: true, render: (row) => money(row.monto_reembolso) },
+      { key: "monto", label: "Total a pagar", fr: "1fr", right: true, render: (row) => <strong>{money(row.monto)}</strong> },
     ],
     []
   );

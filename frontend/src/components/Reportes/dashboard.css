@@ -355,7 +355,6 @@ html, body {
   min-height: 0;
   height: 100%;
   overflow: auto !important;
-  scrollbar-gutter: stable both-edges;
 }
 
 /* Header (sticky dentro del scroller) */
@@ -408,7 +407,9 @@ html, body {
   padding:12px 14px;
   overflow: hidden; /* recorta shimmer/overflow */
 }
+.lefts{ text-align:left; }
 .centers{ text-align:center; }
+.rights{ text-align:right; }
 
 /* variante minimal: hover suave sin levantar */
 .gridtable-body.minimal .gridtable-row.minimal{
@@ -825,7 +826,7 @@ html, body {
 /* El scroll horizontal pertenece solo al cuerpo de la tabla. */
 .gridtable-header.minimal{
   overflow:hidden !important;
-  scrollbar-gutter:auto !important;
+  scrollbar-gutter:stable !important;
 }
 
 @media (max-width: 1180px){
