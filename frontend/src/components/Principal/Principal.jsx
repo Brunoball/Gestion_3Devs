@@ -210,7 +210,6 @@ const Principal = () => {
 
         {!hasFullControl && (
           <p className="principal-limited-note">
-            Acceso operativo completo a la entidad habilitada. La creación de usuarios está reservada al administrador general.
           </p>
         )}
 
