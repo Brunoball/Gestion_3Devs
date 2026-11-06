@@ -128,6 +128,64 @@ function pagos_factura_arca(): void
   $importe = isset($p['monto']) ? (float)$p['monto'] : 0.0;
   if ($importe <= 0) json_error("El importe a facturar es inválido (<=0)");
 
+  // Evita emitir dos comprobantes fiscales para el mismo cliente/período.
+  // Una factura local "solo_pdf" sí puede convertirse luego en factura ARCA;
+  // una factura fiscal activa, en cambio, primero debe anularse con Nota de Crédito.
+  $periodoAnio = $id_pago > 0 ? (int)($p['anio_periodo'] ?? 0) : $anio_in;
+  $periodoMes = $id_pago > 0 ? (int)($p['id_mes'] ?? 0) : $id_mes_in;
+  $idClientePeriodo = (int)($p['id_cliente'] ?? 0);
+
+  if ($periodoAnio >= 2000 && $periodoMes >= 1 && $periodoMes <= 12 && $idClientePeriodo > 0) {
+    $stExistente = $pdo->prepare("
+      SELECT f.id_factura,f.estado,f.cae,f.cbte_nro,f.cbte_tipo,f.pto_vta,f.pdf_path
+      FROM facturas f
+      INNER JOIN clientes_sistemas cs
+        ON cs.id_organizacion = f.id_organizacion
+       AND cs.id_sistema = f.id_sistema
+      WHERE f.id_organizacion = :org
+        AND cs.id_cliente = :cliente
+        AND f.anio = :anio
+        AND f.id_mes = :mes
+        AND LOWER(COALESCE(f.estado,'')) <> 'anulada'
+        AND (
+          LOWER(COALESCE(f.estado,'')) = 'emitida'
+          OR (
+            TRIM(COALESCE(f.cae,'')) <> ''
+            AND TRIM(COALESCE(f.cae,'')) NOT REGEXP '^0+$'
+          )
+        )
+      ORDER BY f.id_factura DESC
+      LIMIT 1
+    ");
+    $stExistente->execute([
+      ':org' => $orgId,
+      ':cliente' => $idClientePeriodo,
+      ':anio' => $periodoAnio,
+      ':mes' => $periodoMes,
+    ]);
+    $facturaExistente = $stExistente->fetch(PDO::FETCH_ASSOC) ?: null;
+
+    if ($facturaExistente) {
+      $caeExistente = trim((string)($facturaExistente['cae'] ?? ''));
+      $tieneCaeReal = $caeExistente !== '' && !preg_match('/^0+$/', $caeExistente);
+      $estadoExistente = strtolower(trim((string)($facturaExistente['estado'] ?? '')));
+      if ($tieneCaeReal || $estadoExistente === 'emitida') {
+        json_error(
+          'Este cliente ya tiene una factura ARCA emitida para el período seleccionado. Si necesitás reemplazarla, primero anulala con Nota de Crédito.',
+          [
+            'factura_existente' => [
+              'id_factura' => (int)$facturaExistente['id_factura'],
+              'cbte_tipo' => isset($facturaExistente['cbte_tipo']) ? (int)$facturaExistente['cbte_tipo'] : null,
+              'pto_vta' => isset($facturaExistente['pto_vta']) ? (int)$facturaExistente['pto_vta'] : null,
+              'cbte_nro' => isset($facturaExistente['cbte_nro']) ? (int)$facturaExistente['cbte_nro'] : null,
+              'pdf_path' => $facturaExistente['pdf_path'] ?? null,
+            ],
+          ]
+        );
+      }
+    }
+  }
+
   // 2) Config ARCA
   $cfg = require __DIR__ . '/arca_config.php';
 

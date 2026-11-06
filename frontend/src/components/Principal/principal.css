@@ -262,7 +262,7 @@ body { margin: 0; }
   padding: 12px;
   background-color: #fff;
   border:1px solid var(--ini-primary);
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--ini-primary-dark);
   font-weight: 500;
   cursor: pointer;
@@ -385,6 +385,7 @@ body { margin: 0; }
    FOOTER
    ========================= */
 .pagina-principal-footer {
+  margin-top: 14px;
   text-align: right;
   font-size: 14px;
   color: var(--blue-inst-gray-600);
@@ -430,9 +431,10 @@ body { margin: 0; }
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
   }
-  .menu-button { padding: 12px 8px; min-height: 90px; border-radius: 8px; }
-  .button-icon.icon--sm { width: 28px; height: 28px; font-size: 14px; margin-bottom: 6px; }
-  .button-text.text--sm { font-size: 11px; font-weight: 600; line-height: 1.2; }
+  .menu-button { padding: 14px 8px; min-height: 96px; border-radius: 12px; }
+  .button-icon.icon--sm { width: 38px; height: 38px; font-size: 17px; margin-bottom: 8px; }
+  .button-text.text--sm { font-size: 13px; font-weight: 600; line-height: 1.2; }
+  .pagina-principal-footer { text-align: center; font-size: 13px; }
 
   .logout-text-short { display: inline; }
   .logout-text-full  { display: none; }
@@ -460,8 +462,8 @@ body { margin: 0; }
 @media (max-width: 360px){
   .menu-grid { gap: 8px; }
   .menu-button { padding: 10px 6px; min-height: 80px; }
-  .button-icon.icon--sm { width: 24px; height: 24px; margin-bottom: 4px; font-size: 12px; }
-  .button-text.text--sm { font-size: 10px; }
+  .button-icon.icon--sm { width: 32px; height: 32px; margin-bottom: 6px; font-size: 14px; }
+  .button-text.text--sm { font-size: 12px; }
   .title { font-size: 18px; }
 
   .logout-modal-container { padding: 18px; max-width: 320px; }
@@ -609,16 +611,19 @@ body { margin: 0; }
   gap: 7px;
   padding: 7px 11px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  color: #fff;
+  background: color-mix(in srgb, var(--blue-inst-primary) 8%, #fff);
+  border: 1px solid color-mix(in srgb, var(--blue-inst-primary) 22%, #fff);
+  color: var(--blue-inst-primary);
+  font-size: 0.8rem;
   font-weight: 800;
+  line-height: 1;
 }
 
 .principal-organizacion-chip small {
   font-size: 0.7rem;
   text-transform: uppercase;
-  opacity: 0.8;
+  font-weight: 700;
+  opacity: 0.7;
 }
 
 .principal-limited-note {

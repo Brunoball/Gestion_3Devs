@@ -28,7 +28,6 @@ function clamp(n, a, b) {
 function LineChartSVG({ labels = [], seriesA = [], seriesB = [], height = 260 }) {
   const w = 900;
   const h = height;
-  const padL = 52;
   const padR = 22;
   const padT = 16;
   const padB = 42;
@@ -46,9 +45,17 @@ function LineChartSVG({ labels = [], seriesA = [], seriesB = [], height = 260 })
   const vMax = Math.max(...values, 0);
 
   const maxAbs = Math.max(Math.abs(vMin), Math.abs(vMax), 1);
-  const niceMax = Math.ceil(maxAbs / 1000) * 1000;
+  const ticks = 4;
+  // Paso "redondo" (1, 2, 2,5 o 5 × 10^n) para que el eje sea legible.
+  const rawStep = maxAbs / ticks;
+  const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= rawStep) || rawStep;
   const minY = 0;
-  const maxY = niceMax;
+  const maxY = step * ticks;
+
+  // Margen izquierdo según la etiqueta más larga (evita que "$461.000" se corte).
+  const longestTick = `$${nf.format(Math.round(maxY))}`.length;
+  const padL = Math.max(52, Math.round(longestTick * 8.2) + 16);
 
   const innerW = w - padL - padR;
   const innerH = h - padT - padB;
@@ -70,7 +77,6 @@ function LineChartSVG({ labels = [], seriesA = [], seriesB = [], height = 260 })
     ptsB.push(`${xAt(i)},${yAt(seriesB[i] ?? 0)}`);
   }
 
-  const ticks = 4;
   const tickVals = Array.from({ length: ticks + 1 }).map((_, i) => (maxY / ticks) * i);
 
   return (
@@ -349,12 +355,11 @@ function ModalTrabajadorDetalle({
           </div>
 
           <div className="mit-actions">
+            <div className="mit-help">Tip: este gráfico se arma con acumulados por mes (diff entre meses).</div>
             <button type="button" className="mit-btn mit-btn--ghost" onClick={onClose}>
               Cerrar
             </button>
           </div>
-
-          <div className="mit-help">Tip: este gráfico se arma con acumulados por mes (diff entre meses).</div>
         </div>
       </div>
     </div>
@@ -485,8 +490,8 @@ export default function ModalGraficosReportes({
       };
 
       pN.forEach((r) => {
-        // Los ingresos se grafican por período facturado, no por fecha de acreditación.
-        const m = r.id_mes || monthFromFecha(r.fecha);
+        // Criterio de caja: los ingresos se grafican por la fecha en que entró la plata.
+        const m = monthFromFecha(r.fecha) || r.id_mes;
         if (m && m >= 1 && m <= 12) byMonthIng[m - 1] += r.monto;
       });
       eN.forEach((r) => {
@@ -901,13 +906,12 @@ export default function ModalGraficosReportes({
 
             {/* ✅ Footer IDENTICO (mit-actions + mit-help) */}
             <div className="mit-actions">
+              <div className="mit-help">
+                Tip: en “Trabajadores” podés cambiar Año/Mes y abrir el gráfico individual por persona.
+              </div>
               <button type="button" className="mit-btn mit-btn--ghost" onClick={cerrar}>
                 Cerrar
               </button>
-            </div>
-
-            <div className="mit-help">
-              Tip: en “Trabajadores” podés cambiar Año/Mes y abrir el gráfico individual por persona.
             </div>
           </div>
         </div>

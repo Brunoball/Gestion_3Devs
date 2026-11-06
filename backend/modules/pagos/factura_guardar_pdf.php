@@ -9,7 +9,6 @@ function pagos_factura_guardar_pdf(): void
   require_method('POST');
   pagos_require_write();
   $orgId = pagos_org_id();
-  $orgCode = strtolower(preg_replace('/[^a-z0-9_-]+/i', '_', pagos_org_code()) ?: 'org_' . $orgId);
 
   if (!($pdo instanceof PDO)) json_error('Conexión PDO no disponible.');
 
@@ -197,7 +196,13 @@ function pagos_factura_guardar_pdf(): void
     json_error('Una factura emitida debe incluir CAE y número de comprobante válidos.');
   }
 
-  $baseDir = __DIR__ . '/../../uploads/facturas/' . $orgCode . '/' . $anio . '/' . str_pad((string)$idMes, 2, '0', STR_PAD_LEFT);
+  // Estructura única para TODAS las organizaciones:
+  // uploads/facturas/AAAA/MM/archivo.pdf
+  // La organización se conserva en la DB (id_organizacion); no se separa físicamente.
+  $mesFolder = str_pad((string)$idMes, 2, '0', STR_PAD_LEFT);
+  $relativeSegments = [(string)$anio, $mesFolder];
+
+  $baseDir = __DIR__ . '/../../uploads/facturas/' . implode('/', $relativeSegments);
   if (!is_dir($baseDir) && !@mkdir($baseDir, 0775, true) && !is_dir($baseDir)) {
     json_error('No se pudo crear el directorio de facturas.');
   }
@@ -210,7 +215,8 @@ function pagos_factura_guardar_pdf(): void
   if (!@move_uploaded_file($tmp, $destAbs)) json_error('No se pudo guardar el PDF en el servidor.');
 
   $baseUrl = 'https://app.3devsnet.com/api/uploads/facturas';
-  $urlPath = $baseUrl . '/' . rawurlencode($orgCode) . '/' . $anio . '/' . str_pad((string)$idMes, 2, '0', STR_PAD_LEFT) . '/' . rawurlencode($finalName);
+  $encodedDir = implode('/', array_map(static fn(string $segment): string => rawurlencode($segment), $relativeSegments));
+  $urlPath = $baseUrl . '/' . $encodedDir . '/' . rawurlencode($finalName);
 
   $paramsCommon = [
     ':estado' => $estadoFactura,
@@ -237,7 +243,15 @@ function pagos_factura_guardar_pdf(): void
   try {
     $pdo->beginTransaction();
 
-    $find = $pdo->prepare("\n      SELECT id_factura, estado, cae, cbte_nro, cbte_tipo, pto_vta, pdf_path\n      FROM facturas\n      WHERE id_organizacion = :org\n        AND id_sistema = :sistema\n        AND anio = :anio\n        AND id_mes = :mes\n      ORDER BY id_factura DESC\n      LIMIT 1\n      FOR UPDATE\n    ");
+    // Serializa la facturación del mismo cliente. Es necesario porque ahora se conserva
+    // el historial de facturas anuladas y se permite reemitir después de una Nota de Crédito.
+    $lockCliente = $pdo->prepare("SELECT id_cliente FROM clientes WHERE id_organizacion = :org AND id_cliente = :cliente LIMIT 1 FOR UPDATE");
+    $lockCliente->execute([':org' => $orgId, ':cliente' => $idCliente]);
+    if (!(int)$lockCliente->fetchColumn()) {
+      throw new LogicException('El cliente ya no existe dentro de la organización activa.');
+    }
+
+    $find = $pdo->prepare("\n      SELECT id_factura, estado, cae, cbte_nro, cbte_tipo, pto_vta, pdf_path\n      FROM facturas\n      WHERE id_organizacion = :org\n        AND id_sistema = :sistema\n        AND anio = :anio\n        AND id_mes = :mes\n        AND LOWER(COALESCE(estado, '')) <> 'anulada'\n      ORDER BY id_factura DESC\n      LIMIT 1\n      FOR UPDATE\n    ");
     $update = $pdo->prepare("\n      UPDATE facturas SET\n        estado=:estado, monto_ars=:monto_ars, doc_tipo=:doc_tipo, doc_nro=:doc_nro,\n        cbte_tipo=:cbte_tipo, pto_vta=:pto_vta, cae=:cae, cae_vto=:cae_vto,\n        cbte_nro=:cbte_nro, fecha_cbte=:fecha_cbte, pdf_path=:pdf_path,\n        items_facturacion_json=:items_json, usd_rate=:usd_rate, total_usd=:total_usd,\n        total_ars=:total_ars, periodo_desde=:periodo_desde, periodo_hasta=:periodo_hasta,\n        vto_pago=:vto_pago, created_at=NOW()\n      WHERE id_organizacion=:org AND id_factura=:factura\n      LIMIT 1\n    ");
     $insert = $pdo->prepare("\n      INSERT INTO facturas (\n        id_organizacion,id_sistema,anio,id_mes,estado,monto_ars,doc_tipo,doc_nro,cbte_tipo,pto_vta,\n        cae,cae_vto,cbte_nro,fecha_cbte,pdf_path,items_facturacion_json,usd_rate,total_usd,total_ars,\n        periodo_desde,periodo_hasta,vto_pago,created_at\n      ) VALUES (\n        :org,:sistema,:anio,:mes,:estado,:monto_ars,:doc_tipo,:doc_nro,:cbte_tipo,:pto_vta,\n        :cae,:cae_vto,:cbte_nro,:fecha_cbte,:pdf_path,:items_json,:usd_rate,:total_usd,:total_ars,\n        :periodo_desde,:periodo_hasta,:vto_pago,NOW()\n      )\n    ");
     $link = $pdo->prepare("\n      UPDATE pagos SET id_factura = :factura\n      WHERE id_organizacion = :org\n        AND id_sistema = :sistema\n        AND anio_periodo = :anio\n        AND id_mes = :mes\n        AND (id_factura IS NULL OR id_factura = 0)\n    ");
@@ -312,7 +326,14 @@ function pagos_factura_guardar_pdf(): void
     if ($pdo->inTransaction()) $pdo->rollBack();
     if (!$dbCommitted) @unlink($destAbs);
     if ((int)($e->errorInfo[1] ?? 0) === 1062) {
-      json_error('La factura ya fue guardada para uno de los sistemas y el período seleccionado. Recargá la pantalla.');
+      $dbMessage = (string)$e->getMessage();
+      if (stripos($dbMessage, 'uq_facturas_org_sistema_periodo_activo') !== false) {
+        json_error('Ya existe una factura activa para este sistema y período. Recargá la pantalla antes de volver a emitir o pagar.');
+      }
+      if (stripos($dbMessage, 'uq_facturas_org_sistema_periodo') !== false) {
+        json_error('La base todavía tiene el índice antiguo que impide reemitir una factura anulada. Ejecutá el SQL 20260812_facturas_unificar_y_reemitir.sql y reintentá.');
+      }
+      json_error('La factura no pudo guardarse por una clave duplicada. Recargá la pantalla y verificá el período antes de reintentar.');
     }
     json_error('Error DB al guardar factura.', ['error' => $e->getMessage()]);
   } catch (Throwable $e) {

@@ -648,12 +648,18 @@ try {
                 true
             );
 
-            $exists = $pdo->prepare('SELECT id_mes, anio_periodo FROM pagos WHERE id_organizacion=:org AND id_pago=:id LIMIT 1');
+            $exists = $pdo->prepare('SELECT fecha_pago FROM pagos WHERE id_organizacion=:org AND id_pago=:id LIMIT 1');
             $exists->execute([':org' => $org, ':id' => $id]);
-            $paymentPeriod = $exists->fetch(PDO::FETCH_ASSOC);
-            if (!$paymentPeriod) repreg_fail('El pago no existe en la entidad seleccionada.');
-            try { reportes_periodo_assert_abierto($pdo, $org, (int)$paymentPeriod['id_mes'], (int)$paymentPeriod['anio_periodo']); }
-            catch (Throwable $e) { repreg_fail($e->getMessage()); }
+            $paymentRow = $exists->fetch(PDO::FETCH_ASSOC);
+            if (!$paymentRow) repreg_fail('El pago no existe en la entidad seleccionada.');
+            // Criterio de caja: el mes contable del pago es el de su fecha de pago.
+            // Se validan el mes actual y el nuevo (si se cambia la fecha).
+            try {
+                [$oldPayMonth, $oldPayYear] = reportes_periodo_desde_fecha(substr((string)$paymentRow['fecha_pago'], 0, 10));
+                reportes_periodo_assert_abierto($pdo, $org, $oldPayMonth, $oldPayYear);
+                [$newPayMonth, $newPayYear] = reportes_periodo_desde_fecha($fecha);
+                reportes_periodo_assert_abierto($pdo, $org, $newPayMonth, $newPayYear);
+            } catch (Throwable $e) { repreg_fail($e->getMessage()); }
 
             $pdo->beginTransaction();
             try {
@@ -727,13 +733,17 @@ try {
             c.nombre AS cliente_nombre,
             cs.nombre AS sistema_nombre,
             CONCAT(c.nombre, ' - ', cs.nombre) AS concepto,
-            COALESCE(m.mes, '') AS categoria,
+            TRIM(CONCAT(COALESCE(m.mes, ''), ' ', p.anio_periodo)) AS categoria,
             COALESCE(mp.nombre, '') AS medio,
             p.id_medio_pago,
             COALESCE(p.monto, 0) AS monto,
             {$proofExpr} AS comprobante,
             COALESCE(f.pdf_path, '') AS factura_pdf,
-            p.id_factura
+            p.id_factura,
+            CASE
+              WHEN f.id_factura IS NOT NULL AND LOWER(COALESCE(f.estado, '')) <> 'anulada' THEN 1
+              ELSE 0
+            END AS facturado
         FROM pagos p
         INNER JOIN clientes_sistemas cs
             ON cs.id_organizacion = p.id_organizacion
@@ -751,15 +761,24 @@ try {
         WHERE p.id_organizacion = :org
     ";
     $paramsPayments = [':org' => $org];
+    // Contable = criterio de CAJA: los ingresos se filtran por la fecha en que
+    // entró la plata (fecha_pago), igual que los egresos por su fecha.
     if ($anio > 0) {
-        $sqlPayments .= ' AND p.anio_periodo = :anio';
-        $paramsPayments[':anio'] = $anio;
-    }
-    if ($mes > 0) {
-        $sqlPayments .= ' AND p.id_mes = :mes';
+        if ($mes > 0) {
+            $desde = sprintf('%04d-%02d-01', $anio, $mes);
+            $hasta = (new DateTimeImmutable($desde))->modify('+1 month')->format('Y-m-d');
+        } else {
+            $desde = sprintf('%04d-01-01', $anio);
+            $hasta = sprintf('%04d-01-01', $anio + 1);
+        }
+        $sqlPayments .= ' AND p.fecha_pago >= :fecha_desde AND p.fecha_pago < :fecha_hasta';
+        $paramsPayments[':fecha_desde'] = $desde;
+        $paramsPayments[':fecha_hasta'] = $hasta;
+    } elseif ($mes > 0) {
+        $sqlPayments .= ' AND MONTH(p.fecha_pago) = :mes';
         $paramsPayments[':mes'] = $mes;
     }
-    $sqlPayments .= ' ORDER BY p.anio_periodo DESC, p.id_mes DESC, p.fecha_pago DESC, p.id_pago DESC';
+    $sqlPayments .= ' ORDER BY p.fecha_pago DESC, p.id_pago DESC';
 
     $stPayments = $pdo->prepare($sqlPayments);
     $stPayments->execute($paramsPayments);

@@ -198,9 +198,16 @@ html, body {
   color: var(--blue-inst-gray-800);
   transition: var(--blue-inst-transition);
   appearance: none;
+  -webkit-appearance: none;
+  /* Flecha del selector: faltaba la imagen, por eso no se veía que eran desplegables */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%2364748b' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
-  background-size: 10px;
+  background-size: 11px 8px;
+  padding-right: 32px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
 }
 .gpagos-dropdown:hover { border-color: var(--blue-inst-gray-300); }
 .gpagos-dropdown:focus {
@@ -501,9 +508,10 @@ html, body {
   background: #fff;
   border-radius: var(--blue-inst-radius);
   padding: 12px 12px 12px 14px;
-  border-left: 6px solid var(--blue-inst-accent);
   box-shadow: var(--blue-inst-shadow-sm);
   border: 1px solid var(--blue-inst-gray-200);
+  /* va después del border para que la franja de acento no se pise */
+  border-left: 6px solid var(--blue-inst-accent);
 }
 
 .gpagos-selected-card {
@@ -534,8 +542,12 @@ html, body {
   margin-top: 10px;
 }
 
+.gpagos-mobile-pay-button,
+.gpagos-mobile-arca-button,
 .gpagos-mobile-print-button,
 .gpagos-mobile-delete-button {
+  cursor: pointer;
+  min-height: 42px;
   border-radius: var(--blue-inst-radius);
   border: 1px solid var(--blue-inst-gray-200);
   padding: 10px 8px;
@@ -547,6 +559,22 @@ html, body {
   gap: 8px;
   background: #fff;
   color: var(--blue-inst-gray-800);
+}
+
+/* Pagar (verde) y ARCA (azul): mismos colores que los íconos de escritorio */
+.gpagos-mobile-pay-button {
+  background: color-mix(in srgb, var(--blue-inst-success) 10%, #fff);
+  color: #047857;
+  border-color: color-mix(in srgb, var(--blue-inst-success) 35%, #fff);
+}
+.gpagos-mobile-arca-button {
+  background: color-mix(in srgb, var(--blue-inst-accent) 8%, #fff);
+  color: var(--blue-inst-accent);
+  border-color: color-mix(in srgb, var(--blue-inst-accent) 25%, #fff);
+}
+.gpagos-mobile-arca-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .gpagos-mobile-delete-button {
@@ -718,3 +746,36 @@ html, body {
   cursor: default;
 }
 .gpagos-split-button{background:#e8efff!important;color:#2458ac!important}.gpagos-mobile-split-button{border:0;border-radius:10px;padding:9px 12px;background:#e8efff;color:#2458ac;font-weight:800;display:inline-flex;align-items:center;gap:7px;cursor:pointer}
+
+/* ✅ Columnas de la tabla: Cliente | Factura | Acciones */
+.gpagos-col-cliente { flex: 1.4 1 0; min-width: 0; }
+.gpagos-col-factura { flex: 0.8 1 0; min-width: 0; }
+.gpagos-col-acciones { flex: 1 1 0; min-width: 0; }
+
+/* ✅ Etiqueta de estado de facturación */
+.gpagos-badge-factura {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.gpagos-badge-factura--sin {
+  color: #92400e;
+  background: rgba(245, 158, 11, .16);
+  border-color: rgba(245, 158, 11, .45);
+}
+.gpagos-badge-factura--con {
+  color: #047857;
+  background: rgba(16, 185, 129, .12);
+  border-color: rgba(16, 185, 129, .40);
+}
+.gpagos-badge-factura--neutral {
+  color: var(--blue-inst-gray-800, #334155);
+  background: transparent;
+  font-weight: 600;
+  letter-spacing: 0;
+}

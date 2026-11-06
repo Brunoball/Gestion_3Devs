@@ -242,9 +242,37 @@ function computeSinFacturaFromFactura(factura) {
 }
 
 /* =========================
+   ✅ Estado de facturación para la columna "Factura"
+   - Pagados: según id_factura del pago
+   - Deudores: según la verificación del período (detalle_periodo)
+========================= */
+function getEstadoFactura({ isPagado, item, facturaInfo, canOpenPago, facturaChecking }) {
+  if (isPagado) {
+    return Number(item?.id_factura || 0) > 0 ? "con" : "sin";
+  }
+  if (Number(item?.id_factura || facturaInfo?.id_factura || 0) > 0) return "con";
+  if (facturaChecking) return "verificando";
+  if (canOpenPago === false) return "sin";
+  return "desconocido";
+}
+
+function FacturaBadge({ estado }) {
+  if (estado === "con") {
+    return <span className="gpagos-badge-factura gpagos-badge-factura--con">CON FACTURA</span>;
+  }
+  if (estado === "sin") {
+    return <span className="gpagos-badge-factura gpagos-badge-factura--sin">SIN FACTURA</span>;
+  }
+  if (estado === "verificando") {
+    return <span className="gpagos-badge-factura gpagos-badge-factura--neutral">Verificando…</span>;
+  }
+  return <span className="gpagos-badge-factura gpagos-badge-factura--neutral">—</span>;
+}
+
+/* =========================
    Row virtualizado
    ✅ ARCA solo en DEUDORES (NO en PAGADOS)
-   ✅ Pagar: bloqueado si NO hay factura
+   ✅ Pagar: habilitado aunque NO haya factura (el modal pide confirmación)
    ✅ Tabla: SOLO Cliente + Acciones
 ========================= */
 const Row = memo(
@@ -262,6 +290,7 @@ const Row = memo(
       canOpenPagoMap,
       facturaCheckLoadingMap,
       facturaInfoMap,
+      facturaAnuladaInfoMap,
     }
   ) => {
     const item = data[index];
@@ -289,25 +318,43 @@ const Row = memo(
       : false;
 
     const facturaInfo = idSistema ? facturaInfoMap?.[idSistema] : null;
+    const facturaAnuladaInfo = idSistema ? facturaAnuladaInfoMap?.[idSistema] : null;
     const idFactura = Number(item?.id_factura || facturaInfo?.id_factura || 0);
     const tieneFactura = Number.isFinite(idFactura) && idFactura > 0;
+    const facturaFueAnulada = !tieneFactura && Number(facturaAnuladaInfo?.id_factura || 0) > 0;
     const facturaFiscal = facturaTieneCAEValido(facturaInfo || item);
+    const arcaDisabled = arcaBusy || facturaFiscal;
 
-    const payDisabled = !isDeudor ? true : facturaChecking ? true : canOpenPago === false;
+    const payHardDisabled = !isDeudor || facturaChecking;
+    const payDisabled = payHardDisabled;
+    const noFacturado = isDeudor && canOpenPago === false;
+    const estadoFactura = getEstadoFactura({
+      isPagado,
+      item,
+      facturaInfo,
+      canOpenPago,
+      facturaChecking,
+    });
 
     const payTitle = !isDeudor
       ? ""
       : facturaChecking
       ? "Verificando factura..."
-      : canOpenPago === false
-      ? "No facturado: primero generá la factura para este período"
+      : noFacturado
+      ? facturaFueAnulada
+        ? "Registrar pago (la factura de este período fue anulada: se pedirá confirmar el pago sin factura)"
+        : "Registrar pago (período NO facturado: se pedirá confirmar el pago sin factura)"
       : "Registrar pago";
 
     return (
       <div style={style} className="gpagos-virtual-row">
-        <div className="gpagos-virtual-cell">{buildClienteLabel(item)}</div>
+        <div className="gpagos-virtual-cell gpagos-col-cliente">{buildClienteLabel(item)}</div>
 
-        <div className="gpagos-virtual-cell gpagos-virtual-actions">
+        <div className="gpagos-virtual-cell gpagos-col-factura">
+          <FacturaBadge estado={estadoFactura} />
+        </div>
+
+        <div className="gpagos-virtual-cell gpagos-virtual-actions gpagos-col-acciones">
           <div className="gpagos-actions-inline">
             {/* Registrar pago (solo en deudores) */}
             {isDeudor && (
@@ -317,12 +364,12 @@ const Row = memo(
                 }`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (payDisabled) return;
+                  if (payHardDisabled) return;
                   onPayClick?.(item);
                 }}
                 title={payTitle}
                 type="button"
-                disabled={payDisabled}
+                disabled={payHardDisabled}
               >
                 <FontAwesomeIcon icon={faMoneyCheckAlt} />
               </button>
@@ -337,9 +384,17 @@ const Row = memo(
                   e.stopPropagation();
                   onArcaClick?.(item);
                 }}
-                title={arcaBusy ? "Cargando datos..." : "Factura ARCA"}
+                title={
+                  arcaBusy
+                    ? "Cargando datos..."
+                    : facturaFiscal
+                    ? "Ya existe una factura ARCA emitida para este período. Para reemplazarla, primero emití la Nota de Crédito."
+                    : facturaFueAnulada
+                    ? "Reemitir factura ARCA: la factura anterior de este período fue anulada"
+                    : "Factura ARCA"
+                }
                 type="button"
-                disabled={arcaBusy}
+                disabled={arcaDisabled}
               >
                 <FontAwesomeIcon icon={faFileInvoiceDollar} />
               </button>
@@ -387,7 +442,8 @@ const Row = memo(
     prev.arcaLoadingId === next.arcaLoadingId &&
     prev.canOpenPagoMap === next.canOpenPagoMap &&
     prev.facturaCheckLoadingMap === next.facturaCheckLoadingMap &&
-    prev.facturaInfoMap === next.facturaInfoMap
+    prev.facturaInfoMap === next.facturaInfoMap &&
+    prev.facturaAnuladaInfoMap === next.facturaAnuladaInfoMap
 );
 
 function Pagos() {
@@ -593,14 +649,20 @@ function Pagos() {
           .filter((n) => Number.isFinite(n))
           .sort((a, b) => b - a);
 
-        const finalYears = [current, ...aniosNorm.filter((y) => y !== current)];
+        // ✅ Años: los que vienen del backend (período, fecha de pago, facturas)
+        //    + año actual + año siguiente (para cobros adelantados).
+        const finalYears = Array.from(new Set([...aniosNorm, current, current + 1]))
+          .filter((y) => y >= 2000 && y <= 2100)
+          .sort((a, b) => b - a);
 
         setYears(finalYears);
-        setSelectedYear(String(current));
+        setSelectedYear((prev) =>
+          prev && finalYears.includes(Number(prev)) ? String(prev) : String(current)
+        );
       } catch (e) {
         console.error(e);
         const current = new Date().getFullYear();
-        setYears([current]);
+        setYears([current + 1, current]);
         setSelectedYear(String(current));
       }
     };
@@ -786,6 +848,7 @@ function Pagos() {
     periodoKey: "",
     canOpenBySistema: {},
     facturaBySistema: {},
+    facturaAnuladaBySistema: {},
     loadingBySistema: {},
   });
 
@@ -796,15 +859,18 @@ function Pagos() {
 
   const [canOpenPagoMap, setCanOpenPagoMap] = useState({});
   const [facturaInfoMap, setFacturaInfoMap] = useState({});
+  const [facturaAnuladaInfoMap, setFacturaAnuladaInfoMap] = useState({});
   const [facturaCheckLoadingMap, setFacturaCheckLoadingMap] = useState({});
 
   useEffect(() => {
     facturaCacheRef.current.periodoKey = periodoKey;
     facturaCacheRef.current.canOpenBySistema = {};
     facturaCacheRef.current.facturaBySistema = {};
+    facturaCacheRef.current.facturaAnuladaBySistema = {};
     facturaCacheRef.current.loadingBySistema = {};
     setCanOpenPagoMap({});
     setFacturaInfoMap({});
+    setFacturaAnuladaInfoMap({});
     setFacturaCheckLoadingMap({});
   }, [periodoKey]);
 
@@ -819,6 +885,7 @@ function Pagos() {
         facturaCacheRef.current.periodoKey = periodoKey;
         facturaCacheRef.current.canOpenBySistema = {};
         facturaCacheRef.current.facturaBySistema = {};
+        facturaCacheRef.current.facturaAnuladaBySistema = {};
         facturaCacheRef.current.loadingBySistema = {};
       }
 
@@ -842,21 +909,26 @@ function Pagos() {
 
         const data = await fetchJSON(url, { method: "GET" });
         const factura = data?.factura || null;
+        const facturaAnulada = data?.factura_anulada || null;
         const sinFactura = computeSinFacturaFromFactura(factura);
         const canOpen = !sinFactura;
 
         facturaCacheRef.current.canOpenBySistema[idSistema] = canOpen;
         facturaCacheRef.current.facturaBySistema[idSistema] = factura || null;
+        facturaCacheRef.current.facturaAnuladaBySistema[idSistema] = facturaAnulada || null;
         setCanOpenPagoMap((m) => ({ ...m, [idSistema]: canOpen }));
         setFacturaInfoMap((m) => ({ ...m, [idSistema]: factura || null }));
+        setFacturaAnuladaInfoMap((m) => ({ ...m, [idSistema]: facturaAnulada || null }));
 
         return canOpen;
       } catch (e) {
         console.error(e);
         facturaCacheRef.current.canOpenBySistema[idSistema] = true;
         facturaCacheRef.current.facturaBySistema[idSistema] = null;
+        facturaCacheRef.current.facturaAnuladaBySistema[idSistema] = null;
         setCanOpenPagoMap((m) => ({ ...m, [idSistema]: true }));
         setFacturaInfoMap((m) => ({ ...m, [idSistema]: null }));
+        setFacturaAnuladaInfoMap((m) => ({ ...m, [idSistema]: null }));
         return true;
       } finally {
         facturaCacheRef.current.loadingBySistema[idSistema] = false;
@@ -925,15 +997,9 @@ function Pagos() {
         return;
       }
 
-      const canOpen = await checkFacturaForSistema(id_sistema);
-      if (canOpen === false) {
-        showToast(
-          "warning",
-          "Este cliente todavía no ha sido facturado para el período seleccionado. Facturá antes de registrar el pago.",
-          3400
-        );
-        return;
-      }
+      // ✅ Ya no se bloquea si no hay factura: el ModalPago avisa el estado
+      //    de facturación y pide confirmar el pago sin factura.
+      await checkFacturaForSistema(id_sistema);
 
       const mesLabel = getMesLabelById(meses, selectedMonthId);
 
@@ -1146,9 +1212,11 @@ function Pagos() {
 
     facturaCacheRef.current.canOpenBySistema = {};
     facturaCacheRef.current.facturaBySistema = {};
+    facturaCacheRef.current.facturaAnuladaBySistema = {};
     facturaCacheRef.current.loadingBySistema = {};
     setCanOpenPagoMap({});
     setFacturaInfoMap({});
+    setFacturaAnuladaInfoMap({});
     setFacturaCheckLoadingMap({});
 
     cargarPagosPorMes(selectedYear, selectedMonthId, true);
@@ -1306,18 +1374,31 @@ function Pagos() {
               : false;
 
             const facturaInfo = idSistema ? facturaInfoMap?.[idSistema] : null;
+            const facturaAnuladaInfo = idSistema ? facturaAnuladaInfoMap?.[idSistema] : null;
             const idFactura = Number(row?.id_factura || facturaInfo?.id_factura || 0);
             const tieneFactura = Number.isFinite(idFactura) && idFactura > 0;
+            const facturaFueAnulada = !tieneFactura && Number(facturaAnuladaInfo?.id_factura || 0) > 0;
             const facturaFiscal = facturaTieneCAEValido(facturaInfo || row);
+            const arcaDisabled = arcaBusy || facturaFiscal;
 
-            const payDisabled = !isDeudor ? true : facturaChecking ? true : canOpenPago === false;
+            const payHardDisabled = !isDeudor || facturaChecking;
+            const payDisabled = payHardDisabled;
+            const estadoFactura = getEstadoFactura({
+              isPagado,
+              item: row,
+              facturaInfo,
+              canOpenPago,
+              facturaChecking,
+            });
 
             const payTitle = !isDeudor
               ? ""
               : facturaChecking
               ? "Verificando factura..."
               : canOpenPago === false
-              ? "No facturado: primero generá la factura para este período"
+              ? facturaFueAnulada
+                ? "Registrar pago (la factura de este período fue anulada: se pedirá confirmar el pago sin factura)"
+                : "Registrar pago (período NO facturado: se pedirá confirmar el pago sin factura)"
               : "Registrar pago";
 
             return (
@@ -1325,6 +1406,10 @@ function Pagos() {
                 <div className="gpagos-mobile-row">
                   <span className="gpagos-mobile-label">Cliente:</span>
                   <span>{buildClienteLabel(row)}</span>
+                </div>
+                <div className="gpagos-mobile-row">
+                  <span className="gpagos-mobile-label">Factura:</span>
+                  <FacturaBadge estado={estadoFactura} />
                 </div>
 
                 <div className="gpagos-mobile-actions">
@@ -1335,12 +1420,12 @@ function Pagos() {
                       }`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (payDisabled) return;
+                        if (payHardDisabled) return;
                         onPayClick(row);
                       }}
                       type="button"
                       title={payTitle}
-                      disabled={payDisabled}
+                      disabled={payHardDisabled}
                     >
                       <FontAwesomeIcon icon={faMoneyCheckAlt} />
                       <span>Pagar</span>
@@ -1355,8 +1440,16 @@ function Pagos() {
                         onArcaClick(row);
                       }}
                       type="button"
-                      title={arcaBusy ? "Cargando datos..." : "Factura ARCA"}
-                      disabled={arcaBusy}
+                      title={
+                        arcaBusy
+                          ? "Cargando datos..."
+                          : facturaFiscal
+                          ? "Ya existe una factura ARCA emitida para este período. Para reemplazarla, primero emití la Nota de Crédito."
+                          : facturaFueAnulada
+                          ? "Reemitir factura ARCA: la factura anterior de este período fue anulada"
+                          : "Factura ARCA"
+                      }
+                      disabled={arcaDisabled}
                     >
                       <FontAwesomeIcon icon={faFileInvoiceDollar} />
                       <span>ARCA</span>
@@ -1410,8 +1503,9 @@ function Pagos() {
     return (
       <div className="gpagos-virtual-tables" style={{ height: "85vh" }}>
         <div className="gpagos-virtual-header">
-          <div className="gpagos-virtual-cell">Cliente</div>
-          <div className="gpagos-virtual-cell">Acciones</div>
+          <div className="gpagos-virtual-cell gpagos-col-cliente">Cliente</div>
+          <div className="gpagos-virtual-cell gpagos-col-factura">Factura</div>
+          <div className="gpagos-virtual-cell gpagos-col-acciones">Acciones</div>
         </div>
 
         <List
@@ -1453,6 +1547,7 @@ function Pagos() {
                 canOpenPagoMap={canOpenPagoMap}
                 facturaCheckLoadingMap={facturaCheckLoadingMap}
                 facturaInfoMap={facturaInfoMap}
+                facturaAnuladaInfoMap={facturaAnuladaInfoMap}
               />
             );
           }}
@@ -1478,6 +1573,7 @@ function Pagos() {
     canOpenPagoMap,
     facturaCheckLoadingMap,
     facturaInfoMap,
+    facturaAnuladaInfoMap,
     prefetchFacturaForRows,
   ]);
 
@@ -1498,10 +1594,36 @@ function Pagos() {
           id_sistema={modalPago.id_sistema}
           idOrganizacion={activeOrganizationId}
           cerrarModal={closeModalPago}
-          onPagoRealizado={() => {
+          onPagoRealizado={(info) => {
+            const anioPago = Number(info?.anio || 0);
+            const mesPago = Number(info?.id_mes || 0);
+
+            // ✅ Si el pago se aplicó a otro período, invalidamos su caché
+            //    y habilitamos su año en el selector.
+            if (anioPago && mesPago) {
+              const k = cacheKey(String(anioPago), String(mesPago));
+              delete cacheRef.current.pagos.pagado[k];
+              delete cacheRef.current.pagos.deudor[k];
+              delete cacheRef.current.pagos.lastUpdated[k];
+            }
+            if (anioPago >= 2000 && anioPago <= 2100) {
+              setYears((prev) =>
+                prev.includes(anioPago)
+                  ? prev
+                  : [...prev, anioPago].sort((a, b) => b - a)
+              );
+            }
+            cacheRef.current.listas = null;
+
             closeModalPago();
             recargarListado();
-            showToast("exito", "Pago realizado con éxito.", 2600);
+            showToast(
+              "exito",
+              info?.periodoLabel
+                ? `Pago registrado para ${info.periodoLabel}.`
+                : "Pago realizado con éxito.",
+              3000
+            );
           }}
           onSolicitarAnulacionFactura={(facturaActual) => {
             closeModalPago();
@@ -1523,6 +1645,7 @@ function Pagos() {
           anioSeleccionado={modalPago.anioSeleccionado}
           mesSeleccionado={modalPago.mesSeleccionado}
           idMesSeleccionado={modalPago.idMesSeleccionado}
+          aniosDisponibles={years}
         />
       )}
 

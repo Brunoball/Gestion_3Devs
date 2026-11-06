@@ -339,7 +339,7 @@ export default function Trabajadores() {
 
           <div className="TP-PeopleTable">
             <div className="TP-PeopleHead">
-              <span>Persona</span><span>Rol en {organizacionActiva?.codigo}</span><span>Entidades</span><span>Estado</span><span />
+              <span>Persona</span><span>Rol en {organizacionActiva?.codigo}</span><span>Entidades</span><span>Estado</span><span className="is-actions">Acciones</span>
             </div>
             <div className="TP-PeopleBody">
               {loading ? (

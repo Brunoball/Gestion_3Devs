@@ -237,15 +237,24 @@ function reptra_fetch_payments(PDO $pdo, int $org, int $month, int $year): array
         WHERE p.id_organizacion = :org
     ";
     $params = [':org' => $org];
+    // Contable = criterio de CAJA: el pago cuenta en el mes en que ingresó la
+    // plata (fecha_pago), no en el mes/período que se está cobrando.
     if ($year > 0) {
-        $sql .= ' AND p.anio_periodo = :year';
-        $params[':year'] = $year;
-    }
-    if ($month > 0) {
-        $sql .= ' AND p.id_mes = :month';
+        if ($month > 0) {
+            $from = sprintf('%04d-%02d-01', $year, $month);
+            $to = (new DateTimeImmutable($from))->modify('+1 month')->format('Y-m-d');
+        } else {
+            $from = sprintf('%04d-01-01', $year);
+            $to = sprintf('%04d-01-01', $year + 1);
+        }
+        $sql .= ' AND p.fecha_pago >= :fecha_desde AND p.fecha_pago < :fecha_hasta';
+        $params[':fecha_desde'] = $from;
+        $params[':fecha_hasta'] = $to;
+    } elseif ($month > 0) {
+        $sql .= ' AND MONTH(p.fecha_pago) = :month';
         $params[':month'] = $month;
     }
-    $sql .= ' ORDER BY p.anio_periodo, p.id_mes, p.fecha_pago, p.id_pago';
+    $sql .= ' ORDER BY p.fecha_pago, p.id_pago';
     $st = $pdo->prepare($sql);
     $st->execute($params);
     return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];

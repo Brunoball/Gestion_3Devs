@@ -28,8 +28,14 @@ export default function ModalEliminarPago({
   if (!open) return null;
 
   const cliente = data?.labelCliente || "—";
-  const sistema = data?.labelSistema || "—";
-  const idPago = data?.id_pago || "—";
+  const fechaRaw = String(data?.fecha || "").slice(0, 10);
+  const fecha = /^\d{4}-\d{2}-\d{2}$/.test(fechaRaw)
+    ? fechaRaw.split("-").reverse().join("/")
+    : "—";
+  const montoNum = Number(data?.monto);
+  const monto = Number.isFinite(montoNum) && montoNum > 0
+    ? montoNum.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
+    : "—";
 
   const cerrar = () => {
     if (loading) return;
@@ -76,16 +82,16 @@ export default function ModalEliminarPago({
 
         <div className="mpdel-card">
           <div className="mpdel-row">
-            <span className="mpdel-label">Pago de referencia</span>
-            <span className="mpdel-value">{idPago}</span>
-          </div>
-          <div className="mpdel-row">
             <span className="mpdel-label">Cliente</span>
             <span className="mpdel-value">{cliente}</span>
           </div>
           <div className="mpdel-row">
-            <span className="mpdel-label">Sistema</span>
-            <span className="mpdel-value">{sistema}</span>
+            <span className="mpdel-label">Fecha de pago</span>
+            <span className="mpdel-value">{fecha}</span>
+          </div>
+          <div className="mpdel-row">
+            <span className="mpdel-label">Monto total</span>
+            <span className="mpdel-value">{monto}</span>
           </div>
         </div>
 

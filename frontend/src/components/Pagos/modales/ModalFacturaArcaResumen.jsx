@@ -139,9 +139,13 @@ export default function ModalFacturaArcaResumen({
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState(false);
+  const [pendingLocalSave, setPendingLocalSave] = useState(false);
 
   const firstRef = useRef(null);
   const busyRef = useRef(false);
+  // Si ARCA ya autorizó el comprobante pero falla el guardado local, conservamos
+  // la autorización y reintentamos SOLO la persistencia. Nunca volvemos a emitir en ARCA.
+  const pendingArcaRef = useRef(null);
 
   const docLabel = useMemo(() => {
     const it = DOC_TIPOS.find((x) => x.id === Number(docTipo));
@@ -194,19 +198,26 @@ export default function ModalFacturaArcaResumen({
 
   useEffect(() => {
     if (!open) return;
-    setError("");
-    setConfirm(false);
+    if (pendingArcaRef.current?.fact) {
+      setPendingLocalSave(true);
+      setConfirm(true);
+      setError("ARCA ya autorizó esta factura. Falta guardarla en el sistema; el próximo intento no volverá a emitirla.");
+    } else {
+      setError("");
+      setConfirm(false);
+      setPendingLocalSave(false);
+    }
     setTimeout(() => firstRef.current?.focus?.(), 0);
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => {
-      if (e.key === "Escape" && !loading && !loadingPdf) onClose?.();
+      if (e.key === "Escape" && !loading && !loadingPdf && !pendingLocalSave) onClose?.();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose, loading, loadingPdf]);
+  }, [open, onClose, loading, loadingPdf, pendingLocalSave]);
 
   const toText = useCallback((v) => {
     if (v == null) return "";
@@ -431,73 +442,124 @@ export default function ModalFacturaArcaResumen({
   const emitir = useCallback(async () => {
     if (busyRef.current) return;
     setError("");
+
     const v = validar();
     if (!v.ok) return setError(v.msg);
-    if (!confirm) return setError("Tenés que confirmar el resumen antes de emitir.");
+    if (!confirm && !pendingArcaRef.current?.fact) {
+      return setError("Tenés que confirmar el resumen antes de emitir.");
+    }
 
     busyRef.current = true;
     setLoading(true);
     try {
-      const url = `${apiBase}?action=${action}&op=factura_arca`;
+      let pending = pendingArcaRef.current;
 
-      const body = {
-        id_pago: v.id_pago,
-        id_sistema: v.id_sistema,
+      // Primera ejecución: se autoriza en ARCA una sola vez.
+      if (!pending?.fact) {
+        const url = `${apiBase}?action=${action}&op=factura_arca`;
+        const body = {
+          id_pago: v.id_pago,
+          id_sistema: v.id_sistema,
+          doc_tipo: Number(docTipo),
+          doc_nro: v.docN,
+          cbte_tipo: Number(cbteTipo),
+          pto_vta: v.pvN,
+          importe: forceTestAmount ? Number(testAmount) : Number(monto),
+          anio: v.anio,
+          id_mes: v.id_mes,
+          periodo_desde: data?.periodo_desde ?? "",
+          periodo_hasta: data?.periodo_hasta ?? "",
+          vto_pago: data?.vto_pago ?? "",
 
-        doc_tipo: Number(docTipo),
-        doc_nro: v.docN,
-        cbte_tipo: Number(cbteTipo),
-        pto_vta: v.pvN,
+          // Se manda también TODO el contexto contable al mismo request que emite.
+          // El backend guarda la factura en DB inmediatamente después del CAE, antes
+          // de responder al navegador. Así un refresh/cierre no puede hacerla desaparecer.
+          items_facturacion: Array.isArray(data?.items_facturacion) ? data.items_facturacion : [],
+          sistemas_facturar_ids: Array.from(
+            new Set(
+              (Array.isArray(data?.sistemas_facturar_ids)
+                ? data.sistemas_facturar_ids
+                : [data?.id_sistema]
+              )
+                .map(Number)
+                .filter((id) => Number.isInteger(id) && id > 0)
+            )
+          ),
+          usd_rate: data?.usd_rate ?? null,
+          total_usd: data?.total_usd ?? null,
+          total_ars: forceTestAmount ? Number(testAmount) : Number(data?.total_ars ?? monto),
+        };
 
-        importe: forceTestAmount ? Number(testAmount) : Number(monto),
+        const resp = await fetchJSON(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
 
-        anio: v.anio,
-        id_mes: v.id_mes,
+        const fact = resp?.factura || resp;
+        if (!fact || !fact?.cae || !fact?.cbte_nro) {
+          throw new Error("ARCA no devolvió una factura autorizada completa.");
+        }
 
-        periodo_desde: data?.periodo_desde ?? "",
-        periodo_hasta: data?.periodo_hasta ?? "",
-        vto_pago: data?.vto_pago ?? "",
-      };
+        // Desde este punto NO se vuelve a llamar factura_arca aunque falle PDF/DB.
+        pending = { fact, blob: null, filename: "" };
+        pendingArcaRef.current = pending;
+        setPendingLocalSave(true);
+      }
 
-      const resp = await fetchJSON(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      let { fact, blob, filename } = pending;
 
-      const fact = resp?.factura || resp;
+      // El PDF puede regenerarse localmente con la misma autorización si antes falló.
+      if (!(blob instanceof Blob)) {
+        const out = await saveArcaInvoicePdf({
+          fact,
+          data: { ...data, labelCliente: nombreCliente, labelSistema: nombreSistema },
+          forceTestAmount,
+          testAmount,
+          download: false,
+        });
 
-      const out = await saveArcaInvoicePdf({
+        blob = out?.blob instanceof Blob ? out.blob : out instanceof Blob ? out : null;
+        if (!blob) throw new Error("No se pudo generar el PDF (blob vacío).");
+
+        filename = buildSafeInvoiceFilename({
+          fact,
+          data,
+          nombreCliente,
+          nombreSistema,
+        });
+
+        pending = { fact, blob, filename };
+        pendingArcaRef.current = pending;
+      }
+
+      // Primero dejamos el comprobante persistido y vinculado en DB; recién después
+      // descargamos/cerramos. Así la UI nunca aparenta éxito si el guardado falló.
+      await guardarFacturaEnDB({
+        blob,
+        filename: filename || "factura.pdf",
         fact,
-        data: { ...data, labelCliente: nombreCliente, labelSistema: nombreSistema },
-        forceTestAmount,
-        testAmount,
-        download: false,
+        estado: "emitida",
       });
 
-      const blob =
-        out?.blob instanceof Blob ? out.blob : out instanceof Blob ? out : null;
+      triggerBlobDownload(blob, filename || "factura.pdf");
 
-      if (!blob) throw new Error("No se pudo generar el PDF (blob vacío).");
-
-      const safeFilename = buildSafeInvoiceFilename({
-        fact,
-        data,
-        nombreCliente,
-        nombreSistema,
-      });
-
-      triggerBlobDownload(blob, safeFilename);
-
-      await guardarFacturaEnDB({ blob, filename: safeFilename, fact, estado: "emitida" });
-
+      pendingArcaRef.current = null;
+      setPendingLocalSave(false);
       onFacturada?.(fact);
       onDone?.(fact);
-
       onClose?.();
       onCloseAll?.();
     } catch (e) {
-      setError(e?.message || "No se pudo emitir la factura.");
+      const msg = e?.message || "No se pudo completar la factura.";
+      if (pendingArcaRef.current?.fact) {
+        setPendingLocalSave(true);
+        setError(
+          `ARCA ya autorizó la factura, pero todavía falta guardarla en el sistema. No se volverá a emitir. Corregí el problema y presioná “Guardar factura emitida”. Detalle: ${msg}`
+        );
+      } else {
+        setError(msg || "No se pudo emitir la factura.");
+      }
     } finally {
       busyRef.current = false;
       setLoading(false);
@@ -526,7 +588,7 @@ export default function ModalFacturaArcaResumen({
   if (!open) return null;
 
   const cerrar = () => {
-    if (!loading && !loadingPdf) onClose?.();
+    if (!loading && !loadingPdf && !pendingLocalSave) onClose?.();
   };
 
   return (
@@ -546,7 +608,14 @@ export default function ModalFacturaArcaResumen({
             <p className="mi-modal__subtitle">Confirmá datos → Emitir → PDF (estilo ARCA)</p>
           </div>
 
-          <button className="mi-modal__close" onClick={cerrar} aria-label="Cerrar" type="button">
+          <button
+            className="mi-modal__close"
+            onClick={cerrar}
+            aria-label="Cerrar"
+            type="button"
+            disabled={loading || loadingPdf || pendingLocalSave}
+            title={pendingLocalSave ? "Primero guardá la factura ya autorizada en ARCA." : "Cerrar"}
+          >
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
@@ -557,6 +626,11 @@ export default function ModalFacturaArcaResumen({
         <div className="mit-modal__body">
           <div className="mit-modal__content">
             {error && <div className="arca-alert arca-alert--error" role="alert">{error}</div>}
+            {pendingLocalSave && (
+              <div className="arca-alert arca-alert--info" role="status">
+                <strong>Factura ya autorizada en ARCA.</strong> Falta únicamente guardar/vincular el PDF en el sistema. El reintento no genera otro comprobante fiscal.
+              </div>
+            )}
 
             <div className="arca-alert arca-alert--info">
               <div className="arca-alert__title">
@@ -607,7 +681,7 @@ export default function ModalFacturaArcaResumen({
                     type="checkbox"
                     checked={confirm}
                     onChange={(e) => setConfirm(e.target.checked)}
-                    disabled={loading || loadingPdf}
+                    disabled={pendingLocalSave || loading || loadingPdf}
                   />
                   <span className="arca-check__circle" />
                   <span className="arca-check__text">
@@ -628,8 +702,8 @@ export default function ModalFacturaArcaResumen({
             <button
               type="button"
               className="mit-btn mit-btn--ghost"
-              onClick={() => !(loading || loadingPdf) && onBack?.()}
-              disabled={loading || loadingPdf}
+              onClick={() => !(loading || loadingPdf || pendingLocalSave) && onBack?.()}
+              disabled={loading || loadingPdf || pendingLocalSave}
             >
               Volver
             </button>
@@ -638,8 +712,14 @@ export default function ModalFacturaArcaResumen({
               type="button"
               className="mit-btn mit-btn--ghost"
               onClick={exportarSoloPDF}
-              disabled={loading || loadingPdf || !confirm}
-              title={!confirm ? "Marcá la confirmación para habilitar." : "Genera el PDF, lo guarda en el sistema y no lo emite en ARCA."}
+              disabled={loading || loadingPdf || !confirm || pendingLocalSave}
+              title={
+                pendingLocalSave
+                  ? "Primero terminá de guardar la factura que ARCA ya autorizó."
+                  : !confirm
+                  ? "Marcá la confirmación para habilitar."
+                  : "Genera el PDF, lo guarda en el sistema y no lo emite en ARCA."
+              }
             >
               {loadingPdf ? "Generando PDF..." : "Solo PDF (sin emitir)"}
             </button>
@@ -648,10 +728,22 @@ export default function ModalFacturaArcaResumen({
               type="button"
               className="mit-btn mit-btn--solid"
               onClick={emitir}
-              disabled={loading || loadingPdf || !confirm}
-              title={!confirm ? "Marcá la confirmación para habilitar." : ""}
+              disabled={loading || loadingPdf || (!confirm && !pendingLocalSave)}
+              title={
+                pendingLocalSave
+                  ? "Reintenta solamente el guardado local; no vuelve a emitir en ARCA."
+                  : !confirm
+                  ? "Marcá la confirmación para habilitar."
+                  : ""
+              }
             >
-              {loading ? "Emitiendo..." : <>Emitir + PDF <FaCheck style={{ marginLeft: 8 }} /></>}
+              {loading
+                ? pendingLocalSave
+                  ? "Guardando..."
+                  : "Emitiendo..."
+                : pendingLocalSave
+                ? <>Guardar factura emitida <FaCheck style={{ marginLeft: 8 }} /></>
+                : <>Emitir + PDF <FaCheck style={{ marginLeft: 8 }} /></>}
             </button>
           </div>
         </div>

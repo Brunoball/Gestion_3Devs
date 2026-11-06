@@ -197,6 +197,9 @@
   background: #f1f5f9;
 }
 
+/* En el textarea el label en reposo va arriba (no en el medio del bloque). */
+.mnt-plan-modal__textarea + .mnt-plan-modal__label { top: 22px; }
+
 .mnt-plan-modal__textarea {
   height: 112px;
   min-height: 96px;

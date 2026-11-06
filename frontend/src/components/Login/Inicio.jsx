@@ -10,6 +10,44 @@ import { storeLoginResponse } from '../Global/session';
 const STORAGE_KEYS = {
   rememberFlag: 'rememberLogin',
   user: 'remember_nombre',
+  pass: 'remember_contrasena_v2',
+};
+
+// Ofuscación simple para no dejar la contraseña en texto plano en el navegador.
+// (No es cifrado fuerte: cualquiera con acceso a la PC podría recuperarla.)
+const OBF_KEY = '3devs-gestion';
+const ofuscar = (txt) => {
+  try {
+    const bytes = new TextEncoder().encode(String(txt ?? ''));
+    let out = '';
+    bytes.forEach((b, i) => {
+      out += String.fromCharCode(b ^ OBF_KEY.charCodeAt(i % OBF_KEY.length));
+    });
+    return btoa(out);
+  } catch {
+    return '';
+  }
+};
+const desofuscar = (enc) => {
+  try {
+    const raw = atob(String(enc ?? ''));
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) {
+      bytes[i] = raw.charCodeAt(i) ^ OBF_KEY.charCodeAt(i % OBF_KEY.length);
+    }
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return '';
+  }
+};
+const lsGet = (k) => {
+  try { return localStorage.getItem(k); } catch { return null; }
+};
+const lsSet = (k, v) => {
+  try { localStorage.setItem(k, v); } catch {}
+};
+const lsDel = (k) => {
+  try { localStorage.removeItem(k); } catch {}
 };
 
 const Inicio = () => {
@@ -26,26 +64,32 @@ const Inicio = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.rememberFlag) === '1';
-    const savedUser = saved ? localStorage.getItem(STORAGE_KEYS.user) || '' : '';
+    const saved = lsGet(STORAGE_KEYS.rememberFlag) === '1';
+    const savedUser = saved ? lsGet(STORAGE_KEYS.user) || '' : '';
+    const savedPass = saved ? desofuscar(lsGet(STORAGE_KEYS.pass) || '') : '';
 
-    // Limpia el formato anterior que guardaba la contraseña en base64.
-    localStorage.removeItem('remember_contrasena');
+    // Limpia el formato viejo (base64 plano) si quedó guardado.
+    lsDel('remember_contrasena');
 
     setRemember(saved);
     setNombre(savedUser);
-    setContrasena('');
+    setContrasena(savedPass);
   }, []);
 
-  const persistRemember = (user, flag) => {
+  const persistRemember = (user, pass, flag) => {
     if (flag) {
-      localStorage.setItem(STORAGE_KEYS.rememberFlag, '1');
-      localStorage.setItem(STORAGE_KEYS.user, user ?? '');
+      lsSet(STORAGE_KEYS.rememberFlag, '1');
+      lsSet(STORAGE_KEYS.user, user ?? '');
+      lsSet(STORAGE_KEYS.pass, ofuscar(pass ?? ''));
     } else {
-      localStorage.removeItem(STORAGE_KEYS.rememberFlag);
-      localStorage.removeItem(STORAGE_KEYS.user);
+      lsDel(STORAGE_KEYS.rememberFlag);
+      lsDel(STORAGE_KEYS.user);
+      lsDel(STORAGE_KEYS.pass);
     }
   };
+
+  // Si la contraseña guardada ya no sirve (por ej. la cambiaron), se borra.
+  const olvidarContrasenaGuardada = () => lsDel(STORAGE_KEYS.pass);
 
   const togglePasswordVisibility = () => setShowPassword((v) => !v);
 
@@ -72,6 +116,7 @@ const Inicio = () => {
         try {
           d = await res.json();
         } catch {}
+        olvidarContrasenaGuardada();
         mostrarToast('error', d?.mensaje || 'Usuario o contraseña incorrectos');
         setCargando(false);
         return;
@@ -92,13 +137,14 @@ const Inicio = () => {
       } catch {}
 
       if (!data || !data.exito) {
+        olvidarContrasenaGuardada();
         mostrarToast('error', data?.mensaje || 'Usuario o contraseña incorrectos');
         setCargando(false);
         return;
       }
 
       storeLoginResponse(data);
-      persistRemember(nombre, remember);
+      persistRemember(nombre, contrasena, remember);
 
       navigate('/panel');
     } catch {
@@ -115,7 +161,7 @@ const Inicio = () => {
     <div className="ini_contenedor-principal">
       <div className="ini_contenedor">
         <div className="ini_encabezado">
-          <img src={logoRH} alt="Cooperadora IPET 50" className="ini_logo" />
+          <img src={logoRH} alt="3Devs Solutions" className="ini_logo" />
           <h1 className="ini_titulo">Iniciar Sesión</h1>
           <p className="ini_subtitulo">
             Ingresá tus credenciales para acceder al sistema

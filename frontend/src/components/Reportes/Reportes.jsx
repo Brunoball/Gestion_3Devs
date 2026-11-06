@@ -545,6 +545,11 @@ export default function Reportes() {
             sistema_nombre: row.sistema_nombre ?? "",
             comprobante: row.comprobante ?? "",
             factura_pdf: row.factura_pdf ?? "",
+            id_factura: row.id_factura ?? null,
+            facturado:
+              row.facturado != null
+                ? Number(row.facturado) === 1
+                : Number(row.id_factura || 0) > 0,
           }))
         );
         setEgresos(
@@ -698,8 +703,34 @@ export default function Reportes() {
       { key: "fecha", label: "Fecha pago", fr: "1fr", left: true },
       { key: "cliente_nombre", label: "Cliente", fr: "1.35fr", center: true },
       { key: "sistema_nombre", label: "Sistema", fr: "1.65fr", center: true },
-      { key: "categoria", label: "Período", fr: "1fr", center: true },
+      { key: "categoria", label: "Período cobrado", fr: "1fr", center: true },
       { key: "medio", label: "Medio", fr: "1fr", center: true },
+      {
+        key: "facturado",
+        label: "Factura",
+        fr: "0.9fr",
+        center: true,
+        render: (row) =>
+          row.facturado ? (
+            <span style={{ fontWeight: 700, color: "#059669" }}>FACTURADO</span>
+          ) : (
+            <span
+              style={{
+                display: "inline-block",
+                padding: "2px 8px",
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 800,
+                color: "#92400e",
+                background: "rgba(245,158,11,.16)",
+                border: "1px solid rgba(245,158,11,.45)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              SIN FACTURA
+            </span>
+          ),
+      },
       { key: "monto", label: "Monto", fr: "1fr", right: true, render: (row) => money(row.monto) },
     ],
     []
@@ -1080,6 +1111,7 @@ export default function Reportes() {
               MEDIO: row.medio,
               MONTO: row.monto,
               COMPROBANTE: row.comprobante,
+              FACTURADO: row.facturado ? "SI" : "NO",
               FACTURA_PDF: row.factura_pdf,
             }))
           ),
@@ -1170,7 +1202,7 @@ export default function Reportes() {
             </label>
 
             <label className="side-field">
-              <span>Mes del período</span>
+              <span>Mes (fecha de pago)</span>
               <select
                 value={mesSeleccionado}
                 onChange={(event) => setMesSeleccionado(event.target.value)}

@@ -51,9 +51,20 @@ try {
     'mes' => (string)$r['mes'],
   ], $pdo->query('SELECT id_mes AS id, mes FROM meses ORDER BY id_mes', PDO::FETCH_ASSOC)->fetchAll() ?: []);
 
-  $st = $pdo->prepare("\n    SELECT DISTINCT anio_periodo AS anio\n    FROM pagos\n    WHERE id_organizacion = :org\n    ORDER BY anio DESC\n  ");
-  $st->execute([':org' => $idOrganizacion]);
+  // Años disponibles para los selectores de Pagos:
+  //  - año del PERÍODO cobrado (anio_periodo) → p.ej. un pago de ENERO 2027
+  //    cobrado en noviembre 2026 habilita 2027.
+  //  - año de la FECHA DE PAGO (criterio de caja).
+  //  - año de las facturas emitidas.
+  //  - siempre el año actual y el siguiente (para poder cobrar adelantado).
+  $st = $pdo->prepare("\n    SELECT anio FROM (\n      SELECT DISTINCT anio_periodo AS anio FROM pagos WHERE id_organizacion = :org_a\n      UNION\n      SELECT DISTINCT YEAR(fecha_pago) AS anio FROM pagos WHERE id_organizacion = :org_b AND fecha_pago IS NOT NULL\n      UNION\n      SELECT DISTINCT anio AS anio FROM facturas WHERE id_organizacion = :org_c\n    ) x\n    WHERE anio IS NOT NULL\n  ");
+  $st->execute([':org_a' => $idOrganizacion, ':org_b' => $idOrganizacion, ':org_c' => $idOrganizacion]);
+  $anioActual = (int)date('Y');
   $anios = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN) ?: []);
+  $anios[] = $anioActual;
+  $anios[] = $anioActual + 1;
+  $anios = array_values(array_unique(array_filter($anios, static fn(int $y): bool => $y >= 2000 && $y <= 2100)));
+  rsort($anios);
 
   $iva = array_map(static fn(array $r): array => [
     'id' => (int)$r['id'],

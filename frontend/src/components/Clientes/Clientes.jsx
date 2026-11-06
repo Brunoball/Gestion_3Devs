@@ -534,7 +534,7 @@ export default function Clientes() {
               )}
 
               <div className="CL-Table">
-                <div className="CL-TableHead"><span>Cliente</span><span>Notas</span><span>Estado</span><span /></div>
+                <div className="CL-TableHead"><span>Cliente</span><span>Notas</span><span>Estado</span><span className="is-actions">Acciones</span></div>
                 <div className="CL-TableBody">
                   {loading ? <div className="CL-Empty">Cargando clientes…</div> : !sortedClients.length ? <div className="CL-Empty">No hay clientes en esta entidad.</div> : sortedClients.map((client) => {
                     const editing = editClientId === client.id_cliente;

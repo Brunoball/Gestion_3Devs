@@ -212,7 +212,7 @@ export default function Mantenimiento() {
                 </div>
 
                 <div className="MP-Table">
-                  <div className="MP-Head"><span>Plan</span><span>Descripción</span><span>Monto de referencia</span><span /></div>
+                  <div className="MP-Head"><span>Plan</span><span>Descripción</span><span>Monto de referencia</span><span className="is-actions">Acciones</span></div>
                   <div className="MP-Body">
                     {loading ? (
                       <div className="MP-Empty">Cargando planes…</div>

@@ -1,6 +1,9 @@
 // src/components/Pagos/modales/ModalPago.jsx
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { FaCoins, FaTimes, FaCheck, FaEye, FaBan } from "react-icons/fa";
+import {
+  FaCoins, FaTimes, FaCheck, FaEye, FaBan,
+  FaExclamationTriangle, FaCheckCircle,
+} from "react-icons/fa";
 import BASE_URL from "../../../config/config";
 import { fetchJSONAuth } from "../../Global/api";
 
@@ -19,6 +22,11 @@ function parseMoneyInput(raw) {
   const s = String(raw).trim();
   if (!s) return 0;
   const cleaned = s.replace(/\$/g, "").replace(/\s/g, "");
+  // "135.000" / "1.250.000" sin coma → puntos de miles (formato argentino)
+  if (!cleaned.includes(",") && /^\d{1,3}(\.\d{3})+$/.test(cleaned)) {
+    const n = Number(cleaned.replace(/\./g, ""));
+    return Number.isFinite(n) ? n : 0;
+  }
   const normalized = cleaned.includes(",")
     ? cleaned.replace(/\./g, "").replace(",", ".")
     : cleaned;
@@ -138,6 +146,8 @@ export default function ModalPago({
   onSolicitarAnulacionFactura,
   anioSeleccionado,
   mesSeleccionado,
+  idMesSeleccionado,
+  aniosDisponibles = [],
   idOrganizacion,
 }) {
   const [loading, setLoading]           = useState(true);
@@ -157,6 +167,16 @@ export default function ModalPago({
   const registrandoRef = useRef(false);
   // ✅ Mapa { [id_sistema]: nombre } para mostrar en el desglose
   const [sistemasNombres, setSistemasNombres] = useState({});
+  // ✅ Pago SIN factura (ej. Balto): sistemas del cliente + montos editables + confirmación
+  const [sistemasCliente, setSistemasCliente] = useState([]);
+  const [montosSinFactura, setMontosSinFactura] = useState({});
+  const [confirmaSinFactura, setConfirmaSinFactura] = useState(false);
+  const [facturaAnulada, setFacturaAnulada] = useState(null);
+  const [pagoSinFacturaOk, setPagoSinFacturaOk] = useState(false);
+  // Texto del "Monto total" mientras se edita (null = mostrar la suma formateada)
+  const [totalEditando, setTotalEditando] = useState(null);
+  // Proporciones entre sistemas tomadas al empezar a editar el total
+  const proporcionesRef = useRef(null);
 
   const API        = useMemo(() => `${BASE_URL}/api.php`, []);
   const LISTAS_API = useMemo(() => `${API}?action=listas`, [API]);
@@ -177,7 +197,10 @@ export default function ModalPago({
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, []);
 
-  const idMes = useMemo(() => {
+  // Mes/año que vienen del filtro de la pantalla (valor inicial del período).
+  const idMesInicial = useMemo(() => {
+    const byId = Number(idMesSeleccionado);
+    if (Number.isInteger(byId) && byId >= 1 && byId <= 12) return byId;
     const m = mesSeleccionado;
     if (m == null || m === "") return 0;
     if (typeof m === "number" && Number.isFinite(m)) {
@@ -196,12 +219,41 @@ export default function ModalPago({
       OCTUBRE:10,NOVIEMBRE:11,DICIEMBRE:12,
     };
     return map[String(s).toUpperCase()] || 0;
-  }, [mesSeleccionado]);
+  }, [mesSeleccionado, idMesSeleccionado]);
 
-  const anio = useMemo(() => {
+  const anioInicial = useMemo(() => {
     const n = Number(anioSeleccionado);
     return Number.isFinite(n) && n >= 2000 && n <= 2100 ? n : 0;
   }, [anioSeleccionado]);
+
+  // ✅ Período APLICADO del pago: editable dentro del modal.
+  //    Permite, por ejemplo, registrar ENERO 2027 estando parado en NOV 2026.
+  const [anio, setAnio] = useState(anioInicial);
+  const [idMes, setIdMes] = useState(idMesInicial);
+
+  useEffect(() => { setAnio(anioInicial); }, [anioInicial]);
+  useEffect(() => { setIdMes(idMesInicial); }, [idMesInicial]);
+
+  const opcionesAnio = useMemo(() => {
+    const actual = new Date().getFullYear();
+    const set = new Set([actual - 1, actual, actual + 1]);
+    (Array.isArray(aniosDisponibles) ? aniosDisponibles : []).forEach((y) => {
+      const n = parseInt(y, 10);
+      if (Number.isFinite(n) && n >= 2000 && n <= 2100) set.add(n);
+    });
+    if (anioInicial) set.add(anioInicial);
+    if (anio) set.add(anio);
+    return Array.from(set).sort((a, b) => b - a);
+  }, [aniosDisponibles, anioInicial, anio]);
+
+  const opcionesMes = useMemo(
+    () => Array.from({ length: 12 }, (_, i) => ({ id: i + 1, nombre: getMonthNameEs(i + 1) })),
+    []
+  );
+
+  const periodoCambiado = Boolean(
+    anioInicial && idMesInicial && (anio !== anioInicial || idMes !== idMesInicial)
+  );
 
   const periodoLabel = useMemo(() => {
     const mn = getMonthNameEs(idMes);
@@ -268,9 +320,16 @@ export default function ModalPago({
       setPagoExitoso(false);
       setFactura(null);
       setPago(null);
-      setDetalle(null);
+      // No se limpia `detalle` (cliente/sistema no dependen del período): así,
+      // si falla la carga de un período, los selectores siguen visibles.
       setMonto("");
       setSistemasNombres({});
+      setSistemasCliente([]);
+      setMontosSinFactura({});
+      setConfirmaSinFactura(false);
+      setFacturaAnulada(null);
+      setPagoSinFacturaOk(false);
+      setTotalEditando(null);
 
       try {
         if (!id_sistema) throw new Error("Falta id_sistema");
@@ -290,6 +349,7 @@ export default function ModalPago({
         setDetalle(data?.detalle || data?.sistema || null);
         setPago(data?.pago || null);
         setFactura(data?.factura || null);
+        setFacturaAnulada(data?.factura_anulada || null);
 
         const m1 = Number(data?.factura?.total_ars);
         const m2 = Number(data?.factura?.monto_ars);
@@ -308,7 +368,7 @@ export default function ModalPago({
           const sisteData = await fetchJSON(`${API}?action=pagos&op=cliente_sistemas`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id_sistema: Number(id_sistema) }),
+            body: JSON.stringify({ id_sistema: Number(id_sistema), anio: Number(anio), id_mes: Number(idMes) }),
           });
           if (!alive) return;
           if (Array.isArray(sisteData?.sistemas)) {
@@ -317,6 +377,18 @@ export default function ModalPago({
               if (s?.id_sistema) mapa[Number(s.id_sistema)] = String(s.nombre || `Sistema ${s.id_sistema}`);
             }
             setSistemasNombres(mapa);
+            setSistemasCliente(sisteData.sistemas);
+
+            // Prellenar montos sugeridos (monto mensual o plan) para pago sin factura
+            const iniciales = {};
+            for (const s of sisteData.sistemas) {
+              const sid = Number(s?.id_sistema);
+              const sug = Number(s?.monto_sugerido ?? 0);
+              if (sid > 0 && Number.isFinite(sug) && sug > 0) {
+                iniciales[sid] = String(sug).replace(".", ",");
+              }
+            }
+            setMontosSinFactura(iniciales);
           }
         } catch {
           // No crítico: el desglose muestra IDs si falla
@@ -340,17 +412,6 @@ export default function ModalPago({
     return s || c || "Registro de Pago";
   }, [detalle]);
 
-  const montoArsNum  = useMemo(() => Math.round(parseMoneyInput(monto) * 100) / 100, [monto]);
-  const desgloseCoincide = useMemo(
-    () => !tieneDesglose || Math.abs(totalDesglose - montoArsNum) <= 0.05,
-    [tieneDesglose, totalDesglose, montoArsNum]
-  );
-  const montoEsFijo  = useMemo(() => {
-    const t = Number(factura?.total_ars);
-    const m = Number(factura?.monto_ars);
-    return (Number.isFinite(t) && t > 0) || (Number.isFinite(m) && m > 0);
-  }, [factura]);
-
   const pdfUrl = useMemo(() => {
     const p = factura?.pdf_path || factura?.pdf_url || null;
     return p ? String(p) : null;
@@ -365,13 +426,92 @@ export default function ModalPago({
     return !hasId && !hasPdf && !hasMonto;
   }, [factura, pdfUrl]);
 
+  // ✅ Sistemas a cobrar SIN factura: los que corresponden al período y todavía no están pagos.
+  const sistemasSinFactura = useMemo(() => {
+    const list = (Array.isArray(sistemasCliente) ? sistemasCliente : [])
+      .filter((s) => Number(s?.aplica_periodo ?? s?.activo ?? 0) === 1 && Number(s?.pagado_periodo ?? 0) !== 1)
+      .map((s) => ({ id_sistema: Number(s.id_sistema), nombre: String(s.nombre || `Sistema ${s.id_sistema}`) }))
+      .filter((s) => s.id_sistema > 0);
+    if (list.length) return list;
+    const sid = Number(id_sistema);
+    return sid > 0 ? [{ id_sistema: sid, nombre: sistemasNombres[sid] || detalle?.sistema_nombre || `Sistema ${sid}` }] : [];
+  }, [sistemasCliente, id_sistema, sistemasNombres, detalle]);
+
+  const desgloseSinFactura = useMemo(
+    () => sistemasSinFactura.map((s) => ({
+      ...s,
+      monto: Math.round(parseMoneyInput(montosSinFactura[s.id_sistema]) * 100) / 100,
+    })),
+    [sistemasSinFactura, montosSinFactura]
+  );
+  const totalSinFactura = useMemo(
+    () => Math.round(desgloseSinFactura.reduce((acc, s) => acc + (s.monto > 0 ? s.monto : 0), 0) * 100) / 100,
+    [desgloseSinFactura]
+  );
+  const sistemasEnCero = useMemo(
+    () => desgloseSinFactura.filter((s) => !(s.monto > 0)),
+    [desgloseSinFactura]
+  );
+
+  // ✅ Monto total LIBRE (pago sin factura): al cambiar el total se reparte entre
+  //    los sistemas. 1 sistema → recibe todo. Varios → proporcional a lo cargado
+  //    (o en partes iguales si estaban en 0). Los centavos sobrantes van al último.
+  const aplicarTotalSinFactura = useCallback((textoTotal) => {
+    const total = Math.round(parseMoneyInput(textoTotal) * 100);
+    const lista = desgloseSinFactura;
+    if (!lista.length) return;
+    const fmt = (centavos) => (centavos / 100).toFixed(2).replace(".", ",").replace(/,00$/, "");
+
+    if (lista.length === 1) {
+      setMontosSinFactura((prev) => ({ ...prev, [lista[0].id_sistema]: total > 0 ? fmt(total) : "" }));
+      return;
+    }
+
+    const base = proporcionesRef.current;
+    const actuales = lista.map((x) =>
+      base && base[x.id_sistema] != null
+        ? base[x.id_sistema]
+        : Math.max(0, Math.round(Number(x.monto || 0) * 100))
+    );
+    const sumaActual = actuales.reduce((a, b) => a + b, 0);
+    const partes = lista.map((_, i) =>
+      sumaActual > 0
+        ? Math.floor((total * actuales[i]) / sumaActual)
+        : Math.floor(total / lista.length)
+    );
+    const resto = total - partes.reduce((a, b) => a + b, 0);
+    partes[partes.length - 1] += resto;
+
+    setMontosSinFactura((prev) => {
+      const next = { ...prev };
+      lista.forEach((x, i) => {
+        next[x.id_sistema] = partes[i] > 0 ? fmt(partes[i]) : "";
+      });
+      return next;
+    });
+  }, [desgloseSinFactura]);
+
+  const montoArsNum  = useMemo(
+    () => (sinFactura ? totalSinFactura : Math.round(parseMoneyInput(monto) * 100) / 100),
+    [sinFactura, totalSinFactura, monto]
+  );
+  const desgloseCoincide = useMemo(
+    () => !tieneDesglose || Math.abs(totalDesglose - montoArsNum) <= 0.05,
+    [tieneDesglose, totalDesglose, montoArsNum]
+  );
+  const montoEsFijo  = useMemo(() => {
+    const t = Number(factura?.total_ars);
+    const m = Number(factura?.monto_ars);
+    return (Number.isFinite(t) && t > 0) || (Number.isFinite(m) && m > 0);
+  }, [factura]);
+
   const handleAbrirFactura = useCallback(() => {
     if (!pdfUrl) return;
     window.open(pdfUrl, "_blank", "noopener,noreferrer");
   }, [pdfUrl]);
 
   const puedePagar = useMemo(() => {
-    if (sinFactura) return false;
+    if (sinFactura && !confirmaSinFactura) return false;
     if (!id_sistema) return false;
     if (!anio || !idMes) return false;
     if (!fechaPago) return false;
@@ -379,9 +519,9 @@ export default function ModalPago({
     if (!Number.isFinite(montoArsNum) || montoArsNum <= 0) return false;
     if (pago?.id_pago) return false;
     if (registrando) return false;
-    if (!desgloseCoincide) return false;
+    if (!sinFactura && !desgloseCoincide) return false;
     return true;
-  }, [sinFactura, id_sistema, anio, idMes, fechaPago, idMedioPago, montoArsNum, pago, registrando, desgloseCoincide]);
+  }, [sinFactura, confirmaSinFactura, id_sistema, anio, idMes, fechaPago, idMedioPago, montoArsNum, pago, registrando, desgloseCoincide]);
 
   const handleRealizarPago = useCallback(async () => {
     if (!puedePagar || registrandoRef.current) return;
@@ -389,21 +529,36 @@ export default function ModalPago({
     setRegistrando(true);
     setError("");
     try {
-      const payload = {
-        id_sistema:    Number(id_sistema),
-        anio:          Number(anio),
-        meses:         [Number(idMes)],
-        monto:         Number(montoArsNum),
-        fecha_pago:    String(fechaPago),
-        id_medio_pago: Number(idMedioPago),
-        id_factura:    factura?.id_factura ? Number(factura.id_factura) : null,
-        // ✅ Si hay desglose enviamos sistemas_con_monto (solo id_sistema + monto, sin nombre)
-        // El backend registra 1 pago por sistema con su monto individual
-        // Si viene [] el backend usa id_sistema + monto total (fallback)
-        sistemas_con_monto: tieneDesglose
-          ? sistemasConMonto.map((s) => ({ id_sistema: s.id_sistema, monto: s.monto }))
-          : [],
-      };
+      const payload = sinFactura
+        ? {
+            // ✅ Pago SIN factura (confirmado por el usuario)
+            id_sistema:    Number(id_sistema),
+            anio:          Number(anio),
+            meses:         [Number(idMes)],
+            monto:         Number(totalSinFactura),
+            fecha_pago:    String(fechaPago),
+            id_medio_pago: Number(idMedioPago),
+            id_factura:    null,
+            confirmar_sin_factura: true,
+            sistemas_con_monto: desgloseSinFactura
+              .filter((s) => s.monto > 0)
+              .map((s) => ({ id_sistema: s.id_sistema, monto: s.monto })),
+          }
+        : {
+            id_sistema:    Number(id_sistema),
+            anio:          Number(anio),
+            meses:         [Number(idMes)],
+            monto:         Number(montoArsNum),
+            fecha_pago:    String(fechaPago),
+            id_medio_pago: Number(idMedioPago),
+            id_factura:    factura?.id_factura ? Number(factura.id_factura) : null,
+            // ✅ Si hay desglose enviamos sistemas_con_monto (solo id_sistema + monto, sin nombre)
+            // El backend registra 1 pago por sistema con su monto individual
+            // Si viene [] el backend usa id_sistema + monto total (fallback)
+            sistemas_con_monto: tieneDesglose
+              ? sistemasConMonto.map((s) => ({ id_sistema: s.id_sistema, monto: s.monto }))
+              : [],
+          };
 
       const result = await fetchJSON(`${API}?action=pagos&op=registrar_pago`, {
         method: "POST",
@@ -414,8 +569,14 @@ export default function ModalPago({
       if (result?.exito !== true)
         throw new Error(result?.mensaje || "Error al registrar el pago");
 
+      setPagoSinFacturaOk(Boolean(result?.sin_factura ?? sinFactura));
       setPagoExitoso(true);
-      onPagoRealizado?.();
+      onPagoRealizado?.({
+        anio: Number(anio),
+        id_mes: Number(idMes),
+        periodoLabel,
+        fecha_pago: String(fechaPago),
+      });
     } catch (e) {
       setError(e?.message || "Ocurrió un error al realizar el pago.");
     } finally {
@@ -426,7 +587,14 @@ export default function ModalPago({
     API, fetchJSON, puedePagar, id_sistema, anio, idMes,
     montoArsNum, fechaPago, idMedioPago, factura,
     onPagoRealizado, tieneDesglose, sistemasConMonto,
+    sinFactura, totalSinFactura, desgloseSinFactura, periodoLabel,
   ]);
+
+  // Año de la fecha de pago distinto del año del período (cobro adelantado o atrasado).
+  const anioFechaPago = useMemo(() => {
+    const y = Number(String(fechaPago || "").slice(0, 4));
+    return Number.isFinite(y) ? y : 0;
+  }, [fechaPago]);
 
   const handleAnularFactura = useCallback(() => {
     const idFactura = Number(factura?.id_factura || 0);
@@ -515,23 +683,61 @@ export default function ModalPago({
               <div className="pay-banner pay-banner--success">
                 <h3 className="pay-success-title">¡Pago realizado con éxito!</h3>
                 <div className="pay-muted">Período: {periodoLabel}</div>
-                {tieneDesglose && (
+                {!pagoSinFacturaOk && tieneDesglose && (
                   <div className="pay-muted" style={{ marginTop: 6 }}>
                     Se registraron <strong>{sistemasConMonto.length}</strong> pagos (uno por sistema).
+                  </div>
+                )}
+                {pagoSinFacturaOk && (
+                  <div className="pay-muted" style={{ marginTop: 6 }}>
+                    El pago quedó registrado <strong>SIN FACTURA</strong>.
                   </div>
                 )}
               </div>
             ) : null}
 
-            {!loading && !error && !pagoExitoso && sinFactura ? (
-              <div className="pay-banner pay-banner--warn">
-                Este cliente todavía no ha sido facturado para el período{" "}
-                <strong>{periodoLabel}</strong>.<br />
-                Realizá la factura antes de registrar el pago.
+            {/* ✅ Aviso de estado de facturación (siempre visible al abrir el modal) */}
+            {!loading && detalle && !pagoExitoso && !sinFactura ? (
+              <div className="pay-banner pay-banner--success pay-status">
+                <FaCheckCircle className="pay-status__ico pay-status__ico--ok" />
+                <div>
+                  <div className="pay-status__title">Período facturado</div>
+                  <div className="pay-muted">
+                    {factura?.cbte_nro ? `Factura N° ${factura.cbte_nro}` : "Factura generada"}
+                    {factura?.pto_vta ? ` • PV ${String(factura.pto_vta).padStart(4, "0")}` : ""}
+                    {factura?.estado ? ` • ${factura.estado}` : ""}
+                    {" — "}{moneyARS(factura?.total_ars ?? factura?.monto_ars ?? 0)}
+                  </div>
+                </div>
               </div>
             ) : null}
 
-            {!loading && !error && !pagoExitoso && !sinFactura ? (
+            {!loading && detalle && !pagoExitoso && sinFactura && !pago?.id_pago ? (
+              <div className="pay-banner pay-banner--warn pay-status">
+                <FaExclamationTriangle className="pay-status__ico pay-status__ico--warn" />
+                <div style={{ minWidth: 0 }}>
+                  <div className="pay-status__title">Este período NO está facturado</div>
+                  <div className="pay-muted">
+                    No hay factura cargada en el sistema para <strong>{periodoLabel}</strong>.
+                    {facturaAnulada?.id_factura
+                      ? ` La factura${facturaAnulada?.cbte_nro ? ` N° ${facturaAnulada.cbte_nro}` : ""} de este período fue anulada.`
+                      : ""}
+                    {" "}Igual podés registrar el pago sin factura.
+                  </div>
+                  <label className="pay-confirm">
+                    <input
+                      type="checkbox"
+                      checked={confirmaSinFactura}
+                      onChange={(e) => setConfirmaSinFactura(e.target.checked)}
+                      disabled={registrando}
+                    />
+                    <span>Confirmo que voy a registrar el pago <strong>sin factura</strong>.</span>
+                  </label>
+                </div>
+              </div>
+            ) : null}
+
+            {!loading && detalle && !pagoExitoso ? (
               <div className="mi-grid">
 
                 {/* Card: Datos del pago */}
@@ -539,10 +745,56 @@ export default function ModalPago({
                   <h3 className="mi-card__title">Datos del pago</h3>
 
                   <div className="fl-grid pay-fl">
-                    <div className="fl-field fl-col-full">
-                      <input className="fl-input" placeholder=" " value={periodoLabel} readOnly />
-                      <label className="fl-label">Período</label>
+                    {/* ✅ Período aplicado del pago (editable: mes + año) */}
+                    <div className="fl-field">
+                      <select
+                        className="fl-input fl-select"
+                        value={idMes || ""}
+                        onChange={(e) => setIdMes(Number(e.target.value) || 0)}
+                        disabled={registrando || pagoExitoso}
+                        title="Mes del período que se está pagando"
+                      >
+                        {opcionesMes.map((m) => (
+                          <option key={m.id} value={m.id}>{m.nombre}</option>
+                        ))}
+                      </select>
+                      <label className="fl-label">Mes del período</label>
                     </div>
+
+                    <div className="fl-field">
+                      <select
+                        className="fl-input fl-select"
+                        value={anio || ""}
+                        onChange={(e) => setAnio(Number(e.target.value) || 0)}
+                        disabled={registrando || pagoExitoso}
+                        title="Año del período que se está pagando"
+                      >
+                        {opcionesAnio.map((y) => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                      <label className="fl-label">Año del período</label>
+                    </div>
+
+                    {periodoCambiado ? (
+                      <div className="fl-col-full">
+                        <div className="pay-banner pay-banner--info">
+                          El pago se va a aplicar a <strong>{periodoLabel}</strong>
+                          {" "}(distinto del período filtrado en la pantalla:{" "}
+                          {getMonthNameEs(idMesInicial)} {anioInicial}).
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {anio && anioFechaPago && anioFechaPago !== anio ? (
+                      <div className="fl-col-full">
+                        <div className="pay-banner pay-banner--info">
+                          La fecha de pago es de {anioFechaPago} y el período de {anio}.
+                          En Reportes el ingreso se contabiliza en el mes de la <strong>fecha de pago</strong>
+                          {" "}(con la categoría {periodoLabel}).
+                        </div>
+                      </div>
+                    ) : null}
 
                     <div className="fl-field">
                       <input
@@ -553,12 +805,43 @@ export default function ModalPago({
                     </div>
 
                     <div className="fl-field">
-                      <input
-                        className="fl-input" placeholder=" " value={monto}
-                        onChange={(e) => !montoEsFijo && setMonto(sanitizeMoneyTyping(e.target.value))}
-                        inputMode="decimal" readOnly={montoEsFijo}
-                        title={montoEsFijo ? "Monto tomado de la factura" : "Monto editable"}
-                      />
+                      {sinFactura ? (
+                        <input
+                          className="fl-input" placeholder=" "
+                          value={totalEditando ?? moneyARS(totalSinFactura)}
+                          inputMode="decimal"
+                          disabled={registrando || Boolean(pago?.id_pago)}
+                          title="Podés escribir el monto que se cobró; se reparte entre los sistemas"
+                          onFocus={() => {
+                            const snap = {};
+                            desgloseSinFactura.forEach((x) => {
+                              snap[x.id_sistema] = Math.max(0, Math.round(Number(x.monto || 0) * 100));
+                            });
+                            proporcionesRef.current = snap;
+                            setTotalEditando(
+                              totalSinFactura > 0
+                                ? String(totalSinFactura).replace(".", ",")
+                                : ""
+                            );
+                          }}
+                          onChange={(e) => {
+                            const v = sanitizeMoneyTyping(e.target.value);
+                            setTotalEditando(v);
+                            aplicarTotalSinFactura(v);
+                          }}
+                          onBlur={() => {
+                            proporcionesRef.current = null;
+                            setTotalEditando(null);
+                          }}
+                        />
+                      ) : (
+                        <input
+                          className="fl-input" placeholder=" " value={monto}
+                          onChange={(e) => !montoEsFijo && setMonto(sanitizeMoneyTyping(e.target.value))}
+                          inputMode="decimal" readOnly={montoEsFijo}
+                          title={montoEsFijo ? "Monto tomado de la factura" : "Monto editable"}
+                        />
+                      )}
                       <label className="fl-label">Monto total (ARS)</label>
                     </div>
 
@@ -588,7 +871,42 @@ export default function ModalPago({
                   </div>
 
                   {/* ✅ Desglose por sistema */}
-                  {tieneDesglose ? (
+                  {sinFactura ? (
+                    <div style={{ marginTop: 16 }}>
+                      <div className="pay-desglose-title">
+                        Monto a cobrar por sistema (sin factura):
+                      </div>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {desgloseSinFactura.map((s) => (
+                          <div key={s.id_sistema} className="pay-sf-row">
+                            <span className="pay-sf-row__name">{s.nombre}</span>
+                            <input
+                              className="fl-input pay-sf-row__input"
+                              value={montosSinFactura[s.id_sistema] ?? ""}
+                              onChange={(e) => {
+                                const v = sanitizeMoneyTyping(e.target.value);
+                                setMontosSinFactura((prev) => ({ ...prev, [s.id_sistema]: v }));
+                              }}
+                              inputMode="decimal"
+                              placeholder="0,00"
+                              disabled={registrando || Boolean(pago?.id_pago)}
+                              aria-label={`Monto ${s.nombre}`}
+                            />
+                          </div>
+                        ))}
+                        <div className="pay-sf-total">
+                          <span>Total ({desgloseSinFactura.length} sistema{desgloseSinFactura.length === 1 ? "" : "s"})</span>
+                          <strong>{moneyARS(totalSinFactura)}</strong>
+                        </div>
+                      </div>
+                      {sistemasEnCero.length > 0 && totalSinFactura > 0 ? (
+                        <div className="pay-banner pay-banner--info" style={{ marginTop: 10 }}>
+                          {sistemasEnCero.length} sistema(s) en $0 no se registrarán y el cliente seguirá apareciendo
+                          como deudor por ese/esos sistema(s).
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : tieneDesglose ? (
                     <div style={{ marginTop: 16 }}>
                       <div style={{
                         fontSize: 11, fontWeight: 700, marginBottom: 8,
@@ -624,7 +942,7 @@ export default function ModalPago({
                       Sin desglose por sistema — se registrará 1 pago con el monto total.
                     </div>
                   )}
-                  {tieneDesglose && !desgloseCoincide ? (
+                  {!sinFactura && tieneDesglose && !desgloseCoincide ? (
                     <div className="pay-banner pay-banner--error" style={{ marginTop: 12 }}>
                       El desglose suma {moneyARS(totalDesglose)}, pero la factura totaliza {moneyARS(montoArsNum)}.
                       Volvé a generar la factura antes de registrar el pago.
@@ -632,7 +950,8 @@ export default function ModalPago({
                   ) : null}
                 </article>
 
-                {/* Card: Factura */}
+                {/* Card: Factura (solo si el período está facturado) */}
+                {!sinFactura ? (
                 <article className="mi-card mi-card--full pay-card">
                   <div className="pay-fact-head">
                     <h3 className="mi-card__title" style={{ marginBottom: 0 }}>Factura</h3>
@@ -710,6 +1029,7 @@ export default function ModalPago({
                     </div>
                   </div>
                 </article>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -734,11 +1054,19 @@ export default function ModalPago({
 
             <button
               type="button" className="mit-btn mit-btn--solid"
-              onClick={handleRealizarPago} disabled={!puedePagar}
-              title={`Registrar pago: ${periodoLabel}`}
+              onClick={handleRealizarPago} disabled={!puedePagar || pagoExitoso}
+              title={
+                sinFactura && !confirmaSinFactura
+                  ? "Marcá la confirmación de pago sin factura para continuar"
+                  : `Registrar pago: ${periodoLabel}`
+              }
             >
               <FaCheck style={{ marginRight: 8 }} />
-              {registrando ? "Registrando..." : (tieneDesglose ? `Pagar (${sistemasConMonto.length} sistemas)` : "Pagar")}
+              {registrando
+                ? "Registrando..."
+                : sinFactura
+                ? "Pagar sin factura"
+                : (tieneDesglose ? `Pagar (${sistemasConMonto.length} sistemas)` : "Pagar")}
             </button>
           </div>
         </div>

@@ -60,14 +60,24 @@ try {
             rep_json_fail('Método no permitido. Se esperaba GET.');
         }
 
-        // Los pagos se agrupan por el período que se está cobrando, no por la fecha
-        // en que ingresó el dinero. Los egresos conservan su fecha contable real.
+        // Criterio de caja: los pagos se agrupan por la fecha en que ingresó el
+        // dinero (fecha_pago), igual que los egresos por su fecha.
+        // Además se habilita el año del PERÍODO cobrado (anio_periodo): si se
+        // registró un pago de ENERO 2027, el año 2027 aparece en el selector.
+        // El año actual siempre está disponible.
         $st = $pdo->prepare("
             SELECT anio
             FROM (
-                SELECT DISTINCT p.anio_periodo AS anio
+                SELECT DISTINCT YEAR(p.fecha_pago) AS anio
                 FROM pagos p
                 WHERE p.id_organizacion = :org_p
+                  AND p.fecha_pago IS NOT NULL
+
+                UNION
+
+                SELECT DISTINCT p2.anio_periodo AS anio
+                FROM pagos p2
+                WHERE p2.id_organizacion = :org_pp
 
                 UNION
 
@@ -77,14 +87,19 @@ try {
                   AND e.fecha IS NOT NULL
             ) periodos
             WHERE anio IS NOT NULL
-            ORDER BY anio DESC
         ");
-        $st->execute([':org_p' => $org, ':org_e' => $org]);
+        $st->execute([':org_p' => $org, ':org_pp' => $org, ':org_e' => $org]);
 
-        $anios = array_values(array_filter(array_map(
+        $anios = array_map(
             static fn($value): int => (int)$value,
             $st->fetchAll(PDO::FETCH_COLUMN) ?: []
-        ), static fn(int $year): bool => $year >= 2000 && $year <= 2100));
+        );
+        $anios[] = (int)date('Y');
+        $anios = array_values(array_unique(array_filter(
+            $anios,
+            static fn(int $year): bool => $year >= 2000 && $year <= 2100
+        )));
+        rsort($anios);
 
         rep_json_ok([
             'anios' => $anios,
@@ -103,7 +118,7 @@ try {
         $whereEgreso = 'e.id_organizacion = :org_e';
         $params = [':org_p' => $org, ':org_e' => $org];
         if ($anio >= 2000 && $anio <= 2100) {
-            $wherePago .= ' AND p.anio_periodo = :anio_p';
+            $wherePago .= ' AND YEAR(p.fecha_pago) = :anio_p';
             $whereEgreso .= ' AND YEAR(e.fecha) = :anio_e';
             $params[':anio_p'] = $anio;
             $params[':anio_e'] = $anio;
@@ -115,10 +130,10 @@ try {
                    COALESCE(e.total_egresos, 0) AS egresos
             FROM meses mes
             LEFT JOIN (
-                SELECT p.id_mes, SUM(p.monto) AS total_ingresos
+                SELECT MONTH(p.fecha_pago) AS id_mes, SUM(p.monto) AS total_ingresos
                 FROM pagos p
                 WHERE {$wherePago}
-                GROUP BY p.id_mes
+                GROUP BY MONTH(p.fecha_pago)
             ) p ON p.id_mes = mes.id_mes
             LEFT JOIN (
                 SELECT MONTH(e.fecha) AS id_mes, SUM(e.monto) AS total_egresos

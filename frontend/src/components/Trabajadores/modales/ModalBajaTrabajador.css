@@ -62,7 +62,7 @@
   --transition-smooth:all .25s cubic-bezier(.4,0,.2,1);
 }
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap');
+/* Fuentes Inter / Plus Jakarta Sans: se cargan una sola vez desde Login/inicio.css */
 
 /* =========================================================
    Layout base

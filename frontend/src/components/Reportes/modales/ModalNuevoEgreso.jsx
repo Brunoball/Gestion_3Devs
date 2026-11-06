@@ -335,13 +335,13 @@ export default function ModalNuevoEgreso({
                       }}
                       disabled={loading}
                     >
-                      <option value="general">LO PAGÓ LA ENTIDAD ACTIVA / SIN REEMBOLSO</option>
-                      <option value="persona">LO PAGÓ UNA PERSONA</option>
+                      <option value="general">LA ENTIDAD ACTIVA (SIN REEMBOLSO)</option>
+                      <option value="persona">UNA PERSONA</option>
                       {organizacionesOrdenadas.length ? (
-                        <option value="organizacion">LO PAGÓ UNA ORGANIZACIÓN</option>
+                        <option value="organizacion">UNA ORGANIZACIÓN</option>
                       ) : null}
                       {organizacionesOrdenadas.length ? (
-                        <option value="mixto">PERSONA + ORGANIZACIÓN (50% / 50%)</option>
+                        <option value="mixto">PERSONA + ORGANIZACIÓN (50/50)</option>
                       ) : null}
                     </select>
                     <label className="fl-label">Quién pagó el egreso *</label>

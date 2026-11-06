@@ -1,0 +1,99 @@
+/* =========================================================
+   ui-polish.css
+   Ajustes finales de presentación comunes a todo el sistema.
+   Se importa al final (index.js) para que tenga prioridad.
+   No cambia tipografía ni paleta: solo alineación, legibilidad
+   y consistencia.
+========================================================= */
+
+/* ---------- Selects: el texto largo se corta con "…" en vez de quedar mordido ---------- */
+select {
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* ---------- Encabezado "Acciones" alineado con los botones de la fila ---------- */
+.CL-TableHead .is-actions,
+.TP-PeopleHead .is-actions,
+.MP-Head .is-actions {
+  text-align: right;
+  padding-right: 4px;
+}
+
+/* ---------- Textareas con label flotante: en reposo el label va arriba ---------- */
+.reportes-floating-modal textarea.fl-input:placeholder-shown:not(:focus) + .fl-label {
+  top: 24px;
+}
+
+/* ---------- Pestañas que no entran en pantallas chicas: se deslizan, no se cortan ---------- */
+@media (max-width: 760px) {
+  .TP-SectionTabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .TP-SectionTabs::-webkit-scrollbar { display: none; }
+  .TP-SectionTabs button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
+
+/* ---------- Ayudas/tips en la barra inferior de los modales: sin líneas encimadas ---------- */
+.mit-help {
+  line-height: 1.4;
+}
+
+/* =========================================================
+   Celulares
+========================================================= */
+@media (max-width: 640px) {
+  /* Títulos de modales: no ocupar 4 renglones */
+  .mi-modal__title {
+    font-size: 1.12rem;
+    line-height: 1.25;
+  }
+  .mi-modal__subtitle {
+    font-size: .82rem;
+  }
+
+  /* Barra inferior de modales: tip arriba, botones abajo, sin apretarse */
+  .mit-actions {
+    flex-wrap: wrap;
+  }
+  .mit-actions .mit-help {
+    flex: 1 1 100%;
+    margin-right: 0;
+  }
+
+  /* Aviso de facturación en el modal de pago: más ancho para el texto */
+  .pay-status {
+    gap: 10px;
+  }
+  .pay-status__ico {
+    font-size: 1.1rem;
+  }
+  .pay-confirm {
+    margin-left: -30px;
+  }
+
+  /* Sistemas: el contador "N integrantes · partes iguales" va debajo, como etiqueta */
+  .CL-TeamHeader {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .CL-TeamHeader > span {
+    white-space: nowrap;
+    font-size: 12px;
+  }
+
+  /* Detalle de liquidación: la tabla entra mejor y se puede deslizar */
+  .rdl-table {
+    min-width: 620px;
+    font-size: .78rem;
+  }
+  .rdl-table th,
+  .rdl-table td {
+    padding: 9px 8px;
+  }
+}

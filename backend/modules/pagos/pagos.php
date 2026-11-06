@@ -243,6 +243,9 @@ if (file_exists($__inc1)) require_once $__inc1;
 if (file_exists($__inc2)) require_once $__inc2;
 if (file_exists($__inc3)) require_once $__inc3;
 
+// Nota de Crédito ARCA: pagos_emitir_nota_credito_arca() y pagos_arca_fecha_ymd8()
+require_once __DIR__ . '/arca_nota_credito.php';
+
 /* =========================================================
    PLANES DE MANTENIMIENTO
 ========================================================= */
@@ -351,9 +354,26 @@ function pagos_listar_anios(): void
   global $pdo;
   $org=pagos_org_id();
   try {
-    $st=$pdo->prepare('SELECT DISTINCT anio_periodo AS anio FROM pagos WHERE id_organizacion=:org ORDER BY anio_periodo DESC');
-    $st->execute([':org'=>$org]);
-    json_ok(['exito'=>true,'anios'=>array_map('intval',$st->fetchAll(PDO::FETCH_COLUMN))]);
+    // Incluye años de período cobrado, de fecha de pago, de facturas,
+    // y siempre el año actual y el siguiente (cobros adelantados).
+    $st=$pdo->prepare("
+      SELECT anio FROM (
+        SELECT DISTINCT anio_periodo AS anio FROM pagos WHERE id_organizacion=:org_a
+        UNION
+        SELECT DISTINCT YEAR(fecha_pago) AS anio FROM pagos WHERE id_organizacion=:org_b AND fecha_pago IS NOT NULL
+        UNION
+        SELECT DISTINCT anio AS anio FROM facturas WHERE id_organizacion=:org_c
+      ) x
+      WHERE anio IS NOT NULL
+    ");
+    $st->execute([':org_a'=>$org, ':org_b'=>$org, ':org_c'=>$org]);
+    $actual=(int)date('Y');
+    $anios=array_map('intval',$st->fetchAll(PDO::FETCH_COLUMN) ?: []);
+    $anios[]=$actual;
+    $anios[]=$actual+1;
+    $anios=array_values(array_unique(array_filter($anios, static fn(int $y): bool => $y>=2000 && $y<=2100)));
+    rsort($anios);
+    json_ok(['exito'=>true,'anios'=>$anios]);
   } catch (Throwable $e) { json_error('Error DB al listar años',['error'=>$e->getMessage()]); }
 }
 
@@ -383,7 +403,7 @@ function pagos_listar_pagados(): void
       ':period_end_count' => $periodEnd,
     ]);
 
-    $factura = $pdo->prepare("\n      SELECT f.id_factura, f.pdf_path\n      FROM facturas f\n      INNER JOIN clientes_sistemas cs\n        ON cs.id_organizacion = f.id_organizacion\n       AND cs.id_sistema = f.id_sistema\n      WHERE f.id_organizacion = :org\n        AND cs.id_cliente = :cliente\n        AND f.anio = :anio\n        AND f.id_mes = :mes\n      ORDER BY f.created_at DESC, f.id_factura DESC\n      LIMIT 1\n    ");
+    $factura = $pdo->prepare("\n      SELECT f.id_factura, f.pdf_path\n      FROM facturas f\n      INNER JOIN clientes_sistemas cs\n        ON cs.id_organizacion = f.id_organizacion\n       AND cs.id_sistema = f.id_sistema\n      WHERE f.id_organizacion = :org\n        AND cs.id_cliente = :cliente\n        AND f.anio = :anio\n        AND f.id_mes = :mes\n        AND LOWER(COALESCE(f.estado, '')) <> 'anulada'\n      ORDER BY f.created_at DESC, f.id_factura DESC\n      LIMIT 1\n    ");
 
     $out = [];
     foreach ($st->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
@@ -402,6 +422,7 @@ function pagos_listar_pagados(): void
         'anio' => $anio,
         'id_factura' => $fx ? (int)$fx['id_factura'] : null,
         'comprobante' => $fx && trim((string)$fx['pdf_path']) !== '' ? (string)$fx['pdf_path'] : null,
+        'sin_factura' => $fx ? false : true,
       ];
     }
     json_ok($out);
@@ -500,43 +521,173 @@ function pagos_detalle_sistema(): void
 function pagos_detalle_periodo(): void
 {
   global $pdo;
-  $org=pagos_org_id();
-  $idSistema=(int)($_GET['id_sistema']??0);$anio=(int)($_GET['anio']??0);$idMes=(int)($_GET['id_mes']??0);
-  if($idSistema<=0||$anio<2000||$anio>2100||$idMes<1||$idMes>12)json_error('Parámetros de período inválidos.');
-  try{
-    $st=$pdo->prepare("
-      SELECT cs.id_sistema,cs.id_cliente,cs.nombre AS sistema_nombre,cs.descripcion AS sistema_descripcion,
-             cs.estado AS sistema_estado,cs.monto_mensual,cs.id_plan,c.nombre AS cliente_nombre
+  $org = pagos_org_id();
+  $idSistema = (int)($_GET['id_sistema'] ?? 0);
+  $anio = (int)($_GET['anio'] ?? 0);
+  $idMes = (int)($_GET['id_mes'] ?? 0);
+  if ($idSistema <= 0 || $anio < 2000 || $anio > 2100 || $idMes < 1 || $idMes > 12) {
+    json_error('Parámetros de período inválidos.');
+  }
+
+  $normalizarFactura = static function (?array $factura): ?array {
+    if (!$factura) return null;
+    $items = json_decode((string)($factura['items_facturacion_json'] ?? ''), true);
+    if (!is_array($items)) $items = null;
+
+    return [
+      'id_factura' => (int)$factura['id_factura'],
+      'id_sistema' => isset($factura['id_sistema']) ? (int)$factura['id_sistema'] : null,
+      'anio' => (int)$factura['anio'],
+      'id_mes' => (int)$factura['id_mes'],
+      'estado' => $factura['estado'],
+      'monto_ars' => (float)$factura['monto_ars'],
+      'doc_tipo' => isset($factura['doc_tipo']) ? (int)$factura['doc_tipo'] : null,
+      'doc_nro' => $factura['doc_nro'],
+      'cbte_tipo' => isset($factura['cbte_tipo']) ? (int)$factura['cbte_tipo'] : null,
+      'pto_vta' => isset($factura['pto_vta']) ? (int)$factura['pto_vta'] : null,
+      'cae' => $factura['cae'],
+      'cae_vto' => $factura['cae_vto'],
+      'cbte_nro' => isset($factura['cbte_nro']) ? (int)$factura['cbte_nro'] : null,
+      'fecha_cbte' => $factura['fecha_cbte'],
+      'pdf_path' => $factura['pdf_path'],
+      'items_facturacion_json' => $items,
+      'usd_rate' => isset($factura['usd_rate']) ? (float)$factura['usd_rate'] : null,
+      'total_usd' => isset($factura['total_usd']) ? (float)$factura['total_usd'] : null,
+      'total_ars' => isset($factura['total_ars']) ? (float)$factura['total_ars'] : null,
+      'periodo_desde' => $factura['periodo_desde'],
+      'periodo_hasta' => $factura['periodo_hasta'],
+      'vto_pago' => $factura['vto_pago'],
+      'created_at' => $factura['created_at'],
+    ];
+  };
+
+  try {
+    $st = $pdo->prepare("
+      SELECT cs.id_sistema, cs.id_cliente, cs.nombre AS sistema_nombre, cs.descripcion AS sistema_descripcion,
+             cs.estado AS sistema_estado, cs.monto_mensual, cs.id_plan, c.nombre AS cliente_nombre
       FROM clientes_sistemas cs
-      INNER JOIN clientes c ON c.id_organizacion=cs.id_organizacion AND c.id_cliente=cs.id_cliente
-      WHERE cs.id_organizacion=:org AND cs.id_sistema=:id LIMIT 1
+      INNER JOIN clientes c
+        ON c.id_organizacion = cs.id_organizacion
+       AND c.id_cliente = cs.id_cliente
+      WHERE cs.id_organizacion = :org AND cs.id_sistema = :id
+      LIMIT 1
     ");
-    $st->execute([':org'=>$org,':id'=>$idSistema]);$det=$st->fetch(PDO::FETCH_ASSOC);if(!$det)json_error('Sistema no encontrado en esta entidad.');
-    $stP=$pdo->prepare('SELECT id_pago,id_sistema,id_mes,id_medio_pago,monto,fecha_pago,id_factura FROM pagos WHERE id_organizacion=:org AND id_sistema=:id AND id_mes=:mes AND anio_periodo=:anio ORDER BY id_pago DESC LIMIT 1');
-    $stP->execute([':org'=>$org,':id'=>$idSistema,':mes'=>$idMes,':anio'=>$anio]);$pago=$stP->fetch(PDO::FETCH_ASSOC)?:null;
-    $factura=null;
-    if($pago&&!empty($pago['id_factura'])){
-      $fx=$pdo->prepare('SELECT * FROM facturas WHERE id_organizacion=:org AND id_factura=:id LIMIT 1');$fx->execute([':org'=>$org,':id'=>(int)$pago['id_factura']]);$factura=$fx->fetch(PDO::FETCH_ASSOC)?:null;
+    $st->execute([':org' => $org, ':id' => $idSistema]);
+    $det = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$det) json_error('Sistema no encontrado en esta entidad.');
+
+    $stP = $pdo->prepare('
+      SELECT id_pago,id_sistema,id_mes,id_medio_pago,monto,fecha_pago,id_factura
+      FROM pagos
+      WHERE id_organizacion=:org AND id_sistema=:id AND id_mes=:mes AND anio_periodo=:anio
+      ORDER BY id_pago DESC LIMIT 1
+    ');
+    $stP->execute([':org' => $org, ':id' => $idSistema, ':mes' => $idMes, ':anio' => $anio]);
+    $pago = $stP->fetch(PDO::FETCH_ASSOC) ?: null;
+
+    // Factura ACTIVA del período. Una factura anulada nunca habilita el pago.
+    $factura = null;
+    if ($pago && !empty($pago['id_factura'])) {
+      $fx = $pdo->prepare("SELECT * FROM facturas WHERE id_organizacion=:org AND id_factura=:id AND LOWER(COALESCE(estado,'')) <> 'anulada' LIMIT 1");
+      $fx->execute([':org' => $org, ':id' => (int)$pago['id_factura']]);
+      $factura = $fx->fetch(PDO::FETCH_ASSOC) ?: null;
     }
-    if(!$factura){$fx=$pdo->prepare('SELECT * FROM facturas WHERE id_organizacion=:org AND id_sistema=:id AND anio=:anio AND id_mes=:mes ORDER BY created_at DESC,id_factura DESC LIMIT 1');$fx->execute([':org'=>$org,':id'=>$idSistema,':anio'=>$anio,':mes'=>$idMes]);$factura=$fx->fetch(PDO::FETCH_ASSOC)?:null;}
-    if(!$factura){$fx=$pdo->prepare("
-      SELECT f.* FROM facturas f
-      INNER JOIN clientes_sistemas cs ON cs.id_organizacion=f.id_organizacion AND cs.id_sistema=f.id_sistema
-      WHERE f.id_organizacion=:org AND cs.id_cliente=:cliente AND f.anio=:anio AND f.id_mes=:mes
-      ORDER BY f.created_at DESC,f.id_factura DESC LIMIT 1");$fx->execute([':org'=>$org,':cliente'=>(int)$det['id_cliente'],':anio'=>$anio,':mes'=>$idMes]);$factura=$fx->fetch(PDO::FETCH_ASSOC)?:null;}
-    if($pago){$pago=['id_pago'=>(int)$pago['id_pago'],'id_sistema'=>(int)$pago['id_sistema'],'id_mes'=>(int)$pago['id_mes'],'id_medio_pago'=>(int)$pago['id_medio_pago'],'monto'=>(float)$pago['monto'],'fecha_pago'=>$pago['fecha_pago'],'id_factura'=>isset($pago['id_factura'])?(int)$pago['id_factura']:null];}
-    if($factura){
-      $items=json_decode((string)($factura['items_facturacion_json']??''),true);if(!is_array($items))$items=null;
-      $factura=['id_factura'=>(int)$factura['id_factura'],'id_sistema'=>isset($factura['id_sistema'])?(int)$factura['id_sistema']:null,
-        'anio'=>(int)$factura['anio'],'id_mes'=>(int)$factura['id_mes'],'estado'=>$factura['estado'],'monto_ars'=>(float)$factura['monto_ars'],
-        'doc_tipo'=>isset($factura['doc_tipo'])?(int)$factura['doc_tipo']:null,'doc_nro'=>$factura['doc_nro'],'cbte_tipo'=>isset($factura['cbte_tipo'])?(int)$factura['cbte_tipo']:null,
-        'pto_vta'=>isset($factura['pto_vta'])?(int)$factura['pto_vta']:null,'cae'=>$factura['cae'],'cae_vto'=>$factura['cae_vto'],'cbte_nro'=>$factura['cbte_nro'],
-        'fecha_cbte'=>$factura['fecha_cbte'],'pdf_path'=>$factura['pdf_path'],'items_facturacion_json'=>$items,'usd_rate'=>isset($factura['usd_rate'])?(float)$factura['usd_rate']:null,
-        'total_usd'=>isset($factura['total_usd'])?(float)$factura['total_usd']:null,'total_ars'=>isset($factura['total_ars'])?(float)$factura['total_ars']:null,
-        'periodo_desde'=>$factura['periodo_desde'],'periodo_hasta'=>$factura['periodo_hasta'],'vto_pago'=>$factura['vto_pago'],'created_at'=>$factura['created_at']];
+    if (!$factura) {
+      $fx = $pdo->prepare("SELECT * FROM facturas WHERE id_organizacion=:org AND id_sistema=:id AND anio=:anio AND id_mes=:mes AND LOWER(COALESCE(estado,'')) <> 'anulada' ORDER BY created_at DESC,id_factura DESC LIMIT 1");
+      $fx->execute([':org' => $org, ':id' => $idSistema, ':anio' => $anio, ':mes' => $idMes]);
+      $factura = $fx->fetch(PDO::FETCH_ASSOC) ?: null;
     }
-    json_ok(['exito'=>true,'detalle'=>['cliente_nombre'=>$det['cliente_nombre'],'sistema_nombre'=>$det['sistema_nombre'],'sistema_descripcion'=>$det['sistema_descripcion'],'sistema_estado'=>$det['sistema_estado'],'monto_mensual'=>(float)($det['monto_mensual']??0),'id_plan'=>isset($det['id_plan'])?(int)$det['id_plan']:null], 'pago'=>$pago,'factura'=>$factura,'anio'=>$anio,'id_mes'=>$idMes]);
-  }catch(Throwable $e){json_error('Error DB al obtener detalle del período',['error'=>$e->getMessage()]);}
+    if (!$factura) {
+      $fx = $pdo->prepare("
+        SELECT f.*
+        FROM facturas f
+        INNER JOIN clientes_sistemas cs
+          ON cs.id_organizacion=f.id_organizacion
+         AND cs.id_sistema=f.id_sistema
+        WHERE f.id_organizacion=:org
+          AND cs.id_cliente=:cliente
+          AND f.anio=:anio
+          AND f.id_mes=:mes
+          AND LOWER(COALESCE(f.estado,'')) <> 'anulada'
+        ORDER BY f.created_at DESC,f.id_factura DESC
+        LIMIT 1
+      ");
+      $fx->execute([':org' => $org, ':cliente' => (int)$det['id_cliente'], ':anio' => $anio, ':mes' => $idMes]);
+      $factura = $fx->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    // Conservamos y devolvemos también la última factura ANULADA del período.
+    // Esto evita que el frontend la confunda con "nunca facturado" y permite explicar
+    // correctamente que hace falta una reemisión luego de la Nota de Crédito.
+    $fxAnulada = $pdo->prepare("
+      SELECT f.*
+      FROM facturas f
+      INNER JOIN clientes_sistemas cs
+        ON cs.id_organizacion=f.id_organizacion
+       AND cs.id_sistema=f.id_sistema
+      WHERE f.id_organizacion=:org
+        AND cs.id_cliente=:cliente
+        AND f.anio=:anio
+        AND f.id_mes=:mes
+        AND LOWER(COALESCE(f.estado,'')) = 'anulada'
+      ORDER BY f.id_factura DESC
+      LIMIT 1
+    ");
+    $fxAnulada->execute([':org' => $org, ':cliente' => (int)$det['id_cliente'], ':anio' => $anio, ':mes' => $idMes]);
+    $facturaAnulada = $fxAnulada->fetch(PDO::FETCH_ASSOC) ?: null;
+
+    $notaCreditoAnulacion = null;
+    if ($facturaAnulada) {
+      $stNc = $pdo->prepare("
+        SELECT id_nota_credito,nc_cbte_tipo,nc_pto_vta,nc_cbte_nro,nc_cae,nc_cae_vto,nc_fecha_cbte,importe_ars,motivo,created_at
+        FROM facturas_notas_credito
+        WHERE id_organizacion=:org AND id_factura_original=:factura
+        ORDER BY id_nota_credito DESC
+        LIMIT 1
+      ");
+      $stNc->execute([':org' => $org, ':factura' => (int)$facturaAnulada['id_factura']]);
+      $notaCreditoAnulacion = $stNc->fetch(PDO::FETCH_ASSOC) ?: null;
+      if ($notaCreditoAnulacion) {
+        $notaCreditoAnulacion['id_nota_credito'] = (int)$notaCreditoAnulacion['id_nota_credito'];
+        $notaCreditoAnulacion['nc_cbte_tipo'] = isset($notaCreditoAnulacion['nc_cbte_tipo']) ? (int)$notaCreditoAnulacion['nc_cbte_tipo'] : null;
+        $notaCreditoAnulacion['nc_pto_vta'] = isset($notaCreditoAnulacion['nc_pto_vta']) ? (int)$notaCreditoAnulacion['nc_pto_vta'] : null;
+        $notaCreditoAnulacion['nc_cbte_nro'] = isset($notaCreditoAnulacion['nc_cbte_nro']) ? (int)$notaCreditoAnulacion['nc_cbte_nro'] : null;
+        $notaCreditoAnulacion['importe_ars'] = isset($notaCreditoAnulacion['importe_ars']) ? (float)$notaCreditoAnulacion['importe_ars'] : null;
+      }
+    }
+
+    if ($pago) {
+      $pago = [
+        'id_pago' => (int)$pago['id_pago'],
+        'id_sistema' => (int)$pago['id_sistema'],
+        'id_mes' => (int)$pago['id_mes'],
+        'id_medio_pago' => (int)$pago['id_medio_pago'],
+        'monto' => (float)$pago['monto'],
+        'fecha_pago' => $pago['fecha_pago'],
+        'id_factura' => isset($pago['id_factura']) ? (int)$pago['id_factura'] : null,
+      ];
+    }
+
+    json_ok([
+      'exito' => true,
+      'detalle' => [
+        'cliente_nombre' => $det['cliente_nombre'],
+        'sistema_nombre' => $det['sistema_nombre'],
+        'sistema_descripcion' => $det['sistema_descripcion'],
+        'sistema_estado' => $det['sistema_estado'],
+        'monto_mensual' => (float)($det['monto_mensual'] ?? 0),
+        'id_plan' => isset($det['id_plan']) ? (int)$det['id_plan'] : null,
+      ],
+      'pago' => $pago,
+      'factura' => $normalizarFactura($factura),
+      'factura_anulada' => $normalizarFactura($facturaAnulada),
+      'nota_credito_anulacion' => $notaCreditoAnulacion,
+      'anio' => $anio,
+      'id_mes' => $idMes,
+    ]);
+  } catch (Throwable $e) {
+    json_error('Error DB al obtener detalle del período', ['error' => $e->getMessage()]);
+  }
 }
 
 /* =========================================================
@@ -560,9 +711,16 @@ function pagos_registrar_pago(): void
   $fecha = trim((string)($body['fecha_pago'] ?? ''));
   $idFacturaIn = (int)($body['id_factura'] ?? 0);
   $desglose = is_array($body['sistemas_con_monto'] ?? null) ? $body['sistemas_con_monto'] : [];
+  $sinFactura = $idFacturaIn <= 0;
+  $confirmaSinFactura = filter_var($body['confirmar_sin_factura'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
-  if ($idFacturaIn <= 0) {
-    json_error('Primero generá y guardá la factura del período antes de registrar el pago.');
+  // Un pago sin factura está permitido (ej.: Balto cobra sin facturar desde el
+  // sistema), pero el usuario tiene que confirmarlo explícitamente.
+  if ($sinFactura && !$confirmaSinFactura) {
+    json_error(
+      'Este período no tiene factura. Confirmá que querés registrar el pago sin factura.',
+      ['requiere_confirmacion_sin_factura' => true]
+    );
   }
 
   if ($idSistema <= 0 || $anio < 2000 || $anio > 2100 || $idMedio <= 0 || $monto <= 0
@@ -593,10 +751,12 @@ function pagos_registrar_pago(): void
   // Un período cuya liquidación ya comenzó es inmutable. La validación se
   // realiza antes de abrir la transacción y vuelve a estar respaldada por los
   // triggers de la migración para evitar carreras o modificaciones directas.
+  // Criterio de caja: el mes contable de un pago es el de su FECHA DE PAGO
+  // (cuando entró la plata), no el período que se está cobrando. Así se puede
+  // cobrar septiembre en octubre aunque septiembre ya esté liquidado.
   try {
-    foreach ($months as $month) {
-      reportes_periodo_assert_abierto($pdo, $org, $month, $anio);
-    }
+    [$mesCaja, $anioCaja] = reportes_periodo_desde_fecha($fecha);
+    reportes_periodo_assert_abierto($pdo, $org, $mesCaja, $anioCaja);
   } catch (Throwable $e) {
     json_error($e->getMessage());
   }
@@ -614,7 +774,7 @@ function pagos_registrar_pago(): void
   $facturaInput = null;
   if ($idFacturaIn > 0) {
     if (count($months) !== 1) json_error('Una factura solo puede aplicarse a un período puntual.');
-    $stFactura = $pdo->prepare("\n      SELECT f.id_factura, f.id_sistema, f.anio, f.id_mes, f.monto_ars, f.total_ars,\n             f.items_facturacion_json, f.pdf_path, cs.id_cliente\n      FROM facturas f\n      INNER JOIN clientes_sistemas cs\n        ON cs.id_organizacion = f.id_organizacion\n       AND cs.id_sistema = f.id_sistema\n      WHERE f.id_organizacion = :org\n        AND f.id_factura = :factura\n        AND f.anio = :anio\n        AND f.id_mes = :mes\n      LIMIT 1\n    ");
+    $stFactura = $pdo->prepare("\n      SELECT f.id_factura, f.id_sistema, f.anio, f.id_mes, f.monto_ars, f.total_ars,\n             f.items_facturacion_json, f.pdf_path, cs.id_cliente\n      FROM facturas f\n      INNER JOIN clientes_sistemas cs\n        ON cs.id_organizacion = f.id_organizacion\n       AND cs.id_sistema = f.id_sistema\n      WHERE f.id_organizacion = :org\n        AND f.id_factura = :factura\n        AND f.anio = :anio\n        AND f.id_mes = :mes\n        AND LOWER(COALESCE(f.estado, '')) <> 'anulada'\n      LIMIT 1\n    ");
     $stFactura->execute([
       ':org' => $org,
       ':factura' => $idFacturaIn,
@@ -669,6 +829,7 @@ function pagos_registrar_pago(): void
         AND id_mes = ?
         AND pdf_path = ?
         AND id_sistema IN ($phFacturas)
+        AND LOWER(COALESCE(estado, '')) <> 'anulada'
     ");
     $stReplicas->execute(array_merge([$org, $anio, $months[0], $pdfFactura], $expected));
     $replicasValidas = array_map('intval', $stReplicas->fetchAll(PDO::FETCH_COLUMN) ?: []);
@@ -682,7 +843,7 @@ function pagos_registrar_pago(): void
     $pdo->beginTransaction();
 
     $check = $pdo->prepare('SELECT id_pago, monto, id_factura FROM pagos WHERE id_organizacion=:org AND id_sistema=:sid AND id_mes=:mes AND anio_periodo=:anio LIMIT 1 FOR UPDATE');
-    $fxSys = $pdo->prepare('SELECT id_factura,pdf_path FROM facturas WHERE id_organizacion=:org AND id_sistema=:sid AND anio=:anio AND id_mes=:mes AND pdf_path=:pdf_path ORDER BY id_factura DESC LIMIT 1');
+    $fxSys = $pdo->prepare("SELECT id_factura,pdf_path FROM facturas WHERE id_organizacion=:org AND id_sistema=:sid AND anio=:anio AND id_mes=:mes AND pdf_path=:pdf_path AND LOWER(COALESCE(estado,'')) <> 'anulada' ORDER BY id_factura DESC LIMIT 1");
     $ins = $pdo->prepare('INSERT INTO pagos(id_organizacion,id_sistema,id_mes,anio_periodo,id_medio_pago,monto,fecha_pago,id_factura) VALUES(:org,:sid,:mes,:anio,:medio,:monto,:fecha,:factura)');
 
     $insertados = [];
@@ -698,7 +859,9 @@ function pagos_registrar_pago(): void
         $existing = $check->fetch(PDO::FETCH_ASSOC) ?: null;
         $existingId = $existing ? (int)$existing['id_pago'] : 0;
         if ($existingId > 0) {
-          if (abs(round((float)$existing['monto'], 2) - round((float)$amount, 2)) > 0.01) {
+          // Con factura, un pago previo debe coincidir con el monto facturado.
+          // Sin factura, el sistema ya cobrado simplemente se omite.
+          if (!$sinFactura && abs(round((float)$existing['monto'], 2) - round((float)$amount, 2)) > 0.01) {
             throw new DomainException(
               'Ya existe un pago para uno de los sistemas, pero su monto no coincide con la factura actual.'
             );
@@ -711,29 +874,33 @@ function pagos_registrar_pago(): void
         }
 
         // Cada sistema se vincula preferentemente con su propia réplica de factura.
-        $fxSys->execute([
-          ':org' => $org,
-          ':sid' => $sid,
-          ':anio' => $anio,
-          ':mes' => $mes,
-          ':pdf_path' => (string)$facturaInput['pdf_path'],
-        ]);
-        $fx = $fxSys->fetch(PDO::FETCH_ASSOC) ?: null;
-        if (!$fx) {
-          throw new RuntimeException('Falta la réplica de factura para uno de los sistemas. Volvé a generarla.');
+        // Un pago confirmado sin factura queda con id_factura = NULL.
+        $fid = null;
+        $fx = null;
+        if ($facturaInput) {
+          $fxSys->execute([
+            ':org' => $org,
+            ':sid' => $sid,
+            ':anio' => $anio,
+            ':mes' => $mes,
+            ':pdf_path' => (string)$facturaInput['pdf_path'],
+          ]);
+          $fx = $fxSys->fetch(PDO::FETCH_ASSOC) ?: null;
+          if (!$fx) {
+            throw new RuntimeException('Falta la réplica de factura para uno de los sistemas. Volvé a generarla.');
+          }
+          $fid = (int)$fx['id_factura'];
         }
-        $fid = (int)$fx['id_factura'];
 
-        $ins->execute([
-          ':org' => $org,
-          ':sid' => $sid,
-          ':mes' => $mes,
-          ':anio' => $anio,
-          ':medio' => $idMedio,
-          ':monto' => $amount,
-          ':fecha' => $fecha,
-          ':factura' => $fid,
-        ]);
+        $ins->bindValue(':org', $org, PDO::PARAM_INT);
+        $ins->bindValue(':sid', (int)$sid, PDO::PARAM_INT);
+        $ins->bindValue(':mes', (int)$mes, PDO::PARAM_INT);
+        $ins->bindValue(':anio', $anio, PDO::PARAM_INT);
+        $ins->bindValue(':medio', $idMedio, PDO::PARAM_INT);
+        $ins->bindValue(':monto', number_format((float)$amount, 2, '.', ''), PDO::PARAM_STR);
+        $ins->bindValue(':fecha', $fecha, PDO::PARAM_STR);
+        $ins->bindValue(':factura', $fid, $fid === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $ins->execute();
         $idPagoNuevo = (int)$pdo->lastInsertId();
 
         // El reparto exacto queda congelado en la misma transacción que crea
@@ -746,6 +913,7 @@ function pagos_registrar_pago(): void
           'id_pago' => $idPagoNuevo,
           'id_factura' => $fid,
           'pdf_path' => $fx['pdf_path'] ?? null,
+          'sin_factura' => $fid === null,
         ];
       }
 
@@ -758,6 +926,7 @@ function pagos_registrar_pago(): void
     json_ok([
       'exito' => true,
       'modo' => count($systems) > 1 ? 'multi_sistema' : 'single',
+      'sin_factura' => $sinFactura,
       'id_sistema' => $idSistema,
       'anio' => $anio,
       'fecha_pago' => $fecha,
@@ -808,12 +977,28 @@ function pagos_eliminar_pago(): void
     $info = $st->fetch(PDO::FETCH_ASSOC);
     if (!$info) json_error('No se encontró el pago en esta entidad.');
 
-    reportes_periodo_assert_abierto(
-      $pdo,
-      $org,
-      (int)$info['id_mes'],
-      (int)$info['anio_periodo']
-    );
+    // Criterio de caja: se valida el mes de la fecha de pago de cada pago a borrar.
+    $stFechas = $pdo->prepare("
+      SELECT DISTINCT p.fecha_pago
+      FROM pagos p
+      INNER JOIN clientes_sistemas cs
+        ON cs.id_organizacion = p.id_organizacion
+       AND cs.id_sistema = p.id_sistema
+      WHERE p.id_organizacion = :org
+        AND cs.id_cliente = :cliente
+        AND p.anio_periodo = :anio
+        AND p.id_mes = :mes
+    ");
+    $stFechas->execute([
+      ':org' => $org,
+      ':cliente' => (int)$info['id_cliente'],
+      ':anio' => (int)$info['anio_periodo'],
+      ':mes' => (int)$info['id_mes'],
+    ]);
+    foreach ($stFechas->fetchAll(PDO::FETCH_COLUMN) ?: [] as $fechaPagoBorrar) {
+      [$mesCajaBorrar, $anioCajaBorrar] = reportes_periodo_desde_fecha(substr((string)$fechaPagoBorrar, 0, 10));
+      reportes_periodo_assert_abierto($pdo, $org, $mesCajaBorrar, $anioCajaBorrar);
+    }
 
     $pdo->beginTransaction();
     $del = $pdo->prepare("\n      DELETE p\n      FROM pagos p\n      INNER JOIN clientes_sistemas cs\n        ON cs.id_organizacion = p.id_organizacion\n       AND cs.id_sistema = p.id_sistema\n      WHERE p.id_organizacion = :org\n        AND cs.id_cliente = :cliente\n        AND p.anio_periodo = :anio\n        AND p.id_mes = :mes\n    ");
@@ -845,23 +1030,50 @@ function pagos_eliminar_pago(): void
 }
 
 /* =========================================================
-   ANULAR FACTURA LOCAL
-   - Las facturas solo_pdf se pueden quitar localmente.
-   - Una factura emitida con CAE requiere Nota de Crédito ARCA y no se borra.
+   ANULAR FACTURA / EMITIR NOTA DE CRÉDITO
+   - Las facturas solo_pdf se eliminan localmente.
+   - Las facturas con CAE generan una Nota de Crédito ARCA.
+   - El comprobante fiscal original se conserva y queda en estado "anulada".
 ========================================================= */
 function pagos_factura_anular_con_nc(): void
 {
   global $pdo;
   pagos_require_write();
   require_method('POST');
+
   $org = pagos_org_id();
   $body = read_json_body();
   $idFactura = (int)($body['id_factura'] ?? 0);
+  $motivo = trim((string)($body['motivo'] ?? 'Anulación desde módulo Pagos'));
+  $confirmar = filter_var($body['confirmar_emision'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
   if ($idFactura <= 0) json_error('Falta id_factura válido.');
+  if (!$confirmar) json_error('Tenés que confirmar la operación antes de continuar.');
+  if ($motivo === '') $motivo = 'Anulación desde módulo Pagos';
+  $motivo = mb_substr($motivo, 0, 255);
+
+  $lockKey = 'pagos_nc_' . $org . '_' . $idFactura;
+  $lockTomado = false;
+  $respuesta = null;
+  $error = null;
 
   try {
+    $stLock = $pdo->prepare('SELECT GET_LOCK(:clave, 15)');
+    $stLock->execute([':clave' => $lockKey]);
+    $lockTomado = (int)$stLock->fetchColumn() === 1;
+    if (!$lockTomado) {
+      throw new RuntimeException('La factura está siendo procesada. Volvé a intentar en unos segundos.');
+    }
+
     $st = $pdo->prepare("
-      SELECT f.*, cs.id_cliente, cs.nombre AS sistema_nombre, c.nombre AS cliente_nombre
+      SELECT
+        f.*,
+        cs.id_cliente,
+        cs.nombre AS sistema_nombre,
+        c.nombre AS cliente_nombre,
+        cf.razon_social,
+        cf.domicilio AS cliente_domicilio,
+        cf.id_condicion_iva
       FROM facturas f
       LEFT JOIN clientes_sistemas cs
         ON cs.id_organizacion = f.id_organizacion
@@ -869,25 +1081,27 @@ function pagos_factura_anular_con_nc(): void
       LEFT JOIN clientes c
         ON c.id_organizacion = cs.id_organizacion
        AND c.id_cliente = cs.id_cliente
-      WHERE f.id_organizacion = :org AND f.id_factura = :factura
+      LEFT JOIN clientes_facturacion cf
+        ON cf.id_organizacion = cs.id_organizacion
+       AND cf.id_cliente = cs.id_cliente
+      WHERE f.id_organizacion = :org
+        AND f.id_factura = :factura
       LIMIT 1
     ");
     $st->execute([':org' => $org, ':factura' => $idFactura]);
-    $factura = $st->fetch(PDO::FETCH_ASSOC);
-    if (!$factura) json_error('La factura no existe en la entidad activa.');
+    $factura = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+    if (!$factura) throw new RuntimeException('La factura no existe en la entidad activa.');
 
     $idCliente = (int)($factura['id_cliente'] ?? 0);
     $anioFactura = (int)($factura['anio'] ?? 0);
     $mesFactura = (int)($factura['id_mes'] ?? 0);
     $pdfPath = trim((string)($factura['pdf_path'] ?? ''));
-    if ($idCliente <= 0 || $anioFactura <= 0 || $mesFactura <= 0 || $pdfPath === '') {
-      json_error('La factura no tiene datos suficientes para una anulación segura.');
+    if ($idCliente <= 0 || $anioFactura <= 0 || $mesFactura <= 0) {
+      throw new RuntimeException('La factura no tiene datos suficientes para una anulación segura.');
     }
 
-    // Una factura generada para varios sistemas se guarda como varias filas que
-    // comparten PDF. La anulación local debe quitar todas esas réplicas juntas.
     $stGroup = $pdo->prepare("
-      SELECT f.id_factura, f.estado, f.cae
+      SELECT f.id_factura, f.estado, f.cae, f.pdf_path
       FROM facturas f
       INNER JOIN clientes_sistemas cs
         ON cs.id_organizacion = f.id_organizacion
@@ -896,7 +1110,10 @@ function pagos_factura_anular_con_nc(): void
         AND cs.id_cliente = :cliente
         AND f.anio = :anio
         AND f.id_mes = :mes
-        AND f.pdf_path = :pdf_path
+        AND (
+          f.id_factura = :factura
+          OR (:pdf_path <> '' AND f.pdf_path = :pdf_path_match)
+        )
       ORDER BY f.id_factura
     ");
     $stGroup->execute([
@@ -904,84 +1121,336 @@ function pagos_factura_anular_con_nc(): void
       ':cliente' => $idCliente,
       ':anio' => $anioFactura,
       ':mes' => $mesFactura,
+      ':factura' => $idFactura,
       ':pdf_path' => $pdfPath,
+      ':pdf_path_match' => $pdfPath,
     ]);
     $replicas = $stGroup->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    if (!$replicas) json_error('No se pudieron resolver las réplicas de la factura.');
+    if (!$replicas) throw new RuntimeException('No se pudieron resolver las réplicas de la factura.');
 
-    foreach ($replicas as $replica) {
-      $cae = trim((string)($replica['cae'] ?? ''));
-      $caeReal = $cae !== '' && !preg_match('/^0+$/', $cae);
-      $estado = strtolower(trim((string)($replica['estado'] ?? '')));
-      if ($caeReal || $estado === 'emitida') {
-        json_error('La factura fue emitida en ARCA. Para anularla se debe emitir la Nota de Crédito correspondiente; por seguridad no fue eliminada.');
-      }
-    }
-
-    $idsFactura = array_values(array_map('intval', array_column($replicas, 'id_factura')));
+    $idsFactura = array_values(array_unique(array_map('intval', array_column($replicas, 'id_factura'))));
     $placeholders = implode(',', array_fill(0, count($idsFactura), '?'));
 
-    $pdo->beginTransaction();
-    $unlink = $pdo->prepare("UPDATE pagos SET id_factura = NULL WHERE id_organizacion = ? AND id_factura IN ($placeholders)");
-    $unlink->execute(array_merge([$org], $idsFactura));
+    $caeFactura = trim((string)($factura['cae'] ?? ''));
+    $caeReal = $caeFactura !== '' && !preg_match('/^0+$/', $caeFactura);
+    $estadoFactura = strtolower(trim((string)($factura['estado'] ?? '')));
+    $esFiscal = $caeReal || $estadoFactura === 'emitida';
 
-    $del = $pdo->prepare("DELETE FROM facturas WHERE id_organizacion = ? AND id_factura IN ($placeholders)");
-    $del->execute(array_merge([$org], $idsFactura));
-    $deleted = $del->rowCount();
-    if ($deleted !== count($idsFactura)) {
-      $pdo->rollBack();
-      json_error('No se pudieron eliminar todas las réplicas de la factura local.');
-    }
-    $pdo->commit();
+    $facturaOriginal = [
+      'id_factura' => $idFactura,
+      'cliente_nombre' => (string)($factura['cliente_nombre'] ?? ''),
+      'razon_social' => (string)($factura['razon_social'] ?? ''),
+      'cliente_domicilio' => (string)($factura['cliente_domicilio'] ?? ''),
+      'sistema_nombre' => (string)($factura['sistema_nombre'] ?? ''),
+      'anio' => $anioFactura,
+      'id_mes' => $mesFactura,
+      'cbte_tipo' => isset($factura['cbte_tipo']) ? (int)$factura['cbte_tipo'] : null,
+      'pto_vta' => isset($factura['pto_vta']) ? (int)$factura['pto_vta'] : null,
+      'cbte_nro' => isset($factura['cbte_nro']) ? (int)$factura['cbte_nro'] : null,
+      'cae' => $caeFactura,
+      'fecha_cbte' => (string)($factura['fecha_cbte'] ?? ''),
+      'doc_tipo' => isset($factura['doc_tipo']) ? (int)$factura['doc_tipo'] : null,
+      'doc_nro' => (string)($factura['doc_nro'] ?? ''),
+      'importe' => (float)(((float)($factura['total_ars'] ?? 0)) > 0 ? $factura['total_ars'] : ($factura['monto_ars'] ?? 0)),
+      'pdf_path' => $pdfPath,
+      'periodo_desde' => (string)($factura['periodo_desde'] ?? ''),
+      'periodo_hasta' => (string)($factura['periodo_hasta'] ?? ''),
+      'vto_pago' => (string)($factura['vto_pago'] ?? ''),
+    ];
 
-    // El PDF se elimina solamente si ya no hay ninguna fila que lo use.
-    $pdfEliminado = false;
-    try {
-      $stReferences = $pdo->prepare('SELECT COUNT(*) FROM facturas WHERE id_organizacion = :org AND pdf_path = :pdf_path');
-      $stReferences->execute([':org' => $org, ':pdf_path' => $pdfPath]);
-      $references = (int)$stReferences->fetchColumn();
-      if ($references === 0) {
-        $localPath = pagos_factura_ruta_local_segura($pdfPath);
-        if ($localPath !== null && is_file($localPath)) $pdfEliminado = @unlink($localPath);
+    if ($esFiscal) {
+      if (!$caeReal || (int)($factura['cbte_tipo'] ?? 0) <= 0 || (int)($factura['cbte_nro'] ?? 0) <= 0) {
+        throw new RuntimeException('La factura figura como emitida, pero no tiene CAE o numeración fiscal completos.');
       }
-    } catch (Throwable $cleanupError) {
-      error_log('No se pudo limpiar el PDF anulado: ' . $cleanupError->getMessage());
-    }
 
-    json_ok([
-      'exito' => true,
-      'emitio_nota_credito' => false,
-      'nota_credito_existente' => false,
-      'facturas_eliminadas' => $deleted,
-      'pdf_eliminado' => $pdfEliminado,
-      'factura_original' => [
-        'id_factura' => $idFactura,
-        'cliente_nombre' => (string)($factura['cliente_nombre'] ?? ''),
-        'sistema_nombre' => (string)($factura['sistema_nombre'] ?? ''),
-      ],
-      'mensaje' => $deleted > 1
-        ? 'Factura local y todas sus réplicas eliminadas correctamente.'
-        : 'Factura local eliminada correctamente.',
-    ]);
+      $stNc = $pdo->prepare("
+        SELECT *
+        FROM facturas_notas_credito
+        WHERE id_organizacion = :org
+          AND factura_cbte_tipo = :tipo
+          AND factura_pto_vta = :pto_vta
+          AND factura_cbte_nro = :nro
+          AND factura_cae = :cae
+        LIMIT 1
+      ");
+      $stNc->execute([
+        ':org' => $org,
+        ':tipo' => (int)$factura['cbte_tipo'],
+        ':pto_vta' => (int)$factura['pto_vta'],
+        ':nro' => (int)$factura['cbte_nro'],
+        ':cae' => $caeFactura,
+      ]);
+      $notaGuardada = $stNc->fetch(PDO::FETCH_ASSOC) ?: null;
+      $notaCredito = null;
+      $notaExistente = false;
+
+      if ($notaGuardada) {
+        $notaExistente = true;
+        $notaCredito = json_decode((string)($notaGuardada['json_arca'] ?? ''), true);
+        if (!is_array($notaCredito)) {
+          $notaCredito = [
+            'modo' => 'prod',
+            'pto_vta' => (int)$notaGuardada['nc_pto_vta'],
+            'cbte_tipo' => (int)$notaGuardada['nc_cbte_tipo'],
+            'cbte_nro' => (int)$notaGuardada['nc_cbte_nro'],
+            'fecha_cbte' => (string)$notaGuardada['nc_fecha_cbte'],
+            'cae' => (string)$notaGuardada['nc_cae'],
+            'cae_vto' => (string)$notaGuardada['nc_cae_vto'],
+            'doc_tipo' => (int)($factura['doc_tipo'] ?? 0),
+            'doc_nro' => (int)preg_replace('/\D+/', '', (string)($factura['doc_nro'] ?? '')),
+            'importe' => (float)$notaGuardada['importe_ars'],
+            'moneda' => 'PES',
+            'cotiz' => 1,
+            'motivo' => (string)($notaGuardada['motivo'] ?? $motivo),
+            'cbtes_asoc' => [[
+              'Tipo' => (int)$notaGuardada['factura_cbte_tipo'],
+              'PtoVta' => (int)$notaGuardada['factura_pto_vta'],
+              'Nro' => (int)$notaGuardada['factura_cbte_nro'],
+              'CbteFch' => pagos_arca_fecha_ymd8($notaGuardada['factura_fecha_cbte'] ?? ''),
+            ]],
+          ];
+        }
+      } else {
+        $notaCredito = pagos_emitir_nota_credito_arca($factura, $motivo);
+      }
+
+      // Primero se confirma localmente la NC autorizada. Así, si luego falla la
+      // actualización de la factura, un reintento reutiliza la misma NC y no emite otra.
+      if (!$notaExistente) {
+        $pdo->beginTransaction();
+        $jsonNota = json_encode($notaCredito, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        $insNc = $pdo->prepare("
+          INSERT INTO facturas_notas_credito (
+            id_organizacion, id_factura_original, id_cliente, anio, id_mes,
+            factura_cbte_tipo, factura_pto_vta, factura_cbte_nro, factura_cae,
+            factura_fecha_cbte, factura_pdf_path,
+            nc_cbte_tipo, nc_pto_vta, nc_cbte_nro, nc_cae, nc_cae_vto,
+            nc_fecha_cbte, importe_ars, motivo, json_arca, created_at
+          ) VALUES (
+            :org, :factura, :cliente, :anio, :mes,
+            :fact_tipo, :fact_pto, :fact_nro, :fact_cae,
+            :fact_fecha, :fact_pdf,
+            :nc_tipo, :nc_pto, :nc_nro, :nc_cae, :nc_cae_vto,
+            :nc_fecha, :importe, :motivo, :json_arca, NOW()
+          )
+        ");
+        $insNc->execute([
+          ':org' => $org,
+          ':factura' => $idFactura,
+          ':cliente' => $idCliente,
+          ':anio' => $anioFactura,
+          ':mes' => $mesFactura,
+          ':fact_tipo' => (int)$factura['cbte_tipo'],
+          ':fact_pto' => (int)$factura['pto_vta'],
+          ':fact_nro' => (int)$factura['cbte_nro'],
+          ':fact_cae' => $caeFactura,
+          ':fact_fecha' => (string)($factura['fecha_cbte'] ?? ''),
+          ':fact_pdf' => $pdfPath,
+          ':nc_tipo' => (int)$notaCredito['cbte_tipo'],
+          ':nc_pto' => (int)$notaCredito['pto_vta'],
+          ':nc_nro' => (int)$notaCredito['cbte_nro'],
+          ':nc_cae' => (string)$notaCredito['cae'],
+          ':nc_cae_vto' => (string)$notaCredito['cae_vto'],
+          ':nc_fecha' => (string)$notaCredito['fecha_cbte'],
+          ':importe' => (float)$notaCredito['importe'],
+          ':motivo' => $motivo,
+          ':json_arca' => $jsonNota,
+        ]);
+        $pdo->commit();
+      }
+
+      $pdo->beginTransaction();
+      $upd = $pdo->prepare("UPDATE facturas SET estado = 'anulada' WHERE id_organizacion = ? AND id_factura IN ($placeholders)");
+      $upd->execute(array_merge([$org], $idsFactura));
+
+      $unlink = $pdo->prepare("UPDATE pagos SET id_factura = NULL WHERE id_organizacion = ? AND id_factura IN ($placeholders)");
+      $unlink->execute(array_merge([$org], $idsFactura));
+      $pdo->commit();
+
+      $respuesta = [
+        'exito' => true,
+        'emitio_nota_credito' => !$notaExistente,
+        'nota_credito_existente' => $notaExistente,
+        'nota_credito' => $notaCredito,
+        'facturas_anuladas' => count($idsFactura),
+        'facturas_eliminadas' => 0,
+        'pago_desvinculado' => $unlink->rowCount() > 0,
+        'factura_original' => $facturaOriginal,
+        'mensaje' => $notaExistente
+          ? 'La Nota de Crédito ya estaba emitida. La factura quedó anulada en el sistema.'
+          : 'Nota de Crédito emitida correctamente. La factura quedó anulada en el sistema.',
+      ];
+    } else {
+      $pdo->beginTransaction();
+      $unlink = $pdo->prepare("UPDATE pagos SET id_factura = NULL WHERE id_organizacion = ? AND id_factura IN ($placeholders)");
+      $unlink->execute(array_merge([$org], $idsFactura));
+
+      $del = $pdo->prepare("DELETE FROM facturas WHERE id_organizacion = ? AND id_factura IN ($placeholders)");
+      $del->execute(array_merge([$org], $idsFactura));
+      $deleted = $del->rowCount();
+      if ($deleted !== count($idsFactura)) {
+        throw new RuntimeException('No se pudieron eliminar todas las réplicas de la factura local.');
+      }
+      $pdo->commit();
+
+      $pdfEliminado = false;
+      if ($pdfPath !== '') {
+        $stReferences = $pdo->prepare('SELECT COUNT(*) FROM facturas WHERE id_organizacion = :org AND pdf_path = :pdf_path');
+        $stReferences->execute([':org' => $org, ':pdf_path' => $pdfPath]);
+        if ((int)$stReferences->fetchColumn() === 0) {
+          $localPath = pagos_factura_ruta_local_segura($pdfPath);
+          if ($localPath !== null && is_file($localPath)) $pdfEliminado = @unlink($localPath);
+        }
+      }
+
+      $respuesta = [
+        'exito' => true,
+        'emitio_nota_credito' => false,
+        'nota_credito_existente' => false,
+        'facturas_anuladas' => 0,
+        'facturas_eliminadas' => $deleted,
+        'pdf_eliminado' => $pdfEliminado,
+        'pago_desvinculado' => $unlink->rowCount() > 0,
+        'factura_original' => $facturaOriginal,
+        'mensaje' => $deleted > 1
+          ? 'Factura local y todas sus réplicas eliminadas correctamente.'
+          : 'Factura local eliminada correctamente.',
+      ];
+    }
   } catch (Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
-    json_error('Error al anular la factura.', ['error' => $e->getMessage()]);
+    $error = $e->getMessage();
+  } finally {
+    if ($lockTomado) {
+      try {
+        $stUnlock = $pdo->prepare('SELECT RELEASE_LOCK(:clave)');
+        $stUnlock->execute([':clave' => $lockKey]);
+      } catch (Throwable $unlockError) {
+        error_log('No se pudo liberar el lock de Nota de Crédito: ' . $unlockError->getMessage());
+      }
+    }
   }
-}
 
+  if ($error !== null) json_error('No se pudo completar la anulación: ' . $error);
+  json_ok($respuesta ?? ['exito' => false, 'mensaje' => 'No se obtuvo una respuesta válida.']);
+}
 /* =========================================================
    SISTEMAS DEL CLIENTE
 ========================================================= */
 function pagos_cliente_sistemas(): void
 {
   global $pdo;
-  require_method('POST');$org=pagos_org_id();$in=read_json_body();$idSistema=(int)($in['id_sistema']??0);if($idSistema<=0)json_error('Falta id_sistema válido');
-  try{
-    $st=$pdo->prepare('SELECT id_cliente FROM clientes_sistemas WHERE id_organizacion=:org AND id_sistema=:id LIMIT 1');$st->execute([':org'=>$org,':id'=>$idSistema]);$cliente=(int)($st->fetchColumn()?:0);if($cliente<=0)json_ok(['exito'=>true,'sistemas'=>[]]);
-    $st=$pdo->prepare('SELECT id_sistema,nombre,descripcion,estado FROM clientes_sistemas WHERE id_organizacion=:org AND id_cliente=:cliente ORDER BY nombre,id_sistema');$st->execute([':org'=>$org,':cliente'=>$cliente]);
-    $out=[];foreach($st->fetchAll(PDO::FETCH_ASSOC) as $r){$state=strtolower((string)$r['estado']);$out[]=['id_sistema'=>(int)$r['id_sistema'],'nombre'=>(string)$r['nombre'],'descripcion'=>(string)($r['descripcion']??''),'activo'=>in_array($state,['activo','1','true'],true)?1:0];}
-    json_ok(['exito'=>true,'sistemas'=>$out]);
-  }catch(Throwable $e){json_error('Error DB al obtener sistemas del cliente',['error'=>$e->getMessage()]);}
+  require_method('POST');
+  $org = pagos_org_id();
+  $in = read_json_body();
+  $idSistema = (int)($in['id_sistema'] ?? 0);
+  if ($idSistema <= 0) json_error('Falta id_sistema válido');
+
+  try {
+    $st = $pdo->prepare('SELECT id_cliente FROM clientes_sistemas WHERE id_organizacion=:org AND id_sistema=:id LIMIT 1');
+    $st->execute([':org' => $org, ':id' => $idSistema]);
+    $cliente = (int)($st->fetchColumn() ?: 0);
+    if ($cliente <= 0) json_ok(['exito' => true, 'sistemas' => []]);
+
+    // Consulta base (la misma de siempre): nunca debe fallar.
+    $st = $pdo->prepare('
+      SELECT id_sistema, nombre, descripcion, estado, monto_mensual, id_plan, fecha_inicio, created_at
+      FROM clientes_sistemas
+      WHERE id_organizacion=:org AND id_cliente=:cliente
+      ORDER BY nombre, id_sistema
+    ');
+    $st->execute([':org' => $org, ':cliente' => $cliente]);
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+  } catch (Throwable $e) {
+    json_error('Error DB al obtener sistemas del cliente', ['error' => $e->getMessage()]);
+  }
+
+  // Período opcional (lo usa el modal de pago para el pago sin factura).
+  $anio = (int)($in['anio'] ?? 0);
+  $idMes = (int)($in['id_mes'] ?? 0);
+  $periodEnd = null;
+  if ($anio >= 2000 && $anio <= 2100 && $idMes >= 1 && $idMes <= 12) {
+    $periodEnd = sprintf('%04d-%02d-%02d', $anio, $idMes, cal_days_in_month_safe($anio, $idMes));
+  }
+
+  // Extras no críticos: si fallan, se devuelve la lista igual.
+  $montosPlan = [];
+  try {
+    $stPl = $pdo->prepare('SELECT id, monto FROM planes_mantenimiento WHERE id_organizacion=:org');
+    $stPl->execute([':org' => $org]);
+    foreach ($stPl->fetchAll(PDO::FETCH_ASSOC) ?: [] as $pl) {
+      $montosPlan[(int)$pl['id']] = round((float)$pl['monto'], 2);
+    }
+  } catch (Throwable $e) {
+    error_log('pagos_cliente_sistemas planes: ' . $e->getMessage());
+  }
+
+  $pagados = [];
+  if ($periodEnd !== null) {
+    try {
+      $stP = $pdo->prepare('
+        SELECT p.id_sistema
+        FROM pagos p
+        INNER JOIN clientes_sistemas cs
+          ON cs.id_organizacion = p.id_organizacion
+         AND cs.id_sistema = p.id_sistema
+        WHERE p.id_organizacion = :org
+          AND cs.id_cliente = :cliente
+          AND p.anio_periodo = :anio
+          AND p.id_mes = :mes
+      ');
+      $stP->execute([':org' => $org, ':cliente' => $cliente, ':anio' => $anio, ':mes' => $idMes]);
+      $pagados = array_map('intval', $stP->fetchAll(PDO::FETCH_COLUMN) ?: []);
+    } catch (Throwable $e) {
+      error_log('pagos_cliente_sistemas pagados: ' . $e->getMessage());
+    }
+  }
+
+  $out = [];
+  foreach ($rows as $r) {
+    $sid = (int)$r['id_sistema'];
+    $state = strtolower((string)$r['estado']);
+    $activo = in_array($state, ['activo', '1', 'true'], true);
+
+    // Fecha de inicio real resuelta en PHP (evita comparar fechas '0000-00-00' en SQL).
+    $inicio = substr(trim((string)($r['fecha_inicio'] ?? '')), 0, 10);
+    if ($inicio === '' || $inicio === '0000-00-00') {
+      $inicio = substr(trim((string)($r['created_at'] ?? '')), 0, 10);
+    }
+    if ($inicio === '0000-00-00') $inicio = '';
+
+    $montoMensual = round((float)($r['monto_mensual'] ?? 0), 2);
+    $idPlan = isset($r['id_plan']) && $r['id_plan'] !== null ? (int)$r['id_plan'] : null;
+    $montoPlan = $idPlan !== null ? ($montosPlan[$idPlan] ?? 0.0) : 0.0;
+
+    if ($periodEnd === null) {
+      $aplica = $activo;
+    } else {
+      $aplica = $activo && ($inicio === '' || $inicio <= $periodEnd);
+    }
+
+    $out[] = [
+      'id_sistema' => $sid,
+      'nombre' => (string)$r['nombre'],
+      'descripcion' => (string)($r['descripcion'] ?? ''),
+      'activo' => $activo ? 1 : 0,
+      'monto_mensual' => $montoMensual,
+      'id_plan' => $idPlan,
+      'monto_plan' => $montoPlan,
+      'monto_sugerido' => $montoMensual > 0 ? $montoMensual : $montoPlan,
+      'inicio_real' => $inicio,
+      'aplica_periodo' => $aplica ? 1 : 0,
+      'pagado_periodo' => in_array($sid, $pagados, true) ? 1 : 0,
+    ];
+  }
+
+  json_ok(['exito' => true, 'sistemas' => $out]);
+}
+
+/** Días del mes sin depender de la extensión calendar. */
+function cal_days_in_month_safe(int $anio, int $mes): int
+{
+  return (int)(new DateTime(sprintf('%04d-%02d-01', $anio, $mes)))->format('t');
 }
 
 /* =========================================================

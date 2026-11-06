@@ -162,3 +162,84 @@
 @media (max-width: 900px){
   .pay-fact-grid{ grid-template-columns: 1fr; }
 }
+
+/* =========================================================
+   Estado de facturación + pago SIN factura
+========================================================= */
+.pay-status{
+  display:flex;
+  align-items:flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.pay-status__ico{
+  flex: 0 0 auto;
+  font-size: 1.35rem;
+  margin-top: 2px;
+}
+.pay-status__ico--ok{ color: var(--blue-inst-success, #10B981); }
+.pay-status__ico--warn{ color: #D97706; }
+.pay-status__title{
+  font-weight: 900;
+  font-size: 1rem;
+  margin-bottom: 2px;
+}
+.pay-confirm{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.75);
+  border: 1px dashed rgba(217,119,6,.55);
+  cursor: pointer;
+  font-weight: 700;
+  user-select: none;
+}
+.pay-confirm input{
+  width: 18px;
+  height: 18px;
+  accent-color: #D97706;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.pay-desglose-title{
+  font-size: 11px;
+  font-weight: 800;
+  margin-bottom: 8px;
+  opacity: .65;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.pay-sf-row{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--mi-border, #e2e8f0);
+  background: #fff;
+}
+.pay-sf-row__name{
+  font-weight: 750;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pay-sf-row__input{
+  width: 170px;
+  max-width: 50%;
+  text-align: right;
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+}
+.pay-sf-total{
+  display:flex;
+  justify-content: space-between;
+  padding: 6px 12px 0;
+  font-size: 13px;
+  color: var(--mi-muted, #475569);
+}

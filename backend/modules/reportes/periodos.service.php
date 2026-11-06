@@ -117,19 +117,25 @@ function reportes_periodo_bloquear_movimientos(PDO $pdo, int $organizationId, in
     reportes_periodo_normalizar($month, $year);
     reportes_periodo_bloquear_guarda($pdo, $organizationId, $month, $year);
 
-    $payments = $pdo->prepare("\n        SELECT id_pago
+    $periodStart = sprintf('%04d-%02d-01', $year, $month);
+    $periodEnd = (new DateTimeImmutable($periodStart))->modify('+1 month')->format('Y-m-d');
+
+    // Criterio de caja: se bloquean los pagos cuya plata ingresó en este mes.
+    $payments = $pdo->prepare("
+        SELECT id_pago
         FROM pagos
         WHERE id_organizacion = :org
-          AND id_mes = :month
-          AND anio_periodo = :year
+          AND fecha_pago >= :period_start
+          AND fecha_pago < :period_end
         ORDER BY id_pago
         FOR UPDATE
     ");
-    $payments->execute([':org' => $organizationId, ':month' => $month, ':year' => $year]);
+    $payments->execute([
+        ':org' => $organizationId,
+        ':period_start' => $periodStart,
+        ':period_end' => $periodEnd,
+    ]);
     $payments->fetchAll(PDO::FETCH_COLUMN);
-
-    $periodStart = sprintf('%04d-%02d-01', $year, $month);
-    $periodEnd = (new DateTimeImmutable($periodStart))->modify('+1 month')->format('Y-m-d');
     $expenses = $pdo->prepare("
         SELECT id_egreso
         FROM egresos
